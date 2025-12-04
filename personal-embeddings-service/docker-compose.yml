@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+    embeddings-service:
+        build: .
+        ports:
+            - '8001:8001'
+        environment:
+            - USE_HALF_PRECISION=false # Disable FP16 for CPU
+            - TRANSFORMERS_CACHE=/app/models # Set Hugging Face cache location
+            - HF_HOME=/app/models # Set Hugging Face home
+        volumes:
+            - ./models:/app/models:rw # Ensure read-write permissions for model cache
+            - ./logs:/app/logs:rw # Ensure read-write permissions for logs
+        restart: unless-stopped
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'curl',
+                    '-f',
+                    'http://localhost:8001/api/v1/health/simple',
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 120s # Give more time for model to load on CPU
+        # Uncomment if you don't have GPU or want to test CPU-only
+        # profiles:
+        #   - cpu
