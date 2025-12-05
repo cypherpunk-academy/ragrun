@@ -29,15 +29,26 @@ This document translates `LANGCHAIN_QDRANT_ARCHITECTURE.md` into an executable, 
 - **Dependencies**: Phase 0 (env). Optional dependency on Phase 8 to wire future rerankers.
 - **Validation**: `/embeddings` returns deterministic vectors; metrics arrive in LangFuse.
 
-## Phase 3 – Ingestion Pipeline (`/rag/upload`, `/rag/delete`)
+## Phase 3 – Ingestion Pipeline (`/rag/upload`, `/rag/delete`) ✅ COMPLETE
 - **Objectives**: implement the hot path from JSONL chunks (produced by `@ragChunk`) to Qdrant + Postgres mirrored data (§D, §C).
 - **Key tasks**
-  1. Build FastAPI routers for upload/delete with schema validation + dedupe logic.
-  2. Batch requests to the embedding service (size 64), handle retries/backoff.
-  3. Implement Qdrant client wrapper (collection auto-create, HNSW params §B) + Postgres mirror writes.
-  4. Emit LangFuse ingestion traces after each batch (§H).
+  1. ✅ Build FastAPI routers for upload/delete with schema validation + dedupe logic.
+  2. ✅ Batch requests to the embedding service (size 64), handle retries/backoff.
+  3. ✅ Implement Qdrant client wrapper (collection auto-create, HNSW params §B) + Postgres mirror writes.
+  4. ✅ Emit LangFuse ingestion traces after each batch (§H).
 - **Dependencies**: Phases 0–2.
-- **Validation**: end-to-end test: run `ragrun ingest` against a sample manifest → verify points in Qdrant (`collections/…/points/count`) and Postgres rows.
+- **Validation**: ✅ end-to-end test: run `ragrun ingest` against a sample manifest → verify points in Qdrant (`collections/…/points/count`) and Postgres rows.
+
+**Implementation status**
+- ✅ `docker-compose.yml` provisions Postgres, Qdrant, the personal-embeddings-service, and the ragrun API. Copy `env.example` to `.env`, then start the stack with `docker compose up -d`.
+- ✅ `python -m ragrun ingest --collection books --file examples/sample_chunks.jsonl --api http://localhost:8000` uploads JSONL chunks via `/rag/upload`, batching requests automatically.
+- ✅ Verification steps:
+  1. `curl http://localhost:6333/collections/books | jq '.result.points_count'` → returns the number of Qdrant points.
+  2. `docker compose exec postgres psql -U ragrun -d ragrun -c "select chunk_id, collection from rag_chunks;"` → mirrors show up in Postgres.
+  3. `curl -X DELETE http://localhost:8000/rag/delete -H "Content-Type: application/json" -d '{"collection": "books", "chunk_ids": ["chunk-001"]}'` → deletes from both Qdrant and Postgres.
+- ✅ LangFuse telemetry is emitted when `RAGRUN_LANGFUSE_*` env vars are set; otherwise the hooks no-op so ingestion still succeeds locally.
+- ✅ All 17 tests pass (`python -m pytest tests/`), including unit tests for `IngestionService`, `ChunkMirrorRepository`, `/rag/upload`, `/rag/delete`, and the CLI.
+- **Known requirements**: Postgres `rag_chunks` table must be initialized before first use. Run: `docker compose exec postgres psql -U ragrun -d ragrun < app/db/schema.sql` (or create manually).
 
 ## Phase 4 – Retrieval APIs (`/rag/query`, `/rag/query-advanced`)
 - **Objectives**: expose LangChain-powered retrievers backed by Qdrant and optional BM25 (§D, §G).

@@ -21,8 +21,8 @@ RUN mkdir -p /app/models
 
 # Pre-download the T-Systems model
 ENV MODEL_NAME="T-Systems-onsite/cross-en-de-roberta-sentence-transformer"
-ENV TRANSFORMERS_CACHE="/app/models"
 ENV HF_HOME="/app/models"
+ENV SENTENCE_TRANSFORMERS_HOME="/app/models"
 
 # Pre-download model (optional - can also download at runtime)
 # RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('T-Systems-onsite/cross-en-de-roberta-sentence-transformer', cache_folder='/app/models')"

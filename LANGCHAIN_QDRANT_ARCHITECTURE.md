@@ -163,3 +163,15 @@ flowchart LR
 ```
 
 **Explanation**: Data flows from API/CLI inputs through embeddings straight into Qdrant. LangChain/LangGraph orchestrate retrieval and agents while LangFuse/Postgres capture every event for debugging, monitoring, and evaluation.
+
+## J. Future thoughts
+
+Minor weaknesses / things I would tweak (none are deal-breakers)
+
+| Issue | Severity | Suggested improvement |
+| --- | --- | --- |
+| Single embedding model hard-coded | Low | Make the embedding model per-collection or per-agent configurable (you’re 90 % there already with the service). Add an `embedding_model` field on each collection manifest. |
+| No explicit reranking stage yet | Medium | You already planned the rerank node, but it lacks a concrete reranker. Add Cohere Rerank, bge-reranker, or Jina to the personal embedding service; even a small cross-encoder on GPU would noticeably improve relevance for philosophy texts. |
+| BM25 / sparse search is mentioned but not fully fleshed | Low–Medium | Qdrant ≥1.10 ships fast BM25. Make hybrid search (dense α + sparse 1−α) the default for `/rag/query-advanced` and expose α as a parameter. |
+| No parent-child / hierarchical retrieval yet | Medium | Metadata already has `parent_id`, but there’s no graph navigation. Add a recursive “context expansion” tool that retrieves parent/child/sibling chunks so agents can move from a chapter summary to surrounding sections. |
+| DeepSeek-only LLM (for now) | Low | The wrapper abstraction is in place—add Groq Llama-3.1-70B or Claude 3.5 Sonnet as failover models with automatic routing based on token length, latency, or cost. |

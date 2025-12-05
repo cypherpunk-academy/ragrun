@@ -1,23 +1,44 @@
+# pyright: reportMissingImports=false
+from typing import List, Optional
+
+from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings
-import os
+
 
 class Settings(BaseSettings):
-    # Model settings - use environment variables
-    model_name: str = os.environ.get("EMBEDDINGS_MODEL", "T-Systems-onsite/cross-en-de-roberta-sentence-transformer")
+    """Environment configuration for the embedding service."""
+
+    model_name: str = "T-Systems-onsite/cross-en-de-roberta-sentence-transformer"
+    allowed_models: List[str] = []
     max_seq_length: int = 512
     batch_size: int = 32
-    embedding_dimension: int = int(os.environ.get("EMBEDDINGS_DIMENSION", "768"))
+    embedding_dimension: int = 768
 
-    # Performance settings
-    use_half_precision: bool = True  # Use float16 on GPU
+    use_half_precision: bool = True
     max_workers: int = 4
     cache_dir: str = "/app/models"
 
-    # Service settings
     host: str = "0.0.0.0"
     port: int = 8001
 
+    langfuse_host: Optional[AnyHttpUrl] = None
+    langfuse_public_key: Optional[str] = None
+    langfuse_secret_key: Optional[str] = None
+    langfuse_dataset: str = "embedding_runs"
+    telemetry_timeout_seconds: float = 3.0
+
     class Config:
         env_file = ".env"
+        env_prefix = "EMBEDDINGS_"
 
-settings = Settings() 
+    @field_validator("allowed_models", mode="before")
+    @classmethod
+    def _parse_allowed_models(cls, value):
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+
+settings = Settings()

@@ -2,6 +2,8 @@ import asyncio
 from typing import List, Dict, Any, Generator
 import numpy as np
 import logging
+from typing import Optional
+
 from app.services.embedding_service import embedding_service
 
 logger = logging.getLogger(__name__)
@@ -18,9 +20,10 @@ class BatchEmbeddingService:
             yield texts[i:i + chunk_size]
     
     async def process_batch(
-        self, 
-        texts: List[str], 
-        chunk_size: int = None
+        self,
+        texts: List[str],
+        chunk_size: int = None,
+        model_name: Optional[str] = None,
     ) -> List[List[float]]:
         """
         Process a large batch of texts by splitting into smaller chunks.
@@ -40,7 +43,7 @@ class BatchEmbeddingService:
         
         # If batch is small enough, process directly
         if len(texts) <= chunk_size:
-            embeddings = await embedding_service.encode_texts(texts)
+            embeddings = await embedding_service.encode_texts(texts, model_name=model_name)
             return embeddings.tolist()
         
         # Process in chunks
@@ -51,7 +54,7 @@ class BatchEmbeddingService:
         
         for i, chunk in enumerate(chunks):
             try:
-                chunk_embeddings = await embedding_service.encode_texts(chunk)
+                chunk_embeddings = await embedding_service.encode_texts(chunk, model_name=model_name)
                 all_embeddings.extend(chunk_embeddings.tolist())
                 
                 if (i + 1) % 10 == 0:  # Log progress every 10 chunks
@@ -65,9 +68,10 @@ class BatchEmbeddingService:
         return all_embeddings
     
     async def process_documents_with_metadata(
-        self, 
-        documents: List[Dict[str, Any]], 
-        text_field: str = "text"
+        self,
+        documents: List[Dict[str, Any]],
+        text_field: str = "text",
+        model_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Process documents with metadata, adding embeddings to each document.
@@ -90,7 +94,7 @@ class BatchEmbeddingService:
             texts.append(doc[text_field])
         
         # Get embeddings
-        embeddings = await self.process_batch(texts)
+        embeddings = await self.process_batch(texts, model_name=model_name)
         
         # Add embeddings to documents
         result_documents = []
@@ -105,7 +109,8 @@ class BatchEmbeddingService:
         self,
         queries: List[str],
         documents: List[str],
-        top_k: int = 5
+        top_k: int = 5,
+        model_name: Optional[str] = None,
     ) -> List[List[Dict[str, Any]]]:
         """
         Perform similarity search for multiple queries.
@@ -122,7 +127,7 @@ class BatchEmbeddingService:
         
         for query in queries:
             results = await embedding_service.similarity_search(
-                query, documents, top_k
+                query, documents, top_k, model_name=model_name
             )
             all_results.append(results)
         

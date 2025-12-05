@@ -7,8 +7,8 @@ services:
             - '8001:8001'
         environment:
             - USE_HALF_PRECISION=false # Disable FP16 for CPU
-            - TRANSFORMERS_CACHE=/app/models # Set Hugging Face cache location
-            - HF_HOME=/app/models # Set Hugging Face home
+            - HF_HOME=/app/models # Hugging Face cache location
+            - SENTENCE_TRANSFORMERS_HOME=/app/models # Sentence Transformers cache
         volumes:
             - ./models:/app/models:rw # Ensure read-write permissions for model cache
             - ./logs:/app/logs:rw # Ensure read-write permissions for logs
