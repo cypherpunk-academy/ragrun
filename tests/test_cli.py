@@ -32,10 +32,13 @@ class DummyClient:
 
     def post(self, url, json):
         self.posts.append({"url": url, "json": json})
+        # Count chunks from JSONL content
+        jsonl_content = json.get("chunks_jsonl_content", "")
+        num_chunks = len([line for line in jsonl_content.split("\n") if line.strip()])
         payload = {
             "ingestion_id": f"ing-{len(self.posts)}",
-            "ingested": len(json["chunks"]),
-            "requested": len(json["chunks"]),
+            "ingested": num_chunks,
+            "requested": num_chunks,
             "duplicates": 0,
         }
         return DummyResponse(payload)

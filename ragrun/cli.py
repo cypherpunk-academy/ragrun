@@ -32,8 +32,9 @@ def _chunk(items: List[dict], size: int) -> Iterable[List[dict]]:
 
 
 def _command_ingest(args: argparse.Namespace) -> int:
-    chunks = _load_jsonl(args.file)
-    if not chunks:
+    # Load JSONL and convert to ChunkRecord for validation
+    chunks_dicts = _load_jsonl(args.file)
+    if not chunks_dicts:
         print("No chunks found in file.")
         return 1
 
@@ -41,11 +42,20 @@ def _command_ingest(args: argparse.Namespace) -> int:
 
     try:
         with httpx.Client(timeout=args.timeout) as client:
-            for idx, batch in enumerate(_chunk(chunks, args.batch_size), start=1):
-                payload = {"collection": args.collection, "chunks": batch}
+            for idx, batch in enumerate(_chunk(chunks_dicts, args.batch_size), start=1):
+                # Convert batch back to JSONL string
+                jsonl_content = "\n".join(json.dumps(chunk) for chunk in batch)
+                
+                payload = {
+                    "chunks_jsonl_content": jsonl_content,
+                    "collection_name": args.collection,
+                }
                 if args.embedding_model:
                     payload["embedding_model"] = args.embedding_model
-                response = client.post(f"{api_base}/rag/upload", json=payload)
+                if args.batch_size != 64:
+                    payload["batch_size"] = args.batch_size
+                
+                response = client.post(f"{api_base}/rag/upload-chunks", json=payload)
                 response.raise_for_status()
                 body = response.json()
                 print(
@@ -78,8 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--collection", "-c", required=True, help="Target collection name.")
     ingest_parser.add_argument(
         "--api",
-        default="http://localhost:8000",
-        help="ragrun API base URL (default: http://localhost:8000).",
+        default="http://localhost:8000/api/v1",
+        help="ragrun API base URL (default: http://localhost:8000/api/v1).",
     )
     ingest_parser.add_argument(
         "--embedding-model",

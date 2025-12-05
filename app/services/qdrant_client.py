@@ -89,3 +89,32 @@ class QdrantClient:
             )
             response.raise_for_status()
 
+    async def list_collections(self) -> List[Mapping[str, object]]:
+        """List all collections in Qdrant."""
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.get(f"{self.base_url}/collections")
+            response.raise_for_status()
+            data = response.json()
+            
+            # Qdrant returns: {"result": {"collections": [...]}}
+            collections_data = data.get("result", {}).get("collections", [])
+            
+            result: List[Mapping[str, object]] = []
+            for coll in collections_data:
+                name = coll.get("name", "")
+                # Get detailed info for each collection
+                detail_response = await client.get(f"{self.base_url}/collections/{name}")
+                detail_response.raise_for_status()
+                detail_data = detail_response.json()
+                detail_result = detail_data.get("result", {})
+                
+                result.append({
+                    "name": name,
+                    "id": name,
+                    "count": detail_result.get("points_count", 0),
+                    "metadata": detail_result.get("config", {})
+                })
+            
+            return result
+

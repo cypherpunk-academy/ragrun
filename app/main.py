@@ -71,4 +71,4 @@ async def healthz() -> Dict[str, Any]:
     }
 
 
-app.include_router(rag_router.router)
+app.include_router(rag_router.router, prefix="/api/v1")
