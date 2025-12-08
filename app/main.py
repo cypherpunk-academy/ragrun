@@ -12,7 +12,7 @@ from .api import rag as rag_router
 
 app = FastAPI(
     title="ragrun API",
-    version="0.1.0",
+    version="0.3.0",
     summary="LangChain + Qdrant orchestration service",
 )
 

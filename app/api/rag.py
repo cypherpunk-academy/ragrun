@@ -257,16 +257,17 @@ async def list_book_titles(
 
     # Query for distinct book_title with counts
     if include_author:
+        # Prefer explicit book_title; fall back to source_title for older ingestions
         query = text(
             """
             SELECT 
                 metadata->>'author' as author,
-                metadata->>'book_title' as book_title,
+                COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
                 COUNT(*) as count
             FROM rag_chunks
             WHERE collection = :collection
-              AND metadata->>'book_title' IS NOT NULL
-            GROUP BY metadata->>'author', metadata->>'book_title'
+              AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
+            GROUP BY metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title')
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
@@ -276,12 +277,12 @@ async def list_book_titles(
         query = text(
             """
             SELECT 
-                metadata->>'book_title' as book_title,
+                COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
                 COUNT(*) as count
             FROM rag_chunks
             WHERE collection = :collection
-              AND metadata->>'book_title' IS NOT NULL
-            GROUP BY metadata->>'book_title'
+              AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
+            GROUP BY COALESCE(metadata->>'book_title', metadata->>'source_title')
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit

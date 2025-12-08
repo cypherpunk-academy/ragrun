@@ -1,0 +1,1 @@
+docker compose build --no-cache ragrun-api && docker compose up -d 

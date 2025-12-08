@@ -1,6 +1,7 @@
 """Core ingestion service used by Phase 3 endpoints."""
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence
@@ -39,6 +40,14 @@ class DeleteResult:
 class IngestionService:
     """Coordinates validation, embedding, and Qdrant upserts."""
 
+    _TAG_STRIP_RE = re.compile(r"</?\s*(q|i)\b[^>]*>", re.IGNORECASE)
+
+    @staticmethod
+    def _strip_markup(text: str) -> str:
+        """Remove <q ...>...</q> and <i ...>...</i> tags, keep inner text."""
+
+        return IngestionService._TAG_STRIP_RE.sub("", text or "")
+
     def __init__(
         self,
         *,
@@ -73,7 +82,9 @@ class IngestionService:
 
         start_time = time.perf_counter()
 
-        texts = [chunk.text for chunk in unique_chunks]
+        # Strip formatting tags (<q>, <i>) from embedding text to reduce noise,
+        # while preserving the original text for storage and display.
+        texts = [self._strip_markup(chunk.text) for chunk in unique_chunks]
         embedding_batch = await self.embedding_client.embed_texts(
             texts,
             model_name=embedding_model,
