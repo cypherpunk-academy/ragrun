@@ -37,6 +37,10 @@ class UploadChunksRequest(BaseModel):
     embedding_model: Optional[str] = Field(
         None, description="Optional embedding model override"
     )
+    skip_cleanup: Optional[bool] = Field(
+        False,
+        description="Skip cleanup of stale chunk_ids for involved source_ids",
+    )
 
 
 class UploadChunksResponse(BaseModel):
@@ -49,6 +53,10 @@ class UploadChunksResponse(BaseModel):
     duplicates: int
     embedding_model: str
     vector_size: int
+    unchanged: int
+    changed: int
+    new: int
+    stale_deleted: int
 
 
 class DeleteChunksRequest(BaseModel):
@@ -140,6 +148,7 @@ async def upload_chunks(
             chunks=chunks,
             embedding_model=request.embedding_model,
             batch_size=request.batch_size,
+            skip_cleanup=bool(request.skip_cleanup),
         )
     except ValueError as exc:
         raise HTTPException(

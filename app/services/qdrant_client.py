@@ -118,3 +118,91 @@ class QdrantClient:
             
             return result
 
+    async def retrieve_points(
+        self,
+        collection: str,
+        point_ids: Sequence[str],
+        *,
+        with_vectors: bool = False,
+        with_payload: bool = True,
+    ) -> List[Mapping[str, object]]:
+        """Fetch specific points by id."""
+
+        if not point_ids:
+            return []
+        payload = {
+            "ids": list(point_ids),
+            "with_vector": with_vectors,
+            "with_payload": with_payload,
+        }
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.post(
+                f"{self.base_url}/collections/{collection}/points",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("result", []) or []
+
+    async def set_payload(
+        self,
+        collection: str,
+        updates: Sequence[Mapping[str, object]],
+        *,
+        wait: bool = True,
+    ) -> None:
+        """Update payload for existing points without touching vectors.
+
+        Qdrant's set-payload applies the SAME payload to all provided point IDs.
+        Here we send one request per payload update to allow per-point payloads.
+        """
+
+        if not updates:
+            return
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            for upd in updates:
+                point_id = upd.get("id")
+                payload = upd.get("payload")
+                if point_id is None or payload is None:
+                    continue
+                body = {
+                    "points": [point_id],
+                    "payload": payload,
+                    "wait": wait,
+                }
+                response = await client.post(
+                    f"{self.base_url}/collections/{collection}/points/payload",
+                    json=body,
+                )
+                response.raise_for_status()
+
+    async def scroll_points(
+        self,
+        collection: str,
+        *,
+        filter_: Mapping[str, object] | None = None,
+        limit: int = 128,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> List[Mapping[str, object]]:
+        """Scroll a subset of points (used for inventories)."""
+
+        payload: dict[str, object] = {
+            "limit": limit,
+            "with_payload": with_payload,
+            "with_vector": with_vectors,
+        }
+        if filter_ is not None:
+            payload["filter"] = filter_
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.post(
+                f"{self.base_url}/collections/{collection}/points/scroll",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            result = data.get("result", {})
+            return result.get("points", []) or []
+

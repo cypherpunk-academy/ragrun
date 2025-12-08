@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from typing import Iterable, List
 
-from sqlalchemy import delete, insert
+from sqlalchemy import delete, insert, select
 from sqlalchemy.engine import Engine
 
 from ragrun.models import ChunkRecord
@@ -76,5 +76,23 @@ class ChunkMirrorRepository:
                 )
 
         await asyncio.to_thread(_delete)
+
+    async def list_chunk_ids_by_source(self, collection: str, source_id: str) -> List[str]:
+        """Return chunk_ids for a given source_id in a collection."""
+
+        if not source_id:
+            return []
+
+        def _select() -> List[str]:
+            with self.engine.begin() as connection:
+                rows = connection.execute(
+                    select(chunks_table.c.chunk_id).where(
+                        chunks_table.c.collection == collection,
+                        chunks_table.c.source_id == source_id,
+                    )
+                ).fetchall()
+                return [r[0] for r in rows]
+
+        return await asyncio.to_thread(_select)
 
 
