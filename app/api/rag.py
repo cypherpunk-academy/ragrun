@@ -258,11 +258,19 @@ async def list_book_titles(
     min_count: int = 1,
     limit: int = 100,
     include_author: bool = True,
+    chunk_types: Optional[str] = None,
 ) -> Dict[str, Any]:
     """List distinct book titles in a collection with chunk counts."""
 
     collection = collection_name or "default"
     engine = get_engine()
+
+    # Parse chunk_types as comma-separated list if provided
+    types_filter: Optional[list[str]] = None
+    if chunk_types:
+        types_filter = [t.strip() for t in chunk_types.split(",") if t.strip()]
+        if not types_filter:
+            types_filter = None
 
     # Query for distinct book_title with counts
     if include_author:
@@ -270,13 +278,15 @@ async def list_book_titles(
         query = text(
             """
             SELECT 
+                metadata->>'chunk_type' as chunk_type,
                 metadata->>'author' as author,
                 COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
                 COUNT(*) as count
             FROM rag_chunks
             WHERE collection = :collection
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
-            GROUP BY metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title')
+              {chunk_filter}
+            GROUP BY metadata->>'chunk_type', metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title')
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
@@ -286,29 +296,45 @@ async def list_book_titles(
         query = text(
             """
             SELECT 
+                metadata->>'chunk_type' as chunk_type,
                 COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
                 COUNT(*) as count
             FROM rag_chunks
             WHERE collection = :collection
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
-            GROUP BY COALESCE(metadata->>'book_title', metadata->>'source_title')
+              {chunk_filter}
+            GROUP BY metadata->>'chunk_type', COALESCE(metadata->>'book_title', metadata->>'source_title')
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
         """
         )
 
+    chunk_filter_sql = ""
+    params: Dict[str, Any] = {"collection": collection, "min_count": min_count, "limit": limit}
+    if types_filter:
+        chunk_filter_sql = "AND metadata->>'chunk_type' = ANY(:chunk_types)"
+        params["chunk_types"] = types_filter
+    # Inject the optional filter into the query text
+    query = text(query.text.replace("{chunk_filter}", chunk_filter_sql))
+
     with engine.connect() as conn:
-        rows = conn.execute(
-            query, {"collection": collection, "min_count": min_count, "limit": limit}
-        ).fetchall()
+        rows = conn.execute(query, params).fetchall()
 
     if include_author:
         titles = [
-            {"author": row[0], "book_title": row[1], "count": row[2]} for row in rows
+            {
+                "chunk_type": row[0],
+                "author": row[1],
+                "book_title": row[2],
+                "count": row[3],
+            }
+            for row in rows
         ]
     else:
-        titles = [{"book_title": row[0], "count": row[1]} for row in rows]
+        titles = [
+            {"chunk_type": row[0], "book_title": row[1], "count": row[2]} for row in rows
+        ]
 
     return {
         "collection": collection,
