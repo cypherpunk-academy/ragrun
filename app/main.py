@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from .config import settings
 from .api import rag as rag_router
-from .api import concept_explain as concept_router
+from .retrieval.api import router as retrieval_router
 
 app = FastAPI(
     title="ragrun API",
@@ -73,4 +73,4 @@ async def healthz() -> Dict[str, Any]:
 
 
 app.include_router(rag_router.router, prefix="/api/v1")
-app.include_router(concept_router.router, prefix="/api/v1")
+app.include_router(retrieval_router, prefix="/api/v1")

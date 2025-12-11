@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     langfuse_secret_key: Optional[str] = None
     langfuse_encryption_key: Optional[str] = None
     langfuse_ingestion_dataset: Optional[str] = "ingestion_runs"
+    langfuse_retrieval_dataset: Optional[str] = "retrieval_runs"
     telemetry_timeout_seconds: float = 2.0
 
     deepseek_api_key: Optional[str] = None
