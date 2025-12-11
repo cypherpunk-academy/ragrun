@@ -206,3 +206,33 @@ class QdrantClient:
             result = data.get("result", {})
             return result.get("points", []) or []
 
+    async def search_points(
+        self,
+        collection: str,
+        vector: Sequence[float],
+        *,
+        limit: int = 10,
+        filter_: Mapping[str, object] | None = None,
+        with_payload: bool = True,
+    ) -> List[Mapping[str, object]]:
+        """Vector search wrapper."""
+
+        if not vector:
+            return []
+
+        payload: dict[str, object] = {
+            "vector": vector,
+            "limit": limit,
+            "with_payload": with_payload,
+        }
+        if filter_ is not None:
+            payload["filter"] = filter_
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.post(
+                f"{self.base_url}/collections/{collection}/points/search", json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("result", []) or []
+
