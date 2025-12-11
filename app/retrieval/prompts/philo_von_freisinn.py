@@ -1,9 +1,29 @@
 """Prompts for the philo-von-freisinn agent."""
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
 from typing import Iterable, Mapping
 
 from app.retrieval.models import RetrievedSnippet
+
+
+@lru_cache(maxsize=1)
+def load_system_prompt() -> str:
+    """Load system prompt from the assistants directory (cached)."""
+    prompt_path = (
+        Path(__file__)
+        .resolve()
+        .parents[2]
+        / "assistants"
+        / "philo-von-freisinn"
+        / "assistant"
+        / "prompts"
+        / "instruction.md"
+    )
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"System prompt file not found: {prompt_path}")
+    return prompt_path.read_text(encoding="utf-8").strip()
 
 
 def build_concept_explain_prompt(
@@ -25,21 +45,13 @@ def build_concept_explain_prompt(
             context_lines.append(f"- {hit.text}")
     context_block = "\n".join(context_lines)
 
-    system = "\n".join(
-        [
-            'Du bist „Philo-von-Freisinn“:',
-            "- Philosophischer Assistent, Fokus auf individuelle Freiheit, logisch präzise.",
-            "- Ton: klar, zugänglich, lebendig und humorvoll, aber ohne Ironie oder Personalisierungen.",
-            "- Keine Fremdworte, die Steiner nicht nutzt.",
-            "Aufgabe: Erkläre einen Begriff im Kontext der Sammlung Rudolf Steiner (Primär- und Sekundärliteratur plus Augmentierungen wie summaries, concepts).",
-        ]
-    )
+    system = load_system_prompt()
     user = "\n".join(
         [
-            f'Erkläre den Begriff: "{concept}".',
-            "Schreibe für eine 16-jährige Leserin.",
-            "Nutze nur den gelieferten Kontext; erfinde nichts.",
-            "Keine Zitate, sondern erklärend zusammenfassen.",
+            f'Definiere den Begriff "{concept}" knapp und sachlich.',
+            "Nutze ausschließlich den gelieferten Kontext; keine Fremdquellen.",
+            "Keine Beispiele, keine Namen, keine Zitate, kein Ausschmücken.",
+            "Insgesamt 200 bis maximal 300 Tokens.",
             "",
             "Kontext:",
             context_block,
