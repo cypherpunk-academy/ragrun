@@ -1,0 +1,27 @@
+# Books
+books/**/results
+books/**/input
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.svg
+*.webp
+*.ico
+*.heic
+*.heif
+*.psd
+*.ai
+*.eps
+*.raw
+
+# PDFs
+*.pdf
+*.ps
+*.eps
+*.raw

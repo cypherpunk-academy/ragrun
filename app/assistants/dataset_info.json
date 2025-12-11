@@ -1,0 +1,18 @@
+{
+  "config_name": "default",
+  "description": "Released subset of Deutsche Klassik books prepared by ragprep and curated in ragkeep.",
+  "features": {
+    "path": {"dtype": "string", "id": null, "_type": "Value"},
+    "content": {"dtype": "string", "id": null, "_type": "Value"}
+  },
+  "homepage": "https://huggingface.co/datasets/michaelschmidt/ragkeep-weimarer-klassik-books-de",
+  "license": "mit",
+  "language": ["de"],
+  "task_categories": ["text-retrieval"],
+  "size_categories": ["n<1K"],
+  "splits": {
+    "train": {"name": "train", "num_examples": 0}
+  },
+  "download_size": 0,
+  "dataset_size": 0
+}

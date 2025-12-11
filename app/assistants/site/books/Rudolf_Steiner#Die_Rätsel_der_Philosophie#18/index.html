@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="default" data-para="margin" data-width="normal">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VORREDE ZUR NEUAUFLAGE 1924</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <script>
+    (function(){
+      try {
+        var d = document.documentElement;
+        var theme = localStorage.getItem("readerTheme") || d.getAttribute("data-theme") || "default";
+        var para = localStorage.getItem("readerPara") || d.getAttribute("data-para") || "margin";
+        var width = localStorage.getItem("readerWidth") || d.getAttribute("data-width") || "normal";
+        var size = localStorage.getItem("readerSize") || d.getAttribute("data-size") || "base";
+        d.setAttribute("data-theme", theme);
+        d.setAttribute("data-para", para);
+        d.setAttribute("data-width", width);
+        if (size && size !== "base") d.setAttribute("data-size", size); else d.removeAttribute("data-size");
+      } catch(e) {}
+    })();
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+<main>
+  <button id="themeToggle" class="theme-toggle" aria-label="Theme umschalten" title="Theme umschalten" style="position:fixed;top:8px;right:8px;z-index:9999;background:rgba(0,0,0,0.03);backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(127,127,127,.35);color:inherit;border-radius:9999px;padding:6px 10px;font:inherit;line-height:1;cursor:pointer;">🌙</button>
+  <button id="sizeToggle" class="size-toggle" aria-label="Schriftgröße umschalten" title="Schriftgröße umschalten" style="position:fixed;top:8px;right:48px;z-index:9999;background:rgba(0,0,0,0.03);backdrop-filter:saturate(120%) blur(2px);border:1px solid rgba(127,127,127,.35);color:inherit;border-radius:9999px;padding:6px 10px;font:inherit;line-height:1;cursor:pointer;">A</button>
+  <h1>VORREDE ZUR NEUAUFLAGE 1924</h1>
+  <nav class="toc">
+    <ul>
+      <li><a href="chapters/01-vorrede-zur-neuauflage-1924.html">VORREDE ZUR NEUAUFLAGE 1924</a></li>
+      <li><a href="chapters/02-vorrede-zur-neuauflage-1918.html">VORREDE ZUR NEUAUFLAGE 1918</a></li>
+      <li><a href="chapters/03-vorrede-1914.html">VORREDE 1914</a></li>
+      <li class="toc-standalone">ERSTER BAND</li>
+      <li><a href="chapters/05-zur-orientierung-uber-die-leitlinien-der-darstellung.html">ZUR ORIENTIERUNG ÜBER DIE LEITLINIEN DER DARSTELLUNG</a></li>
+      <li><a href="chapters/06-die-weltanschauung-der-griechischen-denker.html">DIE WELTANSCHAUUNG DER GRIECHISCHEN DENKER</a></li>
+      <li><a href="chapters/07-das-gedankenleben-vom-beginn-der-christlichen-zeitrechnung-bis-zu-johannes-scotus-oder-erigena.html">DAS GEDANKENLEBEN VOM BEGINN DER CHRISTLICHEN ZEITRECHNUNG BIS ZU JOHANNES SCOTUS ODER ERIGENA</a></li>
+      <li><a href="chapters/08-die-weltanschauungen-im-mittelalter.html">DIE WELTANSCHAUUNGEN IM MITTELALTER</a></li>
+      <li><a href="chapters/09-die-weltanschauungen-des-jungsten-zeitalters-der-gedankenentwicklung.html">DIE WELTANSCHAUUNGEN DES JÜNGSTEN ZEITALTERS DER GEDANKENENTWICKLUNG</a></li>
+      <li><a href="chapters/10-das-zeitalter-kants-und-goethes.html">DAS ZEITALTER KANTS UND GOETHES</a></li>
+      <li><a href="chapters/11-die-klassiker-der-welt-und-lebensanschauung.html">DIE KLASSIKER DER WELT- UND LEBENSANSCHAUUNG</a></li>
+      <li><a href="chapters/12-reaktionare-weltanschauungen.html">REAKTIONÄRE WELTANSCHAUUNGEN</a></li>
+      <li><a href="chapters/13-die-radikalen-weltanschauungen.html">DIE RADIKALEN WELTANSCHAUUNGEN</a></li>
+      <li class="toc-standalone">ZWEITER BAND</li>
+      <li><a href="chapters/15-einleitende-bemerkungen-zur-neuauflage-1914.html">EINLEITENDE BEMERKUNGEN ZUR NEUAUFLAGE 1914</a></li>
+      <li><a href="chapters/16-der-kampf-um-den-geist.html">DER KAMPF UM DEN GEIST</a></li>
+      <li><a href="chapters/17-darwinismus-und-weltanschauung.html">DARWINISMUS UND WELTANSCHAUUNG</a></li>
+      <li><a href="chapters/18-die-welt-als-illusion.html">DIE WELT ALS ILLUSION</a></li>
+      <li><a href="chapters/19-nachklange-der-kantschen-vorstellungsart.html">NACHKLÄNGE DER KANTSCHEN VORSTELLUNGSART</a></li>
+      <li><a href="chapters/20-weltanschauungen-der-wissenschaftlichen-tatsachlichkeit.html">WELTANSCHAUUNGEN DER WISSENSCHAFTLICHEN TATSÄCHLICHKEIT</a></li>
+      <li><a href="chapters/21-moderne-idealistische-weltanschauungen.html">MODERNE IDEALISTISCHE WELTANSCHAUUNGEN</a></li>
+      <li><a href="chapters/22-der-moderne-mensch-und-seine-weltanschauung.html">DER MODERNE MENSCH UND SEINE WELTANSCHAUUNG</a></li>
+      <li><a href="chapters/23-skizzenhaft-dargestellter-ausblick-auf-eine-anthroposophie.html">SKIZZENHAFT DARGESTELLTER AUSBLICK AUF EINE ANTHROPOSOPHIE</a></li>
+    </ul>
+  </nav>
+</main>
+<script>
+(function(){
+  var d = document.documentElement;
+  var themeBtn = document.getElementById("themeToggle");
+  var sizeBtn = document.getElementById("sizeToggle");
+  function getTheme(){ return d.getAttribute("data-theme") || "default"; }
+  function setTheme(t){
+    d.setAttribute("data-theme", t);
+    try { localStorage.setItem("readerTheme", t); } catch(e) {}
+    updateTheme();
+  }
+  function getSize(){ return d.getAttribute("data-size") || "base"; }
+  function setSize(s){
+    if (s === "base") d.removeAttribute("data-size"); else d.setAttribute("data-size", s);
+    try { localStorage.setItem("readerSize", s); } catch(e) {}
+    updateSize();
+  }
+  function updateTheme(){
+    if (!themeBtn) return;
+    var t = getTheme();
+    themeBtn.textContent = (t === "default") ? "🌙" : "☀️";
+    themeBtn.setAttribute("aria-pressed", String(t === "dark"));
+  }
+  function updateSize(){
+    if (!sizeBtn) return;
+    var s = getSize();
+    // Visual hint: A, A+, A++
+    sizeBtn.textContent = (s === "base") ? "A" : (s === "l" ? "A+" : "A++");
+    sizeBtn.setAttribute("aria-pressed", String(s !== "base"));
+  }
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function(){
+      var t = getTheme();
+      setTheme(t === "dark" ? "default" : "dark");
+    });
+  }
+  if (sizeBtn) {
+    sizeBtn.addEventListener("click", function(){
+      var s = getSize();
+      var next = (s === "base") ? "l" : (s === "l" ? "xl" : "base");
+      setSize(next);
+    });
+  }
+  // Restore stored size on load
+  try {
+    var stored = localStorage.getItem("readerSize");
+    if (stored) setSize(stored); else updateSize();
+  } catch(e) { updateSize(); }
+  updateTheme();
+})();
+</script>
+</body>
+</html>

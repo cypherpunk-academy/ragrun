@@ -1,0 +1,394 @@
+- page: 11
+  action: modify
+  lineIndex: 21
+  text: den ist,3 ja es fehlt uns bis heute an einer auch nur einiger-
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 14
+  action: modify
+  lineIndex: 13
+  text: National-Literatur 4, I. Band [S. 64].) Auf diese Äuße-
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 14
+  action: modify
+  lineIndex: 27
+  isFootnoteReference: false
+  footnoteReferenceWordIndices: []
+- page: 15
+  action: modify
+  lineIndex: 25
+  text: stoßen5 und im Widerstreite mit ihnen entwickelten sich
+  isFootnote: false
+  isFootnoteStart: false
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 20
+  action: modify
+  lineIndex: 16
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 20
+  action: modify
+  lineIndex: 17
+  isFootnoteReference: false
+  footnoteReferenceWordIndices: []
+- page: 29
+  action: modify
+  lineIndex: 13
+  text: Binsen als im Unterlande.»14 Ähnliche Beobachtungen wie-
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 3
+- page: 29
+  action: modify
+  lineIndex: 21
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 29
+  action: modify
+  lineIndex: 30
+  text: 15 Italienische Reise, 8. Okt. 1786.
+  footnoteReferenceWordIndices: []
+- page: 31
+  action: modify
+  lineIndex: 27
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 3
+- page: 31
+  action: modify
+  lineIndex: 28
+  text: 16 Unnötig wohl ist es zu sagen, daß die moderne Deszendenztheorie
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 35
+  action: modify
+  lineIndex: 8
+  text: 1787 20 schreibt Goethe diesen Gedanken an Herder mit den
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 40
+  action: modify
+  lineIndex: 22
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 40
+  action: modify
+  lineIndex: 27
+  text: 25 Vgl. Natw. Schr., 2. Bd., S. 68 ff.
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 48
+  action: modify
+  lineIndex: 27
+  text: sammeln.»39
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 50
+  action: modify
+  lineIndex: 17
+  text: "den Unterschied von Tier und Mensch40: «Ich wünschte, daß"
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 51
+  action: modify
+  lineIndex: 6
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 51
+  action: modify
+  lineIndex: 28
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 51
+  action: modify
+  lineIndex: 29
+  isFootnote: true
+  footnoteReferenceWordIndices: []
+- page: 55
+  action: modify
+  lineIndex: 12
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 55
+  action: modify
+  lineIndex: 29
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 55
+  action: modify
+  lineIndex: 30
+  isFootnote: true
+  footnoteReferenceWordIndices: []
+- page: 56
+  action: modify
+  lineIndex: 2
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 56
+  action: modify
+  lineIndex: 30
+  text: 46 [Italienische Reise.]
+  isParagraphStart: true
+  isFootnote: true
+  footnoteReferenceWordIndices: []
+- page: 60
+  action: modify
+  lineIndex: 22
+  text: Und nun Camper:49 Am 16. September 1785 50 teilte er
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 2
+    - 7
+- page: 61
+  action: modify
+  lineIndex: 10
+  text: März 1786 52 schreibt er noch einmal, daß er aus einer gro-
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 2
+- page: 61
+  action: modify
+  lineIndex: 18
+  text: von 1788 53 hervor und behandelt sie von nun an in allen
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 2
+- page: 61
+  action: modify
+  lineIndex: 35
+  text: 53 Goethes Annalen zu 1790.
+  footnoteReferenceWordIndices: []
+- page: 63
+  action: modify
+  lineIndex: 17
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 63
+  action: modify
+  lineIndex: 28
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 63
+  action: modify
+  lineIndex: 29
+  isFootnote: true
+  footnoteReferenceWordIndices: []
+- page: 63
+  action: modify
+  lineIndex: 30
+  isFootnote: true
+  footnoteReferenceWordIndices: []
+- page: 64
+  action: modify
+  lineIndex: 0
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 6
+- page: 64
+  action: modify
+  lineIndex: 25
+  text: 56 Ebenda – s. Anm. 55 – S. 22.
+  footnoteReferenceWordIndices: []
+- page: 73
+  action: modify
+  lineIndex: 7
+  text: sen erscheinen,85 wie dies bei der unorganischen Natur der
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 75
+  action: modify
+  lineIndex: 29
+  text: nicht abgeleitet werden kann».66 Wir müßten danach also
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 3
+- page: 75
+  action: modify
+  lineIndex: 30
+  text: 66 Kant, Kritik der Urteilskraft; Ausgabe von Kehrbach, S. 294.
+  footnoteReferenceWordIndices: []
+- page: 80
+  action: modify
+  lineIndex: 6
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 80
+  action: modify
+  lineIndex: 21
+  text: Abt. I, 36] Goethe war sich des großen Schrittes, den er
+  isFootnoteReference: false
+  footnoteReferenceWordIndices: []
+- page: 94
+  action: modify
+  lineIndex: 1
+  text: "sagt darüber76: «Es ist gar interessant, zu bemerken, wie"
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 100
+  action: modify
+  lineIndex: 0
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 7
+- page: 100
+  action: modify
+  lineIndex: 18
+  text: 79 In der modernen Naturlehre versteht man unter Urorganismus ge-
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 192
+  action: modify
+  lineIndex: 27
+  isFootnote: false
+  isFootnoteStart: false
+  footnoteReferenceWordIndices: []
+- page: 228
+  action: modify
+  lineIndex: 13
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 4
+- page: 228
+  action: modify
+  lineIndex: 24
+  text: 95 Sehr lesenswert ist Dr. Adolf Harpfs Aufsatz «Schopenhauer und
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 250
+  action: modify
+  lineIndex: 19
+  text: nen fast parallelen Gang habe».100 Da ihm dieses Steigen
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 4
+- page: 318
+  action: modify
+  lineIndex: 16
+  text: der Subjektivität der Sinnesempfindungen nachgewiesen.105
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 4
+- page: 336
+  action: modify
+  lineIndex: 1
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 336
+  action: modify
+  lineIndex: 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42
+  isFootnote: true
+  isFootnoteStart: false
+  footnoteReferenceWordIndices: []
+- page: 337
+  action: modify
+  lineIndex: 7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40
+  isFootnote: true
+  isFootnoteStart: false
+  footnoteReferenceWordIndices: []
+- page: 336
+  action: modify
+  lineIndex: 2
+  text: 106 Goethes Anschauungen stehen in dem denkbar schärfsten Gegensatz
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 61
+  action: modify
+  lineIndex: 5
+  text: den. Drei Tage später51 schreibt er, daß er eine Zahl von Be-
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 3
+- page: 336
+  action: modify
+  lineIndex: 2
+  isParagraphStart: false
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 249
+  action: modify
+  lineIndex: 7
+  isFootnoteReference: false
+  footnoteReferenceWordIndices: []
+- page: 249
+  action: modify
+  lineIndex: 10
+  text: tet, den prägnanten97 Punkt zu finden, von dem aus sich
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 2
+- page: 139
+  action: modify
+  lineIndex: 15
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 6
+- page: 139
+  action: modify
+  lineIndex: 18
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 5
+- page: 139
+  action: modify
+  lineIndex: 28
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 139
+  action: modify
+  lineIndex: 29
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 139
+  action: modify
+  lineIndex: 30
+  isFootnote: true
+  footnoteReferenceWordIndices: []
+- page: 225
+  action: modify
+  lineIndex: 29
+  text: 94 [Schelling, Erster Entwurf eines Systems der Naturphilosophie; Jena
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 225
+  action: modify
+  lineIndex: 19
+  text: losoph.94 «Die Natur als bloßes Produkt (natura naturata)
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 313
+  action: modify
+  lineIndex: 3
+  text: des einfachsten Grundgesetzes der Mechanik ihn widerlegt.
+  footnoteReferenceWordIndices: []

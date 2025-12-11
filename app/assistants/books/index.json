@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2025-09-26",
+  "books": [
+    {
+      "id": "Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151",
+      "author": "Rudolf Steiner",
+      "title": "Der menschliche und der kosmische Gedanke",
+      "book_index": 151,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/results/_released.md",
+        "html": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/results/html/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151.html",
+        "toc": "books/Rudolf_Steiner#Der_menschliche_und_der_kosmische_Gedanke#151/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    },
+    {
+      "id": "Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1",
+      "author": "Rudolf Steiner",
+      "title": "Einleitungen zu Goethes Naturwissenschaftlichen Schriften",
+      "book_index": 1,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/results/_released.md",
+        "html": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/results/html/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1.html",
+        "toc": "books/Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    },
+    {
+      "id": "Rudolf_Steiner#Wahrheit_und_Wissenschaft#3",
+      "author": "Rudolf Steiner",
+      "title": "Wahrheit und Wissenschaft",
+      "book_index": 3,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/results/_released.md",
+        "html": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/results/html/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3.html",
+        "toc": "books/Rudolf_Steiner#Wahrheit_und_Wissenschaft#3/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    },
+    {
+      "id": "Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2",
+      "author": "Rudolf Steiner",
+      "title": "Grundlinien einer Erkenntnistheorie der Goetheschen Weltanschauung",
+      "book_index": 2,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/results/_released.md",
+        "html": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/results/html/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2.html",
+        "toc": "books/Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    },
+    {
+      "id": "Rudolf_Steiner#Goethes_Weltanschauung#6",
+      "author": "Rudolf Steiner",
+      "title": "Goethes Weltanschauung",
+      "book_index": 6,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/results/_released.md",
+        "html": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/results/html/Rudolf_Steiner#Goethes_Weltanschauung#6.html",
+        "toc": "books/Rudolf_Steiner#Goethes_Weltanschauung#6/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    },
+    {
+      "id": "Rudolf_Steiner#Die_Philosophie_der_Freiheit#4",
+      "author": "Rudolf Steiner",
+      "title": "Die Philosophie der Freiheit",
+      "book_index": 4,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/results/_released.md",
+        "html": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/results/html/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4.html",
+        "toc": "books/Rudolf_Steiner#Die_Philosophie_der_Freiheit#4/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    },
+    {
+      "id": "Rudolf_Steiner#Die_Rätsel_der_Philosophie#18",
+      "author": "Rudolf Steiner",
+      "title": "Die Rätsel der Philosophie",
+      "book_index": 18,
+      "language": "de",
+      "license": "MIT",
+      "source": "ragprep",
+      "paths": {
+        "manifest": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/book-manifest.yaml",
+        "ocr_patches": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/ocr-patches.yaml",
+        "errata": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/errata.txt",
+        "verify_skip_list": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/verify-skip-list-book.txt",
+        "released_md": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/results/_released.md",
+        "html": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/results/html/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18.html",
+        "toc": "books/Rudolf_Steiner#Die_Rätsel_der_Philosophie#18/results/toc.json"
+      },
+      "pages": {},
+      "checksums": {}
+    }
+  ]
+}

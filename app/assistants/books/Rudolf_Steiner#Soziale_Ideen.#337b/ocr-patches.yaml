@@ -1,0 +1,109 @@
+- page: 139
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 147
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 147
+  action: modify
+  lineIndex: 3
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 159
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 159
+  action: modify
+  lineIndex: 3
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 175
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 175
+  action: modify
+  lineIndex: 3
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 194
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+    - 3
+    - 4
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 195
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+    - 3
+    - 4
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 198
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 222
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 250
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 16
+  action: modify
+  lineIndex:
+    - 16
+    - 17
+    - 18
+    - 19
+    - 20
+  isParagraphStart: false
+  footnoteReferenceWordIndices: []
+- page: 17
+  action: modify
+  lineIndex: 18
+  isParagraphStart: false
+  footnoteReferenceWordIndices: []

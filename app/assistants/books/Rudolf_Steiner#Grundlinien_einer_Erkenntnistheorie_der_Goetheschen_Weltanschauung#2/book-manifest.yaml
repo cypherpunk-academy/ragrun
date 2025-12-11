@@ -1,0 +1,34 @@
+author: Rudolf Steiner
+title: Grundlinien einer Erkenntnistheorie der Goetheschen Weltanschauung
+subtitle: mit besonderer Rücksicht auf Schiller
+book-index: 2
+book-id: 44217040-65bf-4150-9fa8-bac9c57cd1b1
+book-type: rudolf-steiner-ga-werk
+first-author-page: 7
+last-author-page: 134
+journal:
+  pages: 141
+  chapters: 9
+  paragraphs: 311
+  lines: 4120
+  words: 34115
+  footnotes: 0
+  tesseract:
+    lines: 5420
+    words: 44115
+    deepseek-guessed: 18
+    taken-from-abbyy: 158
+  abbyy:
+    lines: 5653
+    words: 44260
+    deepseek-guessed: 18
+    taken-from-tesseract: 114
+chunks: 156
+multi-paragraph-chunks: 95
+single-paragraph-chunks: 45
+large-paragraph-chunks: 16
+average: 1349
+p01_length: 223
+p05_length: 734
+p95_length: 2117
+p99_length: 2576

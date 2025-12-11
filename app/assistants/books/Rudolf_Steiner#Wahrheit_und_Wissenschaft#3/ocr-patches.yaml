@@ -1,0 +1,139 @@
+- page: 37
+  action: modify
+  lineIndex: 0
+  text: III.
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 29
+  action: modify
+  lineIndex: 22
+  text: es zwar mit demselben in Verknüpfung steht»***, woge-
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 6
+- page: 29
+  action: modify
+  lineIndex: 13
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 4
+- page: 29
+  action: modify
+  lineIndex: 11
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 34
+  action: modify
+  lineIndex: 26
+  text: "** Liebmann, Zur Analysis der Wirklichkeit, S. 211 ff., Holder, Darstellung"
+  footnoteReferenceWordIndices: []
+- page: 34
+  action: modify
+  lineIndex: 24
+  text: bands, Überwegs, Ed. v. Hartmanns** und Kuno
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 4
+- page: 34
+  action: modify
+  lineIndex: 19
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 3
+- page: 44
+  action: modify
+  lineIndex: 14
+  text: deres.»*
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 16
+  action: modify
+  lineIndex: 24,25,26,27,28
+  isFootnote: false
+  isFootnoteStart: false
+  footnoteReferenceWordIndices: []
+- page: 38
+  action: modify
+  lineIndex: 29
+  text: rede S. 10.
+  footnoteReferenceWordIndices: []
+- page: 38
+  action: modify
+  lineIndex: 30
+  text: "** Liebmann, Zur Analysis der Wirklichkeit, S. 28 ff."
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 38
+  action: insert
+  lineIndex: 31
+  text: "*** Volkelt, Kants Erkenntnistheorie, S. 1."
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 38
+  action: insert
+  lineIndex: 32
+  text: "**** Dörner, Das menschliche Erkennen."
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 30
+  action: modify
+  lineIndex: 30
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 33
+  action: modify
+  lineIndex: 29
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 34
+  action: modify
+  lineIndex: 26
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 38
+  action: modify
+  lineIndex: 11
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 3
+- page: 38
+  action: modify
+  lineIndex: 18
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 6
+- page: 38
+  action: modify
+  lineIndex: 24
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 1
+- page: 38
+  action: modify
+  lineIndex: 27
+- page: 38
+  action: modify
+  lineIndex: 27
+- page: 39
+  action: modify
+  lineIndex: 30
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 76
+  action: modify
+  lineIndex: 30
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 74
+  action: modify
+  lineIndex: 30
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []

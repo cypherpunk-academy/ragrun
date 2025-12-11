@@ -1,0 +1,33 @@
+author: Rudolf Steiner
+title: Einleitungen zu Goethes Naturwissenschaftlichen Schriften
+book-index: 1
+book-id: 47b137d3-f414-406f-b142-ed72c7e8989c
+book-type: rudolf-steiner-ga-werk
+first-author-page: 9
+last-author-page: 344
+journal:
+  pages: 336
+  chapters: 18
+  paragraphs: 385
+  lines: 10095
+  words: 85458
+  footnotes: 104
+  tesseract:
+    lines: 10803
+    words: 90126
+    deepseek-guessed: 109
+    taken-from-abbyy: 530
+  abbyy:
+    lines: 11067
+    words: 90664
+    deepseek-guessed: 109
+    taken-from-tesseract: 463
+chunks: 437
+multi-paragraph-chunks: 86
+single-paragraph-chunks: 99
+large-paragraph-chunks: 252
+average: 1273
+p01_length: 217
+p05_length: 424
+p95_length: 1920
+p99_length: 2392

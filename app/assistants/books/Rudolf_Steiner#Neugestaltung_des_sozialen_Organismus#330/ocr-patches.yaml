@@ -1,0 +1,49 @@
+- page: 55
+  action: modify
+  lineIndex:
+    - 2
+    - 3
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 75
+  action: modify
+  lineIndex:
+    - 1
+    - 2
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 223
+  action: modify
+  lineIndex:
+    - 3
+    - 4
+    - 5
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 245
+  action: modify
+  lineIndex: 0
+  text: DAS SOZIALE IN DEN RECHTS- UND WIRTSCHAFTS-
+  footnoteReferenceWordIndices: []
+- page: 294
+  action: modify
+  lineIndex: 0
+  text: DIE AUFGABEN DER SCHULEN
+  footnoteReferenceWordIndices: []
+- page: 294
+  action: modify
+  lineIndex:
+    - 2
+    - 3
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2
+- page: 383
+  action: modify
+  lineIndex: [1,2,3]
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 2

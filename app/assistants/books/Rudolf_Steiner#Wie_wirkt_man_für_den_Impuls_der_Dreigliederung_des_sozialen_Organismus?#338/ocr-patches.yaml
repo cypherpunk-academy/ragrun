@@ -1,0 +1,19 @@
+- page: 195
+  action: modify
+  lineIndex: 1
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 15
+  action: modify
+  lineIndex: 0
+  text: I Wie wirkt man für den Impuls
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 15
+  action: modify
+  lineIndex: [1,2]
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
