@@ -1,0 +1,76 @@
+- page: 15
+  action: modify
+  lineIndex: 0
+  text: I DAS BEWUSSTE MENSCHLICHE HANDELN
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 80
+  action: modify
+  lineIndex: 0
+  text: V DAS ERKENNEN DER WELT
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 112
+  action: modify
+  lineIndex: 0
+  text: VII
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 174
+  action: modify
+  lineIndex: 0
+  text: X FREIHEITSPHILOSOPHIE UND MONISMUS
+  footnoteReferenceWordIndices: []
+  isHeader: true
+  headerLevel: 1
+- page: 83
+  action: modify
+  lineIndex: 22
+  text: "* Transzendental wird im Sinne dieser Weltanschauung eine Er-"
+  isFootnote: true
+  isFootnoteStart: true
+  footnoteReferenceWordIndices: []
+- page: 83
+  action: modify
+  lineIndex: 15
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 2
+- page: 194
+  action: modify
+  lineIndex: 2
+  text: also voraus neben dem moralischen Ideenvermögen* und der
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 6
+- page: 158
+  action: modify
+  lineIndex: 26
+  isParagraphStart: true
+  footnoteReferenceWordIndices: []
+- page: 211
+  action: modify
+  lineIndex: 30
+  isFootnote: false
+  isFootnoteStart: false
+  footnoteReferenceWordIndices: []
+- page: 148
+  action: modify
+  lineIndex: 4
+  text: vorbereitet.*
+  isFootnoteReference: true
+  footnoteReferenceWordIndices:
+    - 0
+- page: 78
+  action: modify
+  lineIndex: 19
+  text: lung — dies ist eine Wahrheit, welche in Beziehung auf jedes
+  footnoteReferenceWordIndices: []
+- page: 267
+  action: modify
+  lineIndex: 14,16,17,18,19
+  isParagraphStart: false
+  footnoteReferenceWordIndices: []

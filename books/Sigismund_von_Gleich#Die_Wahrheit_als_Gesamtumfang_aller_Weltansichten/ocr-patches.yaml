@@ -1,0 +1,28 @@
+- page: 308
+  action: modify
+  lineIndex:
+    - 20
+    - 21
+    - 22
+    - 23
+    - 24
+  isParagraphStart: false
+  footnoteReferenceWordIndices: []
+- page: 106
+  action: remove
+  lineIndex: 44
+- page: 288
+  action: modify
+  lineIndex: 31
+  isParagraphStart: false
+  footnoteReferenceWordIndices: []
+- page: 284
+  action: modify
+  lineIndex: 1
+  text: Urtypen oder Universalia (Steinbock und Schütze in der „Welt des Geistes“).
+  footnoteReferenceWordIndices: []
+- page: 180
+  action: modify
+  lineIndex: 15
+  text: individuell ist.“ Das sind in der Tat bedeutsame Ansätze.
+  footnoteReferenceWordIndices: []

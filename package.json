@@ -1,0 +1,21 @@
+{
+  "name": "ragkeep",
+  "version": "0.2.1",
+  "description": "--- language: - de tags: - books - rag - text-retrieval license: MIT pretty_name: ragkeep-weimarer-klassik-books-de configs: - default ---",
+  "homepage": "https://github.com/cypherpunk-academy/ragkeep#readme",
+  "bugs": {
+    "url": "https://github.com/cypherpunk-academy/ragkeep/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cypherpunk-academy/ragkeep.git"
+  },
+  "license": "MIT",
+  "author": "Michael Schmidt",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "push": "bash ./scripts/publish_to_hf.sh",
+    "build:pages": "node ./scripts/build_pages_site.js"
+  }
+}

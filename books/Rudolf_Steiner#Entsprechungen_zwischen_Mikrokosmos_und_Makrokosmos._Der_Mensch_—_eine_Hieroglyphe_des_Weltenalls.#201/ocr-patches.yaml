@@ -1,0 +1,6 @@
+- page: 86
+  action: modify
+  lineIndex: [19, 20, 21, 22]
+  footnoteReferenceWordIndices: []
+  isHeader: false
+  headerLevel: null
