@@ -34,8 +34,8 @@ Aktueller Stand (Dez 2025)
 Zielbild: klare Trennung & explizite Orchestrierung
 ---------------------------------------------------
 Prinzipien:
-- Trenne Ingestion (Daten rein) strikt von Retrieval/Serving (Antworten raus).
-- Hebe Infrastruktur-Schichten (Clients, DB, Settings) aus den Domänen heraus; teile sie nur über zentrale Provider.
+- Trenne Ingestion (Daten rein) strikt von Retrieval/Serving (Antworten raus). Verzeichnisnamen: ingestion und retrieval
+- Hebe Infrastruktur-Schichten (Clients, DB, Settings) aus den Domänen heraus; teile sie nur über zentrale Provider. Verzecihnisname: provider
 - Nutze LangChain für Chains/Tools und LangGraph für zustandsbehaftete Abläufe (z. B. Ingestion-Pipeline mit Validation → Embedding → Upsert → Cleanup; Retrieval-Pipeline mit Suche → Re-Rank → Prompt → LLM).
 - Integriere LangFuse als Querschnitt (Tracing/Telemetry) für beide Pfade.
 
