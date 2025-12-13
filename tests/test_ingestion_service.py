@@ -74,6 +74,9 @@ class FakeQdrantClient:
         self.ensure_calls: list[dict[str, object]] = []
         self.upserts: list[dict[str, object]] = []
         self.deletes: list[dict[str, object]] = []
+        self.retrieves: list[dict[str, object]] = []
+        self.payload_updates: list[dict[str, object]] = []
+        self.scrolls: list[dict[str, object]] = []
 
     async def ensure_collection(self, name: str, *, vector_size: int) -> None:
         self.ensure_calls.append({"name": name, "vector_size": vector_size})
@@ -95,6 +98,57 @@ class FakeQdrantClient:
         wait: bool = True,
     ) -> None:
         self.deletes.append({"collection": collection, "ids": list(point_ids), "wait": wait})
+
+    async def retrieve_points(
+        self,
+        collection: str,
+        point_ids: Sequence[str],
+        *,
+        with_vectors: bool = False,
+        with_payload: bool = True,
+    ) -> List[dict[str, object]]:
+        self.retrieves.append(
+            {
+                "collection": collection,
+                "ids": list(point_ids),
+                "with_vectors": with_vectors,
+                "with_payload": with_payload,
+            }
+        )
+        # Default: nothing exists yet
+        return []
+
+    async def set_payload(
+        self,
+        collection: str,
+        updates: Sequence[dict[str, object]],
+        *,
+        wait: bool = True,
+    ) -> None:
+        self.payload_updates.append({"collection": collection, "updates": list(updates), "wait": wait})
+
+    async def scroll_all_points(
+        self,
+        collection: str,
+        *,
+        filter_: dict[str, object] | None = None,
+        limit: int = 256,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+        max_pages: int = 10_000,
+    ) -> List[dict[str, object]]:
+        self.scrolls.append(
+            {
+                "collection": collection,
+                "filter": filter_,
+                "limit": limit,
+                "with_payload": with_payload,
+                "with_vectors": with_vectors,
+                "max_pages": max_pages,
+            }
+        )
+        # Default: no existing points for cleanup
+        return []
 
 
 class FakeMirror(ChunkMirrorRepository):

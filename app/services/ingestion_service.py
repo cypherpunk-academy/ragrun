@@ -47,6 +47,11 @@ class IngestionService:
     _TAG_STRIP_RE = re.compile(r"</?\s*(q|i)\b[^>]*>", re.IGNORECASE)
 
     @staticmethod
+    def _qdrant_filter_for_source(source_id: str) -> dict[str, object]:
+        # Ingestion stores source_id as a flat payload field.
+        return {"must": [{"key": "source_id", "match": {"value": source_id}}]}
+
+    @staticmethod
     def _strip_markup(text: str) -> str:
         """Remove <q ...>...</q> and <i ...>...</i> tags, keep inner text."""
 
@@ -76,7 +81,11 @@ class IngestionService:
         batch_size: int | None = None,
         skip_cleanup: bool = False,
     ) -> UploadResult:
-        """Validate, dedupe, embed, and upsert a batch of chunks."""
+        """Validate, dedupe, embed, and upsert a batch of chunks.
+
+        By default this performs a per-source_id cleanup of stale chunk_ids (sync-style).
+        Set skip_cleanup=True when the caller will handle deletions explicitly (e.g. CLI sync).
+        """
 
         if not chunks:
             raise ValueError("at least one chunk is required")
@@ -141,6 +150,7 @@ class IngestionService:
         # Mirror: write all unique_chunks (so metadata/text stay aligned)
         await self.mirror_repository.upsert_chunks(collection, unique_chunks)
 
+        # Cleanup stale chunk_ids for involved source_ids (sync-style), unless disabled
         stale_deleted = 0
         if not skip_cleanup:
             _, stale_deleted = await self._cleanup_stale(collection, unique_chunks)
@@ -195,7 +205,11 @@ class IngestionService:
         point_uuids = [str(uuid5(NAMESPACE_DNS, cid)) for cid in chunk_ids]
 
         await self.qdrant_client.delete_points(collection, point_uuids)
-        await self.mirror_repository.delete_chunks(collection, chunk_ids)
+        # Best-effort: mirror cleanup should not block Qdrant deletion.
+        try:
+            await self.mirror_repository.delete_chunks(collection, chunk_ids)
+        except Exception:
+            pass
 
         return DeleteResult(
             collection=collection,
@@ -313,9 +327,21 @@ class IngestionService:
 
         for source_id, delivered_ids in by_source.items():
             total_sources += 1
-            existing_ids = await self.mirror_repository.list_chunk_ids_by_source(
-                collection, source_id
+            # Cleanup source-of-truth: Qdrant (mirror may be missing/out-of-date).
+            existing_points = await self.qdrant_client.scroll_all_points(
+                collection,
+                filter_=self._qdrant_filter_for_source(source_id),
+                limit=512,
+                with_payload=True,
+                with_vectors=False,
             )
+            existing_ids: list[str] = []
+            for item in existing_points:
+                payload = item.get("payload") or {}
+                cid = payload.get("chunk_id")
+                if isinstance(cid, str) and cid:
+                    existing_ids.append(cid)
+
             stale_ids = [cid for cid in existing_ids if cid not in delivered_ids]
             if not stale_ids:
                 continue
@@ -323,7 +349,11 @@ class IngestionService:
             # Delete from Qdrant (UUIDv5) and mirror
             point_uuids = [str(uuid5(NAMESPACE_DNS, cid)) for cid in stale_ids]
             await self.qdrant_client.delete_points(collection, point_uuids)
-            await self.mirror_repository.delete_chunks(collection, stale_ids)
+            # Best-effort: mirror cleanup should not block sync.
+            try:
+                await self.mirror_repository.delete_chunks(collection, stale_ids)
+            except Exception:
+                pass
 
         return (total_sources, total_stale)
 

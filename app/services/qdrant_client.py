@@ -1,7 +1,7 @@
 """Thin async wrapper for Qdrant's HTTP API."""
 from __future__ import annotations
 
-from typing import Iterable, List, Mapping, Sequence
+from typing import Iterable, List, Mapping, Sequence, Tuple
 
 import httpx
 
@@ -205,6 +205,76 @@ class QdrantClient:
             data = response.json()
             result = data.get("result", {})
             return result.get("points", []) or []
+
+    async def scroll_points_page(
+        self,
+        collection: str,
+        *,
+        filter_: Mapping[str, object] | None = None,
+        limit: int = 128,
+        offset: object | None = None,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> Tuple[List[Mapping[str, object]], object | None]:
+        """Scroll one page of points, returning (points, next_page_offset).
+
+        Qdrant returns `result.next_page_offset` which must be provided as `offset`
+        to retrieve the next page. When it is absent/None, the scan is complete.
+        """
+
+        payload: dict[str, object] = {
+            "limit": limit,
+            "with_payload": with_payload,
+            "with_vector": with_vectors,
+        }
+        if filter_ is not None:
+            payload["filter"] = filter_
+        if offset is not None:
+            payload["offset"] = offset
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.post(
+                f"{self.base_url}/collections/{collection}/points/scroll",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            result = data.get("result", {}) or {}
+            points = result.get("points", []) or []
+            next_offset = result.get("next_page_offset")
+            return points, next_offset
+
+    async def scroll_all_points(
+        self,
+        collection: str,
+        *,
+        filter_: Mapping[str, object] | None = None,
+        limit: int = 256,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+        max_pages: int = 10_000,
+    ) -> List[Mapping[str, object]]:
+        """Scroll all matching points (handles pagination).
+
+        This is intentionally conservative (max_pages) to avoid infinite loops if
+        a server returns a cyclic offset for some reason.
+        """
+
+        all_points: List[Mapping[str, object]] = []
+        offset: object | None = None
+        for _ in range(max_pages):
+            points, offset = await self.scroll_points_page(
+                collection,
+                filter_=filter_,
+                limit=limit,
+                offset=offset,
+                with_payload=with_payload,
+                with_vectors=with_vectors,
+            )
+            all_points.extend(points)
+            if offset is None:
+                break
+        return all_points
 
     async def search_points(
         self,

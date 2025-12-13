@@ -54,3 +54,4 @@ def downgrade() -> None:
     op.drop_table("retrieval_events")
 
 
+

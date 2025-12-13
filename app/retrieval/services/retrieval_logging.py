@@ -22,9 +22,51 @@ def _now() -> datetime:
 
 
 def _extract_metadata(snippet: RetrievedSnippet) -> Mapping[str, Any]:
-    payload = snippet.payload or {}
-    nested = payload.get("payload") or payload
-    return nested.get("metadata") or {}
+    """
+    Return best-effort metadata for a retrieved snippet.
+
+    Historically, some payloads looked like:
+      {"payload": {"metadata": {...}, "text": "..."}}
+    while current ingestion stores a *flat* payload:
+      {"payload": {"source_id": "...", "chunk_type": "...", ..., "text": "..."}}
+    """
+
+    outer: Mapping[str, Any] = snippet.payload or {}
+
+    # Qdrant search/scroll results are typically a wrapper with a "payload" field.
+    inner = outer.get("payload")
+    nested: Mapping[str, Any]
+    if isinstance(inner, Mapping):
+        nested = inner
+    else:
+        nested = outer
+
+    # Prefer explicitly nested metadata if present.
+    md = nested.get("metadata")
+    if isinstance(md, Mapping):
+        # Merge with flat keys (without text) to keep logs useful even if metadata is partial.
+        base = {k: v for k, v in nested.items() if k != "text"}
+        merged = dict(base)
+        merged.update(dict(md))
+        return merged
+
+    # Fall back to the (flat) payload minus text if it looks like chunk metadata.
+    if any(
+        key in nested
+        for key in (
+            "chunk_id",
+            "source_id",
+            "chunk_type",
+            "content_hash",
+            "language",
+            "worldview",
+            "importance",
+            "book_id",
+        )
+    ):
+        return {k: v for k, v in nested.items() if k != "text"}
+
+    return {}
 
 
 class RetrievalLoggingRepository:

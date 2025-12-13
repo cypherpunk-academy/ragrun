@@ -24,7 +24,8 @@ async def _embed(concept: str, embedding_client: EmbeddingClient) -> Sequence[fl
 
 
 def _qdrant_filter_for_source(source_id: str) -> dict[str, object]:
-    return {"must": [{"key": "metadata.source_id", "match": {"value": source_id}}]}
+    # Ingestion stores source_id as a flat payload field.
+    return {"must": [{"key": "source_id", "match": {"value": source_id}}]}
 
 
 async def _expand_summaries(
@@ -34,10 +35,15 @@ async def _expand_summaries(
     qdrant_client: QdrantClient,
 ) -> list[RetrievedSnippet]:
     expanded: list[RetrievedSnippet] = []
+    def _payload(hit: RetrievedSnippet) -> dict[str, object]:
+        p = hit.payload or {}
+        inner = p.get("payload")
+        return dict(inner) if isinstance(inner, dict) else dict(p)  # best-effort
+
     source_ids = {
-        str(h.payload.get("payload", {}).get("metadata", {}).get("source_id"))
+        str(_payload(h).get("source_id") or "")
         for h in hits
-        if h.payload.get("payload", {}).get("metadata", {}).get("chunk_type") in SUMMARY_TYPES
+        if _payload(h).get("chunk_type") in SUMMARY_TYPES
     }
     for src in source_ids:
         if not src:
