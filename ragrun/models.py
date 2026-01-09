@@ -50,7 +50,10 @@ class ChunkMetadata(BaseModel):
     )
     chunk_id: str = Field(..., description="Unique chunk identifier (must match point id).")
     chunk_type: constr(strip_whitespace=True) = Field(..., description="Chunk category enum.")
-    worldview: Optional[str] = Field(None, description="Assistant affinity tag (e.g., Idealismus).")
+    worldviews: Optional[List[str]] = Field(
+        None,
+        description="List of worldviews where this chunk is a reference.",
+    )
     importance: int = Field(
         5,
         ge=1,
@@ -83,6 +86,28 @@ class ChunkMetadata(BaseModel):
         return value
 
     @classmethod
+    def _normalize_worldviews(cls, payload: dict) -> None:
+        """Ensure worldviews is a list of strings and reject legacy worldview."""
+
+        if "worldview" in payload and payload.get("worldview") is not None:
+            raise ValueError("legacy 'worldview' is no longer supported; use 'worldviews' array")
+
+        worldviews = payload.get("worldviews")
+        if worldviews is None:
+            return
+        if not isinstance(worldviews, list):
+            raise ValueError("'worldviews' must be a list of strings")
+
+        normalized: list[str] = []
+        for entry in worldviews:
+            if not isinstance(entry, str) or not entry.strip():
+                raise ValueError("'worldviews' entries must be non-empty strings")
+            normalized.append(entry.strip())
+
+        # Deduplicate while preserving order
+        payload["worldviews"] = list(dict.fromkeys(normalized))
+
+    @classmethod
     def from_payload(cls, payload: dict) -> "ChunkMetadata":
         """Parse metadata, applying enum validation for chunk_type."""
 
@@ -90,6 +115,7 @@ class ChunkMetadata(BaseModel):
         if chunk_type is None:
             raise ValueError("chunk_type is required")
         payload["chunk_type"] = cls.validate_chunk_type(chunk_type)
+        cls._normalize_worldviews(payload)
         return cls(**payload)
 
 

@@ -28,6 +28,10 @@ class ChunkMirrorRepository:
         rows: List[dict] = []
         for chunk in chunk_list:
             metadata = chunk.metadata
+            # Legacy column "worldview" (single) – map to first entry of worldviews for compatibility.
+            worldview_single = None
+            if metadata.worldviews:
+                worldview_single = metadata.worldviews[0]
             rows.append(
                 {
                     "collection": collection,
@@ -35,7 +39,7 @@ class ChunkMirrorRepository:
                     "source_id": metadata.source_id,
                     "chunk_type": metadata.chunk_type,
                     "language": metadata.language,
-                    "worldview": metadata.worldview,
+                    "worldview": worldview_single,
                     "importance": metadata.importance,
                     "content_hash": metadata.content_hash,
                     "text": chunk.text,

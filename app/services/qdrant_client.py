@@ -140,6 +140,9 @@ class QdrantClient:
                 f"{self.base_url}/collections/{collection}/points",
                 json=payload,
             )
+            if response.status_code == 404:
+                # Collection does not exist yet: treat as empty so ingestion can create it later.
+                return []
             response.raise_for_status()
             data = response.json()
             return data.get("result", []) or []
@@ -201,6 +204,8 @@ class QdrantClient:
                 f"{self.base_url}/collections/{collection}/points/scroll",
                 json=payload,
             )
+            if response.status_code == 404:
+                return []
             response.raise_for_status()
             data = response.json()
             result = data.get("result", {})
@@ -237,6 +242,8 @@ class QdrantClient:
                 f"{self.base_url}/collections/{collection}/points/scroll",
                 json=payload,
             )
+            if response.status_code == 404:
+                return [], None
             response.raise_for_status()
             data = response.json()
             result = data.get("result", {}) or {}

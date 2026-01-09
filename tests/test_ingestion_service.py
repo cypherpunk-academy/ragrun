@@ -29,7 +29,7 @@ def _chunk_payload(chunk_id: str, content_hash: str) -> dict[str, object]:
             "parent_id": None,
             "chunk_id": chunk_id,
             "chunk_type": "book",
-            "worldview": "Idealismus",
+            "worldviews": ["Idealismus"],
             "importance": 5,
             "text": f"text for {chunk_id}",
             "content_hash": content_hash,
@@ -240,3 +240,19 @@ async def test_delete_chunks_invokes_backends():
     assert qdrant_client.deletes[0]["ids"] == expected_uuids
     assert mirror.deletes[0]["chunk_ids"] == chunk_ids
 
+
+def test_chunk_record_rejects_legacy_worldview_field():
+    payload = _chunk_payload("legacy-worldview", "hash-legacy")
+    payload["metadata"].pop("worldviews", None)
+    payload["metadata"]["worldview"] = "Idealismus"
+
+    with pytest.raises(ValueError):
+        ChunkRecord.from_dict(payload)
+
+
+def test_chunk_record_requires_worldviews_list_of_strings():
+    payload = _chunk_payload("bad-worldviews", "hash-bad")
+    payload["metadata"]["worldviews"] = "Idealismus"  # not a list
+
+    with pytest.raises(ValueError):
+        ChunkRecord.from_dict(payload)
