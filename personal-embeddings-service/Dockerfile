@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ARG RAGKEEP_PROJECT_ROOT=ragkeep
+
 WORKDIR /app
 
 # Install system dependencies
@@ -15,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./app/assistants
 
 # Create model cache directory
 RUN mkdir -p /app/models
