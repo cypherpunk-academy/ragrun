@@ -383,4 +383,3 @@ class QdrantClient:
             data = response.json()
             result = data.get("result", {}) or {}
             return result.get("points", []) or []
-

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from app.retrieval.chains.concept_explain import run_concept_explain_chain
 from app.retrieval.models import ConceptExplainResult
-from app.services.deepseek_client import DeepSeekClient
-from app.services.embedding_client import EmbeddingClient
-from app.services.qdrant_client import QdrantClient
+from app.infra.deepseek_client import DeepSeekClient
+from app.infra.embedding_client import EmbeddingClient
+from app.infra.qdrant_client import QdrantClient
 
 
 async def run_concept_explain_graph(

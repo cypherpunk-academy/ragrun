@@ -5,9 +5,9 @@ from typing import Iterable, Sequence
 
 from app.retrieval.models import ConceptExplainResult, RetrievedSnippet
 from app.retrieval.prompts.philo_von_freisinn import build_concept_explain_prompt
-from app.services.deepseek_client import DeepSeekClient
-from app.services.embedding_client import EmbeddingClient
-from app.services.qdrant_client import QdrantClient
+from app.infra.deepseek_client import DeepSeekClient
+from app.infra.embedding_client import EmbeddingClient
+from app.infra.qdrant_client import QdrantClient
 
 
 SUMMARY_TYPES = {

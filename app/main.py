@@ -10,6 +10,9 @@ from fastapi import FastAPI
 from .config import settings
 from .api import rag as rag_router
 from .retrieval.api import router as retrieval_router
+from .core.providers import (
+    get_deepseek_reasoner_client,
+)
 
 app = FastAPI(
     title="ragrun API",
@@ -61,6 +64,22 @@ async def healthz() -> Dict[str, Any]:
             _probe(client, langfuse_health_url),
         )
 
+    deepseek_probe: Dict[str, Any] | None = None
+    if settings.deepseek_model_probe and settings.deepseek_api_key:
+        try:
+            reasoner = get_deepseek_reasoner_client()
+            models = await reasoner.list_models()
+            deepseek_probe = {
+                "status": "healthy",
+                "models_count": len(models),
+                "configured_reasoner": reasoner.model,
+                "configured_chat": settings.deepseek_chat_model,
+            }
+            if reasoner.model and models and reasoner.model not in models:
+                deepseek_probe["warning"] = "configured reasoner model not reported by /models"
+        except Exception as exc:  # pragma: no cover - best effort
+            deepseek_probe = {"status": "unhealthy", "error": str(exc)}
+
     return {
         "status": "ok",
         "environment": settings.app_env,
@@ -68,6 +87,7 @@ async def healthz() -> Dict[str, Any]:
             "qdrant": probes[0],
             "embedding_service": probes[1],
             "langfuse": probes[2],
+            "deepseek": deepseek_probe or {"status": "disabled"},
         },
     }
 

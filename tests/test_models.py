@@ -19,7 +19,7 @@ def base_metadata_dict():
         "parent_id": None,
         "chunk_id": "philo-book1-chunk-0005",
         "chunk_type": "book",
-        "worldview": "Idealismus",
+        "worldviews": ["Idealismus"],
         "importance": 5,
         "text": "Example chunk text",
         "content_hash": "sha256:abc",

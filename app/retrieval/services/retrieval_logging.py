@@ -59,7 +59,7 @@ def _extract_metadata(snippet: RetrievedSnippet) -> Mapping[str, Any]:
             "chunk_type",
             "content_hash",
             "language",
-            "worldview",
+            "worldviews",
             "importance",
             "book_id",
         )

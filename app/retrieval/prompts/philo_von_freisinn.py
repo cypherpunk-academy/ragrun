@@ -26,6 +26,24 @@ def load_system_prompt() -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
+@lru_cache(maxsize=1)
+def load_concept_explain_user_template() -> str:
+    """Load concept-explain user prompt template (cached)."""
+    prompt_path = (
+        Path(__file__)
+        .resolve()
+        .parents[2]
+        / "assistants"
+        / "philo-von-freisinn"
+        / "assistant"
+        / "prompts"
+        / "concept-explain-user.prompt"
+    )
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"Concept explain prompt file not found: {prompt_path}")
+    return prompt_path.read_text(encoding="utf-8").strip()
+
+
 def build_concept_explain_prompt(
     concept: str,
     primary: Iterable[RetrievedSnippet],
@@ -46,17 +64,8 @@ def build_concept_explain_prompt(
     context_block = "\n".join(context_lines)
 
     system = load_system_prompt()
-    user = "\n".join(
-        [
-            f'Definiere den Begriff "{concept}" knapp und sachlich.',
-            "Nutze ausschließlich den gelieferten Kontext; keine Fremdquellen.",
-            "Keine Beispiele, keine Namen, keine Zitate, kein Ausschmücken.",
-            "Insgesamt 200 bis maximal 300 Tokens.",
-            "",
-            "Kontext:",
-            context_block,
-        ]
-    )
+    template = load_concept_explain_user_template()
+    user = template.format(concept=concept, context=context_block)
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},

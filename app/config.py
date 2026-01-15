@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     postgres_dsn: str = "postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun"
     embeddings_base_url: AnyHttpUrl = "http://embedding-service:8001"
+    deepseek_base_url: AnyHttpUrl = "https://api.deepseek.com"
 
     langfuse_host: Optional[str] = None
     langfuse_public_key: Optional[str] = None
@@ -28,6 +29,15 @@ class Settings(BaseSettings):
     telemetry_timeout_seconds: float = 2.0
 
     deepseek_api_key: Optional[str] = None
+    deepseek_reasoner_model: Optional[str] = "deepseek-reasoner"
+    deepseek_chat_model: Optional[str] = "deepseek-chat"
+    deepseek_model_probe: bool = True
+
+    use_hybrid_retrieval: bool = False
+    hybrid_prefer_short_concepts: bool = True
+    hybrid_short_concept_max_words: int = 2
+    hybrid_short_concept_max_chars: int = 32
+    hybrid_fallback_on_thin: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -9,16 +9,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
-from ragrun.models import ChunkRecord
+from ..shared.models import ChunkRecord
 
 from ..config import settings
 from ..db.session import get_engine
 from ..db.tables import chunks_table
-from ..services.embedding_client import EmbeddingClient
-from ..services.ingestion_service import IngestionService
-from ..services.mirror_repository import ChunkMirrorRepository
-from ..services.qdrant_client import QdrantClient
-from ..services.telemetry import telemetry_client as ingestion_telemetry
+from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine
+from ..core.telemetry import telemetry_client as ingestion_telemetry
+from ..ingestion.repositories import ChunkMirrorRepository
+from ..ingestion.services import IngestionService
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -130,15 +129,9 @@ def get_ingestion_service() -> IngestionService:
 
 @lru_cache(maxsize=1)
 def _get_ingestion_service() -> IngestionService:
-    embedding_client = EmbeddingClient(
-        settings.embeddings_base_url,
-        batch_size=64,
-    )
-    qdrant_client = QdrantClient(
-        settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-    )
-    mirror_repository = ChunkMirrorRepository(get_engine())
+    embedding_client = get_embedding_client(batch_size=64)
+    qdrant_client = get_qdrant_client()
+    mirror_repository = ChunkMirrorRepository(get_sync_engine())
     return IngestionService(
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
@@ -276,10 +269,7 @@ async def list_chunks(request: ListChunksRequest) -> ListChunksResponse:
             status_code=status.HTTP_400_BAD_REQUEST, detail="source_id must not be empty"
         )
 
-    qdrant_client = QdrantClient(
-        settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-    )
+    qdrant_client = get_qdrant_client()
 
     out: list[ListedChunk] = []
     offset: object | None = None
@@ -407,10 +397,7 @@ async def delete_chunks(
         if matched == 0:
             # Best-effort only: dry-run should never fail just because Qdrant is down.
             try:
-                qdrant_client = QdrantClient(
-                    settings.qdrant_url,
-                    api_key=settings.qdrant_api_key,
-                )
+                qdrant_client = get_qdrant_client()
                 if request.all:
                     # Without a limit, this could be very expensive.
                     if request.limit is None:
@@ -474,10 +461,7 @@ async def delete_chunks(
 
     # Fallback: if mirror has no rows but Qdrant still has points, delete via Qdrant filter.
     if not chunk_ids:
-        qdrant_client = QdrantClient(
-            settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-        )
+        qdrant_client = get_qdrant_client()
         if request.all:
             # Deleting "all" without a mirror can be dangerously expensive; require an explicit limit.
             if request.limit is None:
@@ -641,10 +625,7 @@ async def list_book_titles(
 async def list_collections() -> Dict[str, Any]:
     """List all collections from Qdrant."""
 
-    qdrant_client = QdrantClient(
-        settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-    )
+    qdrant_client = get_qdrant_client()
 
     collections = await qdrant_client.list_collections()
 

@@ -65,6 +65,45 @@ class RetrievalTelemetry:
             # Telemetry must never break retrieval.
             return
 
+    async def record_worldviews(
+        self,
+        *,
+        trace_id: Optional[str],
+        graph_id: Optional[str],
+        concept: str,
+        worldviews: int,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Generic event for concept-explain-worldviews runs."""
+
+        if not self.enabled or not self._endpoint:
+            return
+
+        payload: Dict[str, Any] = {
+            "traceId": trace_id,
+            "name": "concept_explain_worldviews",
+            "timestamp": int(time.time() * 1000),
+            "dataset": self.dataset,
+            "metadata": {
+                "graph_id": graph_id,
+                "concept": concept,
+                "worldviews": worldviews,
+                **(metadata or {}),
+            },
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-Langfuse-Public-Key": self.public_key,
+            "X-Langfuse-Secret-Key": self.secret_key,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=settings.telemetry_timeout_seconds) as client:
+                await client.post(self._endpoint, json=payload, headers=headers)
+        except Exception:
+            return
+
 
 retrieval_telemetry = RetrievalTelemetry()
 

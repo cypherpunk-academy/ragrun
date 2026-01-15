@@ -28,7 +28,7 @@ def _chunk_payload(chunk_id: str) -> dict[str, object]:
             "parent_id": None,
             "chunk_id": chunk_id,
             "chunk_type": "book",
-            "worldview": "Idealismus",
+            "worldviews": ["Idealismus"],
             "importance": 5,
             "text": f"text {chunk_id}",
             "content_hash": f"hash-{chunk_id}",

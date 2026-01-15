@@ -7,6 +7,7 @@ A self-hosted embedding service using T-Systems-onsite/cross-en-de-roberta-sente
 -   **Self-hosted**: No external API dependencies, complete privacy control
 -   **German/English-optimized embeddings**: Uses `T-Systems-onsite/cross-en-de-roberta-sentence-transformer` (768 dimensions)
 -   **Fast and efficient**: Optimized for both single requests and batch processing
+-   **Deterministic pooling**: Explicit mean-pooling pipeline avoids auto-fallback warnings
 -   **German number handling**: Improved handling of different number formats (e.g., "12" vs "zwölf")
 -   **Cross-lingual capabilities**: Handles both German and English with strong semantic understanding
 -   **GPU support**: Automatic GPU detection and utilization

@@ -7,9 +7,9 @@ from app.retrieval.services.retrieval_logging import (
     RetrievalLoggingRepository,
     enqueue_log_concept_explain,
 )
-from app.services.deepseek_client import DeepSeekClient
-from app.services.embedding_client import EmbeddingClient
-from app.services.qdrant_client import QdrantClient
+from app.infra.deepseek_client import DeepSeekClient
+from app.infra.embedding_client import EmbeddingClient
+from app.infra.qdrant_client import QdrantClient
 
 
 class ConceptExplainService:

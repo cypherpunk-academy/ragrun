@@ -9,26 +9,27 @@ Aktueller Stand (Dez 2025)
 - Entry Point: `app/main.py` startet FastAPI, registriert zwei Router (`/api/v1/rag` für Ingestion/Deletion, `/api/v1/agent/philo-von-freisinn` für Retrieval/Concept-Explain) und bündelt Health-Checks (Qdrant, Embedding-Service, LangFuse).
 - Konfiguration: `app/config.py` (Pydantic Settings, Prefx `RAGRUN_`) liefert URLs/Keys für Qdrant, Postgres, Embedding-Service, LangFuse, DeepSeek.
 - Infrastruktur:
-  - Qdrant: `services/qdrant_client.py` minimaler HTTP-Wrapper für Ensure/Upsert/Delete/Search/Scroll/Retrieve.
-  - Embeddings: `services/embedding_client.py` ruft den personal embedding service batchweise auf.
-  - LLM: `services/deepseek_client.py` (reiner Chat-Call).
+  - Qdrant: `infra/qdrant_client.py` minimaler HTTP-Wrapper für Ensure/Upsert/Delete/Search/Scroll/Retrieve.
+  - Embeddings: `infra/embedding_client.py` ruft den personal embedding service batchweise auf.
+  - LLM: `infra/deepseek_client.py` (reiner Chat-Call).
   - Persistenz: `db/tables.py` + `db/session.py` definieren ein relationales Mirror-Table (`rag_chunks`) und einen SQLAlchemy-Engine-Fabrikator.
-  - Mirror: `services/mirror_repository.py` schreibt/liest Chunk-Metadaten in das Mirror-Table (Upsert/Delete/List per Source).
-  - Telemetrie: `services/telemetry.py` sendet best-effort Ingestion-Metriken an LangFuse (falls konfiguriert).
+  - Mirror: `ingestion/repositories/mirror_repository.py` schreibt/liest Chunk-Metadaten in das Mirror-Table (Upsert/Delete/List per Source).
+  - Telemetrie: `core/telemetry.py` sendet best-effort Ingestion-Metriken an LangFuse (falls konfiguriert).
 - Ingestion-Pfad (API `POST /api/v1/rag/upload-chunks`):
   - `api/rag.py` parst JSONL zu `ChunkRecord` (aus `ragrun.models`), validiert und ruft `IngestionService`.
   - `IngestionService` orchestriert: Dedupe → Klassifikation (unchanged/changed/new) via bestehender Payloads (Qdrant-Retrieve) → Embedding der geänderten/neuen Chunks → `ensure_collection` + Upsert in Qdrant → Payload-Update für unveränderte → Mirror-Upsert in Postgres → optionaler Cleanup alter Chunk-IDs pro Source → optional LangFuse-Metrik.
+  - Sparse/BM25: Qdrant benötigt einen Text-Index auf dem Payload-Feld `text`. Die Ingestion stellt den Index nun automatisch sicher. Für bereits vorhandene Collections muss der Index einmalig erzeugt werden (z. B. `POST /collections/{collection}/index` mit `{"field_name":"text","field_schema":{"type":"text"}}`) oder per Re-Ingestion.
   - Löschpfad `POST /api/v1/rag/delete-chunks` holt Chunk-IDs aus dem Mirror und löscht sie in Qdrant + Mirror.
   - Listing `GET /api/v1/rag/books/titles` liest ausschließlich aus dem Mirror (SQL).
 - Retrieval/Concept-Explain (API `POST /api/v1/agent/philo-von-freisinn/retrieval/concept-explain`):
   - `api/concept_explain.py` baut Service-Layer via Lazy-Singletons.
   - `ConceptExplainService`: embed des Begriffs → Vektor-Suche in Qdrant (`k` Treffer) → optionale Summary-Expansion (Scroll nach `source_id`, nur für summary-chunk-types) → Prompt-Bau → Aufruf DeepSeek → Rückgabe mit Primär- und Expanded-Treffern. Kein Standard-RAG-Fallback implementiert; Chat-Endpunkt liefert 501 für generische Prompts.
 - Beobachtungen/Gaps:
-  - Ingestion- und Retrieval-Logik liegen nebeneinander, aber teilen Clients direkt; es gibt keine klare Modulgrenze oder Abhängigkeitsrichtung.
+  - Ingestion- und Retrieval-Logik liegen nun unter `ingestion/` bzw. `retrieval/`, teilen Infrastruktur über `core/providers`, aber die Domänendienste sind noch nicht vollständig entkoppelt.
   - LangChain/LangGraph werden derzeit gar nicht genutzt; Orchestrierung liegt in manuell geschriebenen Services.
-  - LangFuse ist nur im Ingestion-Pfad verankert; kein end-to-end Tracing für Retrieval/Agents.
-  - Dependency Injection / Lifecycle-Management der Clients ist auf LRU-Caches und ad-hoc Konstruktion beschränkt.
-  - Gemeinsame Domänenmodelle (Chunk, Source, Query) sind verstreut (teils in `ragrun.models`, teils als Payload-Dicts).
+  - LangFuse ist für Ingestion und Retrieval über best-effort Hooks angebunden; end-to-end Tracing/Spans fehlen.
+  - Dependency Injection / Lifecycle-Management der Clients erfolgt jetzt zentral via `core/providers`, aber es gibt noch keine konfigurierbaren Scopes (Request/Graph).
+  - Gemeinsame Domänenmodelle (Chunk, Source, Query) sind über `shared/models.py` re-exportiert; Payload-Dicts tauchen dennoch an mehreren Stellen auf.
 
 
 Zielbild: klare Trennung & explizite Orchestrierung
