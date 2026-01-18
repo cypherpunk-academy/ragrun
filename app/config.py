@@ -1,4 +1,5 @@
 """Runtime configuration for the ragrun FastAPI service."""
+import os
 from functools import lru_cache
 from typing import Optional
 
@@ -39,8 +40,25 @@ class Settings(BaseSettings):
     hybrid_short_concept_max_chars: int = 32
     hybrid_fallback_on_thin: bool = True
 
+    # concept_explain_worldviews graph retrieval sizing (final reranked chunk counts)
+    # Note: base and widen sizes are derived from these finals in the graph to ensure
+    # the system can actually return up to k_final (i.e. widen/base are >= k_final).
+    cewv_k_final_concept: int = 6
+    cewv_k_final_context1: int = 4
+    cewv_k_final_context2: int = 6
+
+    # In some environments (e.g. restricted sandboxes) a present `.env` file may be
+    # unreadable; fall back to environment variables only in that case.
+    _env_file: str | None = ".env"
+    try:
+        if _env_file and os.path.exists(_env_file):
+            with open(_env_file, "rb"):
+                pass
+    except OSError:
+        _env_file = None
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_env_file,
         env_prefix="RAGRUN_",
         env_ignore_empty=True,
         extra="ignore",

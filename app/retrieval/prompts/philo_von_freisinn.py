@@ -19,7 +19,7 @@ def load_system_prompt() -> str:
         / "philo-von-freisinn"
         / "assistant"
         / "prompts"
-        / "instruction.md"
+        / "instruction.prompt"
     )
     if not prompt_path.is_file():
         raise FileNotFoundError(f"System prompt file not found: {prompt_path}")

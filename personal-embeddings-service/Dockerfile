@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+RUN rm -rf /app/app/assistants
 COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./app/assistants
 
 # Create model cache directory

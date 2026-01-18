@@ -25,6 +25,7 @@ async def run_concept_explain_worldviews_chain(
     cfg: RetrievalConfig | None = None,
     hybrid: bool | None = None,
     max_concurrency: int = 4,
+    verbose: bool = False,
 ) -> ConceptExplainWorldviewsResult:
     return await run_concept_explain_worldviews_graph(
         concept=concept,
@@ -37,4 +38,5 @@ async def run_concept_explain_worldviews_chain(
         cfg=cfg,
         hybrid=hybrid,
         max_concurrency=max_concurrency,
+        verbose=verbose,
     )

@@ -37,7 +37,13 @@ class ConceptExplainWorldviewsService:
         self.hybrid = hybrid
         self.cfg = cfg
 
-    async def explain(self, *, concept: str, worldviews: Sequence[str]) -> ConceptExplainWorldviewsResult:
+    async def explain(
+        self,
+        *,
+        concept: str,
+        worldviews: Sequence[str],
+        verbose: bool = False,
+    ) -> ConceptExplainWorldviewsResult:
         return await run_concept_explain_worldviews_chain(
             concept=concept,
             worldviews=worldviews,
@@ -49,4 +55,5 @@ class ConceptExplainWorldviewsService:
             cfg=self.cfg,
             hybrid=self.hybrid,
             max_concurrency=self.max_concurrency,
+            verbose=verbose,
         )

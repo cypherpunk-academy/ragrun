@@ -7,6 +7,7 @@ from app.retrieval.graphs.concept_explain_worldviews import (
     RetrievalConfig,
     run_concept_explain_worldviews_graph,
 )
+from app.retrieval.prompts.concept_explain_worldviews import build_philo_explain_prompt
 from app.retrieval.models import WorldviewAnswer
 
 
@@ -34,6 +35,22 @@ class FakeQdrantClient:
             )
         return hits
 
+    async def search_sparse_points(self, *, collection: str, text: str, limit: int = 10, filter_=None):
+        # mirror search_points shape for sparse retrieval
+        self.counter += 1
+        hits = []
+        for i in range(limit):
+            hits.append(
+                {
+                    "score": 1.0 / (i + 1),
+                    "payload": {
+                        "text": f"sparse-snippet-{self.counter}-{i}:{text[:12]}",
+                        "chunk_id": f"s{self.counter}-{i}",
+                    },
+                }
+            )
+        return hits
+
 
 class FakeDeepSeekClient:
     def __init__(self, tag: str):
@@ -42,7 +59,10 @@ class FakeDeepSeekClient:
     async def chat(self, messages, temperature=0.2, max_tokens=300):
         # echo short content for determinism
         last = messages[-1]["content"] if messages else ""
-        return f"{self.tag}:{last[:40]}"
+        # The production graph enforces sentence-end + minimum-length checks.
+        # Return a stable, sufficiently long, sentence-terminated response.
+        base = f"{self.tag}:{last[:40]}."
+        return base + (" x" * 1200) + "."
 
     async def list_models(self):
         return [self.tag]
@@ -77,3 +97,12 @@ async def test_worldviews_graph_basic():
     assert names == ["WV1", "WV2"]
     # Check sufficiency field exists
     assert all(w.sufficiency for w in result.worldviews)
+
+
+def test_philo_prompt_roles_are_system_then_user():
+    messages = build_philo_explain_prompt(concept="denken", context="CTX")
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    # quick sanity: user template should lead with the task, not persona
+    assert messages[1]["content"].lstrip().startswith("Erkläre den Begriff")

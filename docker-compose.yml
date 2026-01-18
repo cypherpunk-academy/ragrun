@@ -22,7 +22,10 @@ services:
 
   embedding-service:
     build:
-      context: ./personal-embeddings-service
+      context: .
+      dockerfile: personal-embeddings-service/Dockerfile
+      args:
+        RAGKEEP_PROJECT_ROOT: ragkeep
     container_name: ragrun-embeddings
     environment:
       USE_HALF_PRECISION: "false"
@@ -32,10 +35,13 @@ services:
       - qdrant
 
   ragrun-api:
-    build: .
+    build:
+      context: .
+      args:
+        RAGKEEP_PROJECT_ROOT: ragkeep
     container_name: ragrun-api
-    # env_file:
-    #   - .env
+    env_file:
+      - .env
     environment:
       RAGRUN_APP_ENV: docker
       RAGRUN_QDRANT_URL: http://qdrant:6333

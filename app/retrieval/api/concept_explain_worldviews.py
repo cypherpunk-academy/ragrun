@@ -59,6 +59,7 @@ class ConceptExplainWorldviewsResponse(BaseModel):
 class ConceptExplainWorldviewsRequest(BaseModel):
     concept: str = Field(..., min_length=1)
     worldviews: List[str] = Field(..., min_items=1)
+    verbose: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -91,7 +92,7 @@ async def concept_explain_worldviews(
 
     try:
         result: ConceptExplainWorldviewsResult = await service.explain(
-            concept=concept, worldviews=worldviews
+            concept=concept, worldviews=worldviews, verbose=request.verbose
         )
     except Exception as exc:
         raise HTTPException(

@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import operator
+import re
 import uuid
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Iterable, List, Mapping, Optional, Sequence
 
@@ -27,8 +29,107 @@ from app.retrieval.utils.retrievers import (
     rerank_by_embedding,
     sparse_retrieve,
 )
+from app.retrieval.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
+LIGHT_RED = "\x1b[91m"
+RESET_COLOR = "\x1b[0m"
+SENTENCE_END_RE = re.compile(r"[.!?][\"'”»\)\]]?\s*$")
+
+
+class RetryableCompletionError(RuntimeError):
+    """Retryable error when the model response is too short or incomplete."""
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    if isinstance(exc, RetryableCompletionError):
+        return True
+    message = str(exc).lower()
+    if "deepseek returned empty content" in message:
+        return True
+    if "deepseek returned no choices" in message:
+        return True
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return bool(status_code and status_code >= 500)
+
+
+async def _chat_with_retry(
+    client: DeepSeekClient,
+    messages: Sequence[Mapping[str, str]],
+    *,
+    temperature: float,
+    max_tokens: int,
+    operation: str,
+    min_chars: int | None = None,
+    require_sentence_end: bool = True,
+    completion_instruction: str = "Schließe den Text sauber ab. Setze einen klaren Schlusssatz.",
+    verbose: bool = False,
+) -> tuple[str, list[Mapping[str, str]]]:
+    nonce = datetime.now(timezone.utc).isoformat()
+    nonce_message = {"role": "system", "content": f"nonce: {nonce} (ignore)"}
+    outbound_messages = [nonce_message, *messages]
+
+    def _log_prompt(prompt_messages: Sequence[Mapping[str, str]]) -> None:
+        if not verbose:
+            return
+        formatted = "\n\n".join(
+            f"[{m.get('role', 'unknown')}]\n{m.get('content', '')}" for m in prompt_messages
+        )
+        logger.warning(
+            "%sPrompt for %s:\n%s%s",
+            LIGHT_RED,
+            operation,
+            formatted,
+            RESET_COLOR,
+        )
+
+    def _is_incomplete(text: str) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return True
+        if require_sentence_end and not SENTENCE_END_RE.search(stripped):
+            return True
+        if min_chars is not None and len(stripped) < min_chars:
+            return True
+        return False
+
+    async def _run_once() -> tuple[str, list[Mapping[str, str]]]:
+        _log_prompt(outbound_messages)
+        result = await client.chat(outbound_messages, temperature=temperature, max_tokens=max_tokens)
+
+        if require_sentence_end and not SENTENCE_END_RE.search(result.strip()):
+            completion_nonce = datetime.now(timezone.utc).isoformat()
+            completion_messages = [
+                {"role": "system", "content": f"nonce: {completion_nonce} (ignore)"},
+                *messages,
+                {"role": "assistant", "content": result},
+                {"role": "user", "content": completion_instruction},
+            ]
+            _log_prompt(completion_messages)
+            completion = await client.chat(
+                completion_messages, temperature=temperature, max_tokens=max_tokens
+            )
+            combined = f"{result.rstrip()} {completion.lstrip()}".strip()
+            if _is_incomplete(combined):
+                raise RetryableCompletionError("Completion produced an incomplete response")
+            return combined, completion_messages
+
+        if _is_incomplete(result):
+            raise RetryableCompletionError("Response too short or incomplete")
+
+        return result, outbound_messages
+
+    return await retry_async(
+        _run_once,
+        retries=3,
+        base_delay=1.0,
+        max_delay=8.0,
+        jitter=0.2,
+        retry_on=_is_retryable_llm_error,
+        logger=logger,
+        operation=operation,
+    )
 
 @dataclass(slots=True)
 class RetrievalConfig:
@@ -181,13 +282,37 @@ async def run_concept_explain_worldviews_graph(
     hybrid: bool | None = None,
     max_concurrency: int = 4,
     event_recorder: GraphEventRecorder | None = None,
+    verbose: bool = False,
 ) -> ConceptExplainWorldviewsResult:
     if not concept or not concept.strip():
         raise ValueError("concept is required")
     if not worldviews:
         raise ValueError("worldviews must not be empty")
 
-    cfg = cfg or RetrievalConfig()
+    # If caller did not supply a RetrievalConfig, derive it from defaults + settings.
+    # Important: k_final values cap the number of chunks we keep after reranking; to
+    # actually return N chunks, k_base / widen_to must be >= N as well.
+    if cfg is None:
+        defaults = RetrievalConfig()
+        k_final_concept = settings.cewv_k_final_concept
+        k_final_context1 = settings.cewv_k_final_context1
+        k_final_context2 = settings.cewv_k_final_context2
+
+        cfg = RetrievalConfig(
+            k_base_concept=max(defaults.k_base_concept, k_final_concept),
+            k_base_context1=max(defaults.k_base_context1, k_final_context1),
+            k_base_context2=max(defaults.k_base_context2, k_final_context2),
+            k_final_concept=k_final_concept,
+            k_final_context1=k_final_context1,
+            k_final_context2=k_final_context2,
+            widen_concept=max(defaults.widen_concept, k_final_concept * 3),
+            widen_context1=max(defaults.widen_context1, k_final_context1 * 3),
+            widen_context2=max(defaults.widen_context2, k_final_context2 * 3),
+            hybrid_k_dense=defaults.hybrid_k_dense,
+            hybrid_k_sparse=defaults.hybrid_k_sparse,
+            hybrid_k_fused=defaults.hybrid_k_fused,
+        )
+    # else: keep explicit config intact
     short_concept = _is_short_query(
         concept,
         max_words=settings.hybrid_short_concept_max_words,
@@ -249,10 +374,18 @@ async def run_concept_explain_worldviews_graph(
     if not concept_outcome.hits:
         raise ValueError("Sparse concept retrieval returned no hits; aborting graph")
 
-    concept_explanation = await reasoning_client.chat(philo_messages, temperature=0.2, max_tokens=320)
+    concept_explanation, concept_prompt_messages = await _chat_with_retry(
+        chat_client,
+        philo_messages,
+        temperature=0.5,
+        max_tokens=500,
+        operation="concept_reasoning",
+        min_chars=900,
+        verbose=verbose,
+    )
     await _record_event(
         "concept_reasoning",
-        prompt_messages=philo_messages,
+        prompt_messages=concept_prompt_messages,
         response_text=concept_explanation,
         context_refs=concept_refs,
         context_text=concept_context,
@@ -302,11 +435,18 @@ async def run_concept_explain_worldviews_graph(
                 worldview_description=wv,
                 context=ctx1_text,
             )
-            main_points = await chat_client.chat(what_prompt, temperature=0.3, max_tokens=320)
+            main_points, what_prompt_messages = await _chat_with_retry(
+                chat_client,
+                what_prompt,
+                temperature=0.1,
+                max_tokens=320,
+                operation=f"wv_what:{wv}",
+                verbose=verbose,
+            )
             await _record_event(
                 "wv_what",
                 worldview=wv,
-                prompt_messages=what_prompt,
+                prompt_messages=what_prompt_messages,
                 response_text=main_points,
                 context_refs=ctx1_refs,
                 context_text=ctx1_text,
@@ -334,7 +474,14 @@ async def run_concept_explain_worldviews_graph(
                 main_points=main_points,
                 context=ctx2_text,
             )
-            how_details = await chat_client.chat(how_prompt, temperature=0.3, max_tokens=420)
+            how_details, how_prompt_messages = await _chat_with_retry(
+                chat_client,
+                how_prompt,
+                temperature=0.3,
+                max_tokens=420,
+                operation=f"wv_how:{wv}",
+                verbose=verbose,
+            )
 
             sufficiency = _assess_sufficiency(ctx2_outcome.hits, ctx2_text)
             if _should_widen(ctx2_outcome.hits, cfg.k_final_context2):
@@ -366,7 +513,7 @@ async def run_concept_explain_worldviews_graph(
             await _record_event(
                 "wv_how",
                 worldview=wv,
-                prompt_messages=how_prompt,
+                prompt_messages=how_prompt_messages,
                 response_text=how_details,
                 context_refs=ctx2_refs,
                 context_text=ctx2_text,
