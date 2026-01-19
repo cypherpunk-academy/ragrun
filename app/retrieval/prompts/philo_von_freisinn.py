@@ -5,17 +5,22 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from app.config import settings
 from app.retrieval.models import RetrievedSnippet
+
+
+def _resolve_assistants_root() -> Path:
+    """Resolve assistants root within the ragrun repo (configurable)."""
+    repo_root = Path(__file__).resolve().parents[3]
+    configured = Path(settings.assistants_root)
+    return configured if configured.is_absolute() else (repo_root / configured)
 
 
 @lru_cache(maxsize=1)
 def load_system_prompt() -> str:
     """Load system prompt from the assistants directory (cached)."""
     prompt_path = (
-        Path(__file__)
-        .resolve()
-        .parents[2]
-        / "assistants"
+        _resolve_assistants_root()
         / "philo-von-freisinn"
         / "assistant"
         / "prompts"
@@ -30,10 +35,7 @@ def load_system_prompt() -> str:
 def load_concept_explain_user_template() -> str:
     """Load concept-explain user prompt template (cached)."""
     prompt_path = (
-        Path(__file__)
-        .resolve()
-        .parents[2]
-        / "assistants"
+        _resolve_assistants_root()
         / "philo-von-freisinn"
         / "assistant"
         / "prompts"

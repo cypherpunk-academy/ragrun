@@ -11,8 +11,7 @@
 - **Step 1.1 startet ohne Retrieval**: keine Qdrant-Suche im ersten Schritt; stattdessen LLM mit Philo-Systemprompt + neuem User-Prompt (“Steiner-Vorwissen”).
 - **Standard-Chunk-Länge**: Ziel ~220–280 Wörter (max ~320) wie im bestehenden Prompt `ragkeep/assistants/philo-von-freisinn/assistant/prompts/concept-explain-user.prompt`.
 - **Best-effort Persistenz/Telemetry**: wie in `GraphEventRecorder` und `retrieval_telemetry`: Fehler sollen nie den Endpunkt brechen.
-- **Prompt-Quelle**: aktuell laden Prompt-Loader in `app/retrieval/prompts/*` aus `app/assistants/...`. In diesem Repo liegen die Prompts aber unter `ragrun/ragkeep/assistants/...`.
-  - **Plan-Entscheidung**: Prompt-Loader auf `ragrun/ragkeep/assistants` umstellen (konfigurierbares Root), mögliche Docker-Änderungen.
+- **Prompt-Quelle**: Prompt-Loader lesen aus `ragkeep/assistants/...` (konfigurierbar via `RAGRUN_ASSISTANTS_ROOT`; Default: `ragkeep/assistants`). Docker muss diese Pfade bereitstellen.
 
 ---
 

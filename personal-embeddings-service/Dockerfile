@@ -17,8 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+# Assistants (prompts) live under `/app/ragkeep/assistants` (canonical location).
 RUN rm -rf /app/app/assistants
-COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./app/assistants
+COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./ragkeep/assistants
 
 # Create model cache directory
 RUN mkdir -p /app/models

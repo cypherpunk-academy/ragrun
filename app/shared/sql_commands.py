@@ -20,6 +20,7 @@ SELECT
   query_text,
   prompt_messages,
   context_refs,
+  context_source,
   context_text,
   response_text,
   retrieval_mode,

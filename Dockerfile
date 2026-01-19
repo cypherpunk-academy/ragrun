@@ -13,8 +13,10 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+# Ensure we only ship assistant prompts in one canonical location:
+# `/app/ragkeep/assistants` (matches `settings.assistants_root` default).
 RUN rm -rf /app/app/assistants
-COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./app/assistants
+COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./ragkeep/assistants
 COPY ragrun ./ragrun
 
 EXPOSE 8000

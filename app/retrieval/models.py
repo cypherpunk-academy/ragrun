@@ -39,3 +39,20 @@ class ConceptExplainWorldviewsResult:
     context_refs: List[str]
     graph_event_id: str | None = None
 
+
+@dataclass(slots=True)
+class AuthenticConceptExplainResult:
+    concept: str
+    steiner_prior_text: str
+    verify_refs: List[str]
+    verification_report: str
+    lexicon_entry: str
+    graph_event_id: str | None = None
+
+
+@dataclass(slots=True)
+class TranslateToWorldviewResult:
+    input_text: str
+    worldviews: List[WorldviewAnswer]
+    graph_event_id: str | None = None
+

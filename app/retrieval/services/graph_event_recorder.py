@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Mapping, Sequence
 from uuid import UUID
 
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -40,6 +41,7 @@ class GraphEventRecorder:
         query_text: str | None = None,
         prompt_messages: Mapping[str, object] | Sequence[object] | None = None,
         context_refs: Sequence[str] | Mapping[str, object] | None = None,
+        context_source: Sequence[object] | Mapping[str, object] | None = None,
         context_text: str | None = None,
         response_text: str | None = None,
         retrieval_mode: str | None = None,
@@ -47,35 +49,61 @@ class GraphEventRecorder:
         errors: Sequence[str] | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> None:
-        try:
-            row = {
-                "graph_event_id": str(graph_event_id),
-                "graph_name": graph_name,
-                "step": step,
-                "concept": concept,
-                "worldview": worldview,
-                "query_text": query_text,
-                "prompt_messages": (
-                    list(prompt_messages)
-                    if isinstance(prompt_messages, Sequence) and not isinstance(prompt_messages, (str, bytes))
-                    else prompt_messages
-                ),
-                "context_refs": (
-                    list(context_refs)
-                    if isinstance(context_refs, Sequence) and not isinstance(context_refs, (str, bytes))
-                    else context_refs
-                ),
-                "context_text": context_text,
-                "response_text": response_text,
-                "retrieval_mode": retrieval_mode,
-                "sufficiency": sufficiency,
-                "errors": list(errors) if errors else None,
-                "metadata": dict(metadata) if metadata else None,
-                "created_at": _now(),
-            }
+        row = {
+            "graph_event_id": str(graph_event_id),
+            "graph_name": graph_name,
+            "step": step,
+            "concept": concept,
+            "worldview": worldview,
+            "query_text": query_text,
+            "prompt_messages": (
+                list(prompt_messages)
+                if isinstance(prompt_messages, Sequence) and not isinstance(prompt_messages, (str, bytes))
+                else prompt_messages
+            ),
+            "context_refs": (
+                list(context_refs)
+                if isinstance(context_refs, Sequence) and not isinstance(context_refs, (str, bytes))
+                else context_refs
+            ),
+            "context_source": (
+                list(context_source)
+                if isinstance(context_source, Sequence) and not isinstance(context_source, (str, bytes))
+                else context_source
+            ),
+            "context_text": context_text,
+            "response_text": response_text,
+            "retrieval_mode": retrieval_mode,
+            "sufficiency": sufficiency,
+            "errors": list(errors) if errors else None,
+            "metadata": dict(metadata) if metadata else None,
+            "created_at": _now(),
+        }
 
+        async def _insert(payload: Mapping[str, object]) -> None:
             async with self.session_factory() as session:
                 async with session.begin():
-                    await session.execute(insert(retrieval_graph_events_table), [row])
+                    await session.execute(insert(retrieval_graph_events_table), [payload])
+
+        try:
+            await _insert(row)
+        except DBAPIError as exc:
+            # Backward compatibility: if DB schema hasn't been migrated yet, retry without the new column.
+            msg = str(exc).lower()
+            if "context_source" in msg and "does not exist" in msg:
+                try:
+                    fallback = dict(row)
+                    fallback.pop("context_source", None)
+                    await _insert(fallback)
+                    return
+                except Exception:
+                    logger.exception(
+                        "Failed to record graph event step=%s graph=%s (retry without context_source)",
+                        step,
+                        graph_name,
+                    )
+                    return
+
+            logger.exception("Failed to record graph event step=%s graph=%s", step, graph_name)
         except Exception:
             logger.exception("Failed to record graph event step=%s graph=%s", step, graph_name)

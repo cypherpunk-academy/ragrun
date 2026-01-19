@@ -5,10 +5,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Mapping
 
+from app.config import settings
+
 
 def _resolve_assistants_root() -> Path:
-    """Resolve assistants root within this repo."""
-    return Path(__file__).resolve().parents[2] / "assistants"
+    """Resolve assistants root within the ragrun repo (configurable)."""
+    repo_root = Path(__file__).resolve().parents[3]
+    configured = Path(settings.assistants_root)
+    return configured if configured.is_absolute() else (repo_root / configured)
 
 
 @lru_cache(maxsize=1)

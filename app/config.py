@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     deepseek_chat_model: Optional[str] = "deepseek-chat"
     deepseek_model_probe: bool = True
 
+    # Prompt loading
+    # Note: in this repo, assistant prompt files live under `ragrun/ragkeep/assistants`.
+    # Keep this configurable to support alternative layouts / Docker packaging.
+    assistants_root: str = "ragkeep/assistants"
+
+    # "Standard chunk" sizing (used by authentic_concept_explain prompts)
+    ace_chunk_min_words: int = 220
+    ace_chunk_target_words: int = 260
+    ace_chunk_max_words: int = 320
+
     use_hybrid_retrieval: bool = False
     hybrid_prefer_short_concepts: bool = True
     hybrid_short_concept_max_words: int = 2

@@ -86,6 +86,7 @@ retrieval_graph_events_table = Table(
     Column("query_text", Text),
     Column("prompt_messages", JSONType),
     Column("context_refs", JSONType),
+    Column("context_source", JSONType),
     Column("context_text", Text),
     Column("response_text", Text),
     Column("retrieval_mode", String(64)),
