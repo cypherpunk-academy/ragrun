@@ -39,7 +39,7 @@ flowchart TD
 
 ### Nodes
 - `prepare_inputs`: validate concept/worldviews, normalize casing, init IDs.
-- `philo_explain`: Runnable with prompt `assistants/philo-von-freisinn/assistant/prompts/concept-explain-user.prompt`; retrieval k=10, filter: primary books of Philo only; model: DeepSeek Reasoner; logs prompt/context checksums.
+- `philo_explain`: Runnable with prompt `assistants/philo-von-freisinn/prompts/concept-explain-user.prompt`; retrieval k=10, filter: primary books of Philo only; model: DeepSeek Reasoner; logs prompt/context checksums.
 - `worldview_prepare` (inline in map): load worldview description (`.../instructions.md`), build retrievers:
   - `context1`: k=5, filter worldview primary books.
   - `context2`: k=10, filter worldview all books (book + secondary_book).

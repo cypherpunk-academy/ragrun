@@ -61,6 +61,7 @@ async def _chat_with_retry(
     temperature: float,
     max_tokens: int,
     operation: str,
+    retries: int = 3,
     min_chars: int | None = None,
     require_sentence_end: bool = True,
     completion_instruction: str = "Schließe den Text sauber ab. Setze einen klaren Schlusssatz.",
@@ -122,7 +123,7 @@ async def _chat_with_retry(
 
     return await retry_async(
         _run_once,
-        retries=3,
+        retries=max(0, int(retries)),
         base_delay=1.0,
         max_delay=8.0,
         jitter=0.2,

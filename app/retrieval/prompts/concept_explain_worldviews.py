@@ -22,7 +22,6 @@ def _load_philo_system_prompt() -> str:
     prompt_path = (
         assistants_root
         / "philo-von-freisinn"
-        / "assistant"
         / "prompts"
         / "instruction.prompt"
     )
@@ -38,7 +37,6 @@ def _load_philo_concept_explain_template() -> str:
     prompt_path = (
         assistants_root
         / "philo-von-freisinn"
-        / "assistant"
         / "prompts"
         / "concept-explain-user.prompt"
     )

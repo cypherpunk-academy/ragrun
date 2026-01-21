@@ -9,7 +9,7 @@
 
 ### Leitprinzipien / Constraints
 - **Step 1.1 startet ohne Retrieval**: keine Qdrant-Suche im ersten Schritt; stattdessen LLM mit Philo-Systemprompt + neuem User-Prompt (“Steiner-Vorwissen”).
-- **Standard-Chunk-Länge**: Ziel ~220–280 Wörter (max ~320) wie im bestehenden Prompt `ragkeep/assistants/philo-von-freisinn/assistant/prompts/concept-explain-user.prompt`.
+- **Standard-Chunk-Länge**: Ziel ~220–280 Wörter (max ~320) wie im bestehenden Prompt `ragkeep/assistants/philo-von-freisinn/prompts/concept-explain-user.prompt`.
 - **Best-effort Persistenz/Telemetry**: wie in `GraphEventRecorder` und `retrieval_telemetry`: Fehler sollen nie den Endpunkt brechen.
 - **Prompt-Quelle**: Prompt-Loader lesen aus `ragkeep/assistants/...` (konfigurierbar via `RAGRUN_ASSISTANTS_ROOT`; Default: `ragkeep/assistants`). Docker muss diese Pfade bereitstellen.
 
@@ -46,7 +46,7 @@
 - **Inputs**: `concept`
 - **LLM**: DeepSeek Reasoner, “reasoning_client” je nach Provider-Konzept.
 - **Prompts**:
-  - **System**: `ragkeep/assistants/philo-von-freisinn/assistant/prompts/instruction.prompt`
+  - **System**: `ragkeep/assistants/philo-von-freisinn/prompts/instruction.prompt`
   - **User (neu)**: Template “Steiner Prior Explain” (siehe Prompt-Sektion unten)
 - **Output**: `steiner_prior_text` (≈ Standard-Chunk-Länge, sauber abgeschlossen)
 - **Event**:
@@ -97,11 +97,12 @@
 ### 1) API-Surface (FastAPI)
 - **Router-Ort**: `ragrun/app/retrieval/api/translate_to_worldview.py`
 - **Route (Vorschlag)**:
-  - `POST /api/v1/agent/philo-von-freisinn/translate-to-worldview`
+  - `POST /api/v1/agent/sigrid-von-gleich/graphs/translate-to-worldview`
 - **Request (Vorschlag)**:
   - `text: str` (required; Standard-Chunk, z. B. `lexicon_entry`)
   - `worldviews: List[str]` (min 1; validiert via `ALLOWED_WORLDVIEWS`)
-  - `collection: str = "philo-von-freisinn"`
+  - `concept: str | None` (optional; nur für GraphEventRecorder/Persistenz)
+  - `collection: str = "sigrid-von-gleich"`
   - `verbose: bool = False`
   - optional: `max_concurrency: int = 4`
 - **Response (Vorschlag)**:
@@ -111,6 +112,10 @@
 
 ### 2) Orchestrierung
 Analog zur bestehenden `concept_explain_worldviews`-Kette, aber mit `text` als Eingang und optionaler Parallelisierung über `worldviews`.
+
+**Wichtig:** Das ist Teil des **Assistenten `sigrid-von-gleich`**. Prompts liegen **pro Weltanschauung** unter `ragkeep/assistants/sigrid-von-gleich/worldviews/<WV>/prompts/`.
+
+- **Fail-fast**: Wenn für eine angeforderte Weltanschauung `concept-explain-what.prompt` oder `concept-explain-how.prompt` fehlt, soll der Endpunkt **hart fehlschlagen** (HTTP 400). Die fehlenden Prompts werden später ergänzt.
 
 - **Chain-Ort**: `ragrun/app/retrieval/chains/translate_to_worldview.py`
 - **Service-Ort**: `ragrun/app/retrieval/services/translate_to_worldview_service.py`
@@ -125,8 +130,8 @@ Analog zur bestehenden `concept_explain_worldviews`-Kette, aber mit `text` als E
   - context2: `book_types=["primary","secondary"]`, `worldview=<wv>`, query = `text`
   - Postprocessing: `rerank_by_embedding` + `build_context`
 - **LLM Steps**:
-  - what: `build_worldview_what_prompt(...)` (existiert bereits in `app/retrieval/prompts/concept_explain_worldviews.py`)
-  - how: `build_worldview_how_prompt(...)` (existiert bereits)
+  - what: **Sigrid Prompt** `ragkeep/assistants/sigrid-von-gleich/worldviews/<WV>/prompts/concept-explain-what.prompt`
+  - how: **Sigrid Prompt** `ragkeep/assistants/sigrid-von-gleich/worldviews/<WV>/prompts/concept-explain-how.prompt`
 - **Outputs**:
   - `main_points` (what)
   - `how_details` (how)
@@ -168,9 +173,9 @@ Analog zur bestehenden `concept_explain_worldviews`-Kette, aber mit `text` als E
   - “Keine Zitate/Quellenangaben im Text, sondern fließender Eintrag.”
 
 #### Prompt D — Step 2.1 what/how
-- **Reuse**: bestehende Prompt-Builder in `app/retrieval/prompts/concept_explain_worldviews.py`
-- **Optionaler Feinschliff**:
-  - Wenn du willst, dass “translate_to_worldview” *ohne* “Basiserklärung”-Label auskommt, ergänzen wir separate Builder, die statt `Basiserklärung:` einfach `Eingangstext:` verwenden (rein kosmetisch).
+- **Quelle**: Prompt-Files unter `ragkeep/assistants/sigrid-von-gleich/worldviews/<WV>/prompts/`
+- **Loader/Renderer**: `ragrun/app/retrieval/prompts/sigrid_von_gleich_worldviews.py` ersetzt Platzhalter:
+  - `{{CONCEPT_EXPLANATION}}`, `{{CONTEXT1_K5}}`, `{{CONTEXT2_K10}}`, `{{MAIN_POINTS}}`, `{{WORLDVIEW_DESCRIPTION}}`
 
 ---
 
@@ -187,7 +192,9 @@ Analog zur bestehenden `concept_explain_worldviews`-Kette, aber mit `text` als E
 
 #### Anpassungen bestehender Dateien
 - `ragrun/app/retrieval/api/__init__.py`
-  - Router include für die beiden neuen Module (prefix bleibt `/agent/philo-von-freisinn`)
+  - Router include:
+    - `/agent/philo-von-freisinn`: `concept-explain-worldviews`, `authentic-concept-explain`
+    - `/agent/sigrid-von-gleich`: `translate-to-worldview`
 - (Optional, aber empfohlen) Prompt-Root-Fix:
   - `ragrun/app/retrieval/prompts/philo_von_freisinn.py`
   - `ragrun/app/retrieval/prompts/concept_explain_worldviews.py`

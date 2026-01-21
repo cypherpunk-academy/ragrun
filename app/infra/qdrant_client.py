@@ -52,18 +52,27 @@ class QdrantClient:
         payload = {"field_name": field_name, "field_schema": {"type": "text"}}
         suffix = "?wait=true" if wait else ""
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
-            response = await client.post(
-                f"{self.base_url}/collections/{collection}/index{suffix}", json=payload
-            )
-            if response.status_code in (200, 201):
-                return
-            if response.status_code == 409:
-                # Index already exists – treat as success.
-                return
+        url = f"{self.base_url}/collections/{collection}/index{suffix}"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+                # Qdrant payload index creation uses PUT (POST may yield 405 with empty body).
+                response = await client.put(url, json=payload)
+                if response.status_code in (200, 201):
+                    return
+                if response.status_code == 409:
+                    # Index already exists – treat as success.
+                    return
+                content_type = response.headers.get("content-type", "<unknown>")
+                body = response.text if getattr(response, "text", None) else "<empty>"
+                raise RuntimeError(
+                    "Failed to ensure text index for "
+                    f"'{collection}' (status={response.status_code}, content-type={content_type}, url={url}): {body}"
+                )
+        except httpx.HTTPError as exc:
             raise RuntimeError(
-                f"Failed to ensure text index for '{collection}': {response.text}"
-            )
+                f"Failed to ensure text index for '{collection}' (url={url}): "
+                f"{exc.__class__.__name__}: {exc}"
+            ) from exc
 
     async def upsert_points(
         self,
