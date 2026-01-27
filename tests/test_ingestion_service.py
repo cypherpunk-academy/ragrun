@@ -10,7 +10,7 @@ import pytest
 from app.services.embedding_client import EmbeddingBatchResult
 from app.services.ingestion_service import IngestionService
 from app.services.mirror_repository import ChunkMirrorRepository
-from ragrun.models import ChunkRecord
+from app.shared.models import ChunkRecord
 
 
 def _chunk_payload(chunk_id: str, content_hash: str) -> dict[str, object]:

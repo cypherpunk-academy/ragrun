@@ -38,6 +38,7 @@ def _load_philo_concept_explain_template() -> str:
         assistants_root
         / "philo-von-freisinn"
         / "prompts"
+        / "concepts"
         / "concept-explain-user.prompt"
     )
     if not prompt_path.is_file():

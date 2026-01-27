@@ -7,8 +7,7 @@ from typing import Iterable, List
 from sqlalchemy import delete, insert, select
 from sqlalchemy.engine import Engine
 
-from ragrun.models import ChunkRecord
-
+from app.shared.models import ChunkRecord
 from app.db.tables import chunks_table
 
 

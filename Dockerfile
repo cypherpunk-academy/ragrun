@@ -18,7 +18,6 @@ COPY app ./app
 # `/app/ragkeep/assistants` (matches `settings.assistants_root` default).
 RUN rm -rf /app/app/assistants
 COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./ragkeep/assistants
-COPY ragrun ./ragrun
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

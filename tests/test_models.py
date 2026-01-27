@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 
-from ragrun.models import CHUNK_TYPE_ENUM, ChunkMetadata, ChunkRecord
+from app.shared.models import CHUNK_TYPE_ENUM, ChunkMetadata, ChunkRecord
 
 
 @pytest.fixture

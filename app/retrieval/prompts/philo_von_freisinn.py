@@ -37,6 +37,7 @@ def load_concept_explain_user_template() -> str:
         _resolve_assistants_root()
         / "philo-von-freisinn"
         / "prompts"
+        / "concepts"
         / "concept-explain-user.prompt"
     )
     if not prompt_path.is_file():

@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select
 
 from app.db.tables import chunks_table, metadata
 from app.services.mirror_repository import ChunkMirrorRepository
-from ragrun.models import ChunkRecord
+from app.shared.models import ChunkRecord
 
 
 def _chunk_payload(chunk_id: str) -> dict[str, object]:

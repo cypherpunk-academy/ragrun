@@ -21,6 +21,7 @@ def _resolve_prompts_dir() -> Path:
         assistants_root
         / "philo-von-freisinn"
         / "prompts"
+        / "concepts"
     )
 
 
