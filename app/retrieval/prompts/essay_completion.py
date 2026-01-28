@@ -28,6 +28,20 @@ def load_essay_system_prompt(assistant: str) -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
+def _resolve_sigrid_essay_prompts_dir() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    configured = Path(settings.assistants_root)
+    assistants_root = configured if configured.is_absolute() else (repo_root / configured)
+    return assistants_root / "sigrid-von-gleich" / "prompts" / "essays"
+
+
+def _render_template(template: str, *, vars: Mapping[str, str]) -> str:
+    out = template
+    for key, value in vars.items():
+        out = out.replace(f"{{{key}}}", value)
+    return out
+
+
 def build_completion_prompt(
     *,
     assistant: str,
@@ -155,27 +169,22 @@ def build_authenticity_check_prompt(
     mood_name: str,
 ) -> list[Mapping[str, str]]:
     system = "Du bist ein präziser Prüfer für Authentizität von Steiner-basierten Texten."
-    user = f"""
-Prüfe den folgenden Entwurf auf Übereinstimmung mit dem Steiner-Kontext und der Seelenstimmung.
-
-Seelenstimmung ({mood_name}):
-{soul_mood_description}
-
-Primäre Werke:
-{primary_books_list}
-
-Entwurf:
-{draft_text}
-
-Kontext (Primary Books):
-{primary_books_context}
-
-Gib einen Bericht mit:
-a) Stärken (gestützte Aussagen, Übereinstimmung mit der Seelenstimmung)
-b) Ungestützte/zu starke Behauptungen
-c) Verbesserungsvorschläge (Orientierung an der Seelenstimmungs-Beschreibung)
-Bewertung: X/10
-""".strip()
+    
+    prompt_path = _resolve_sigrid_essay_prompts_dir() / "authenticity_check.prompt"
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"Authenticity check prompt not found: {prompt_path}")
+    
+    template = prompt_path.read_text(encoding="utf-8").strip()
+    user = _render_template(
+        template,
+        vars={
+            "mood_name": mood_name,
+            "soul_mood_description": soul_mood_description,
+            "draft_text": draft_text,
+            "primary_books_context": primary_books_context,
+        },
+    ).strip()
+    
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -188,21 +197,30 @@ def build_rewrite_prompt(
     draft_text: str,
     verification_report: str,
     context: str,
+    part: str,
+    style: str,
+    background: str,
+    primary_books_context: str,
 ) -> list[Mapping[str, str]]:
     system = load_essay_system_prompt(assistant)
-    user = f"""
-Ueberarbeite den Abschnitt mit Hilfe des Verifikationsberichts und des Kontextes.
-Ergebnis: 200-300 Tokens, klare Prosa, keine Meta-Erklaerungen, keine Ueberschriften.
-
-Abschnitt:
-{draft_text}
-
-Verifikationsbericht:
-{verification_report}
-
-Kontext:
-{context}
-""".strip()
+    
+    prompt_path = _resolve_sigrid_essay_prompts_dir() / "rewrite.prompt"
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"Rewrite prompt not found: {prompt_path}")
+    
+    template = prompt_path.read_text(encoding="utf-8").strip()
+    user = _render_template(
+        template,
+        vars={
+            "part": part,
+            "style": style.strip(),
+            "draft_text": draft_text.strip(),
+            "verification_report": verification_report.strip(),
+            "background": background.strip(),
+            "primary_books_context": primary_books_context.strip(),
+        },
+    ).strip()
+    
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},

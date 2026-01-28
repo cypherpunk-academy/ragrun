@@ -90,7 +90,6 @@ class EssayCompletionResult:
     header: str
     draft_header: str
     draft_text: str
-    adjusted_text: str
     verification_report: str
     revised_header: str
     revised_text: str

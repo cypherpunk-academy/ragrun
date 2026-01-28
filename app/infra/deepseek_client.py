@@ -14,7 +14,7 @@ class DeepSeekClient:
         api_key: str,
         *,
         model: str = "deepseek-chat",
-        timeout: float = 30.0,
+        timeout: float = 120.0,
         base_url: str = "https://api.deepseek.com",
     ) -> None:
         if not api_key:
@@ -45,7 +45,8 @@ class DeepSeekClient:
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        timeout_obj = httpx.Timeout(self.timeout, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout_obj) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions", json=payload, headers=headers
             )
@@ -67,7 +68,8 @@ class DeepSeekClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        timeout_obj = httpx.Timeout(self.timeout, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout_obj) as client:
             response = await client.get(f"{self.base_url}/models", headers=headers)
             response.raise_for_status()
             data = response.json()

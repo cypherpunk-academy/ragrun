@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     deepseek_reasoner_model: Optional[str] = "deepseek-reasoner"
     deepseek_chat_model: Optional[str] = "deepseek-chat"
     deepseek_model_probe: bool = True
+    deepseek_timeout_seconds: float = 120.0
 
     # Prompt loading
     # Note: in this repo, assistant prompt files live under `ragrun/ragkeep/assistants`.

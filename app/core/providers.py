@@ -45,6 +45,7 @@ def get_deepseek_client(model: Optional[str] = None) -> DeepSeekClient:
         settings.deepseek_api_key,
         model=model or settings.deepseek_chat_model or "deepseek-chat",
         base_url=settings.deepseek_base_url,
+        timeout=getattr(settings, "deepseek_timeout_seconds", 120.0),
     )
 
 

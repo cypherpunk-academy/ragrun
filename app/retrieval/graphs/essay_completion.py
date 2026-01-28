@@ -16,7 +16,6 @@ from app.retrieval.prompts.essay_completion import (
     build_authenticity_check_prompt,
     build_completion_prompt,
     build_header_prompt,
-    build_length_adjustment_prompt,
     build_rewrite_prompt,
     build_verification_prompt,
 )
@@ -69,6 +68,13 @@ def _resolve_soul_moods_path() -> Path:
     return assistants_root / "sigrid-von-gleich" / "soul-moods" / "seelenstimmungen_steiner.md"
 
 
+def _resolve_sigrid_essay_prompts_dir() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    configured = Path(settings.assistants_root)
+    assistants_root = configured if configured.is_absolute() else (repo_root / configured)
+    return assistants_root / "sigrid-von-gleich" / "prompts" / "essays"
+
+
 def _load_text_or_throw(path: Path) -> str:
     try:
         text = path.read_text(encoding="utf-8")
@@ -78,6 +84,13 @@ def _load_text_or_throw(path: Path) -> str:
     if not trimmed:
         raise ValueError(f"Required file is empty: {path}")
     return text
+
+
+def _render_template(template: str, *, vars: Mapping[str, str]) -> str:
+    out = template
+    for key, value in vars.items():
+        out = out.replace(f"{{{key}}}", value)
+    return out
 
 
 def _load_soul_mood_files(mood_index: int, mood_name: str) -> tuple[str, str]:
@@ -96,24 +109,25 @@ def _load_soul_mood_files(mood_index: int, mood_name: str) -> tuple[str, str]:
     return instruction, description
 
 
-def _count_tokens(text: str) -> int:
-    """Estimate token count using word-based heuristic for German text."""
-    if not text or not text.strip():
-        return 0
-    words = text.strip().split()
-    return int(len(words) * 1.3)
-
-
-def _needs_length_adjustment(text: str, force: bool) -> tuple[bool, str]:
-    """Check if text needs length adjustment based on token count."""
-    tokens = _count_tokens(text)
-    if force:
-        return True, "force=true"
-    if tokens < 200:
-        return True, f"too_short ({tokens} tokens)"
-    if tokens > 300:
-        return True, f"too_long ({tokens} tokens)"
-    return False, "ok"
+def _load_soul_mood_style(mood_index: int, mood_name: str) -> str:
+    """Load style.md for a soul mood."""
+    repo_root = Path(__file__).resolve().parents[3]
+    configured = Path(settings.assistants_root)
+    assistants_root = configured if configured.is_absolute() else (repo_root / configured)
+    
+    mood_dir = assistants_root / "sigrid-von-gleich" / "soul-moods" / f"{mood_index}_{mood_name}"
+    style_path = mood_dir / "style.md"
+    
+    try:
+        style_text = style_path.read_text(encoding="utf-8")
+        trimmed = style_text.strip()
+        if not trimmed:
+            logger.warning(f"style.md is empty for {mood_index}_{mood_name}")
+            return ""
+        return trimmed
+    except OSError as exc:
+        logger.warning(f"Could not load style.md for {mood_index}_{mood_name}: {exc}")
+        return ""
 
 
 def _parse_manifest_value(manifest_text: str, key: str) -> str | None:
@@ -126,6 +140,33 @@ def _parse_manifest_value(manifest_text: str, key: str) -> str | None:
             val = line[len(needle) :].strip().strip("'\"")
             return val or None
     return None
+
+
+def _parse_essay_value(essay_text: str, key: str) -> str | None:
+    needle = f"{key}:"
+    for raw in essay_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(needle):
+            val = line[len(needle) :].strip()
+            if (val.startswith('"') and val.endswith('"')) or (
+                val.startswith("'") and val.endswith("'")
+            ):
+                val = val[1:-1]
+            return val or None
+    return None
+
+
+def _load_essay_metadata(assistant_dir: Path, essay_slug: str) -> tuple[str | None, str | None]:
+    essay_path = assistant_dir / "essays" / f"{essay_slug}.essay"
+    try:
+        essay_text = essay_path.read_text(encoding="utf-8")
+    except OSError:
+        return None, None
+    topic = _parse_essay_value(essay_text, "topic")
+    background = _parse_essay_value(essay_text, "background")
+    return topic, background
 
 
 def _resolve_collection(assistant_dir: Path) -> str:
@@ -237,14 +278,18 @@ async def _chat_with_retry(
     nonce = datetime.now(timezone.utc).isoformat()
     nonce_message = {"role": "system", "content": f"nonce: {nonce} (ignore)"}
     outbound_messages = [nonce_message, *messages]
+    first_attempt = True
 
-    def _log_prompt(prompt_messages: Sequence[Mapping[str, str]]) -> None:
+    def _log_prompt(prompt_messages: Sequence[Mapping[str, str]], is_retry: bool = False) -> None:
         if not verbose:
             return
-        formatted = "\n\n".join(
-            f"[{m.get('role', 'unknown')}]\n{m.get('content', '')}" for m in prompt_messages
-        )
-        logger.warning("Prompt for %s:\n%s", operation, formatted)
+        if is_retry:
+            logger.warning("RETRYING PROMPT %s", operation)
+        else:
+            formatted = "\n\n".join(
+                f"[{m.get('role', 'unknown')}]\n{m.get('content', '')}" for m in prompt_messages
+            )
+            logger.warning("Prompt for %s:\n%s", operation, formatted)
 
     def _is_incomplete(text: str) -> bool:
         stripped = text.strip()
@@ -257,7 +302,10 @@ async def _chat_with_retry(
         return False
 
     async def _run_once() -> tuple[str, list[Mapping[str, str]]]:
-        _log_prompt(outbound_messages)
+        nonlocal first_attempt
+        is_first = first_attempt
+        _log_prompt(outbound_messages, is_retry=not is_first)
+        first_attempt = False
         result = await client.chat(outbound_messages, temperature=temperature, max_tokens=max_tokens)
 
         if require_sentence_end and not SENTENCE_END_RE.search(result.strip()):
@@ -268,7 +316,7 @@ async def _chat_with_retry(
                 {"role": "assistant", "content": result},
                 {"role": "user", "content": completion_instruction},
             ]
-            _log_prompt(completion_messages)
+            _log_prompt(completion_messages, is_retry=not is_first)
             completion = await client.chat(
                 completion_messages, temperature=temperature, max_tokens=max_tokens
             )
@@ -326,6 +374,7 @@ async def run_essay_completion_graph(
         raise ValueError(f"Assistant directory not found: {assistant_dir}")
 
     collection = _resolve_collection(assistant_dir)
+    essay_topic, essay_background = _load_essay_metadata(assistant_dir, str(essay_slug))
     
     # Resolve mood name if not provided
     final_mood_name = mood_name or MOOD_NAMES.get(mood_index, "")
@@ -336,25 +385,28 @@ async def run_essay_completion_graph(
     soul_mood_instruction, soul_mood_description = _load_soul_mood_files(
         mood_index, final_mood_name
     )
+    soul_mood_style = _load_soul_mood_style(mood_index, final_mood_name)
     
     primary_books_list = _load_primary_books_list_text(assistant_dir)
+    completion_prompt_path = _resolve_sigrid_essay_prompts_dir() / "completion.prompt"
+    completion_template = _load_text_or_throw(completion_prompt_path)
+    user_prompt = _render_template(
+        completion_template,
+        vars={
+            "part": str(mood_index),
+            "style": soul_mood_style.strip(),
+            "topic": (essay_topic or str(essay_title)).strip(),
+            "background": (essay_background or "").strip(),
+            "primary_books_list": primary_books_list or "- (keine angegeben)",
+        },
+    ).strip()
 
     # Generate draft text using soul mood instruction as system prompt
     draft_prompt = [
         {"role": "system", "content": soul_mood_instruction},
         {
             "role": "user",
-            "content": f"""Schreibe einen Essay-Abschnitt zum Thema: "{essay_title}"
-
-Vorhandener Text (falls vorhanden):
-{(current_text or '').strip() or '(leer)'}
-
-Anforderungen:
-- 200-300 Tokens (keine Stichpunkte)
-- Keine Meta-Erklärungen
-- Keine Überschriften im Text
-- Klare, lesbare Prosa
-""".strip(),
+            "content": user_prompt,
         },
     ]
 
@@ -370,53 +422,9 @@ Anforderungen:
         require_sentence_end=True,
     )
 
-    # Token check and length adjustment
-    needs_adjustment, reason = _needs_length_adjustment(draft_text, force)
-    adjusted_text = draft_text
-    
-    if needs_adjustment:
-        target_tokens = 250
-        adjustment_prompt = build_length_adjustment_prompt(
-            soul_mood_instruction=soul_mood_instruction,
-            text=draft_text,
-            target_tokens=target_tokens,
-            reason=reason,
-        )
-        adjusted_text, _ = await _chat_with_retry(
-            chat_client,
-            adjustment_prompt,
-            temperature=0.3,
-            max_tokens=650,
-            operation="essay_completion_adjust_length",
-            retries=llm_retries,
-            min_chars=200,
-            verbose=verbose,
-            require_sentence_end=True,
-        )
-
-    # Generate header
-    header_prompt = build_header_prompt(
-        assistant=assistant,
-        essay_title=str(essay_title),
-        mood_name=final_mood_name,
-        text=adjusted_text,
-    )
-    draft_header, _ = await _chat_with_retry(
-        chat_client,
-        header_prompt,
-        temperature=0.3,
-        max_tokens=50,
-        operation="essay_completion_header",
-        retries=llm_retries,
-        min_chars=10,
-        verbose=verbose,
-        require_sentence_end=False,
-    )
-    draft_header = draft_header.strip()[:100]
-
     # First Qdrant search: Primary books only
     hits_primary = await dense_retrieve(
-        query=adjusted_text,
+        query=draft_text,
         k=int(k),
         worldview=None,
         book_types=["primary"],
@@ -428,7 +436,7 @@ Anforderungen:
 
     # Authenticity check with soul mood description
     authenticity_prompt = build_authenticity_check_prompt(
-        draft_text=adjusted_text,
+        draft_text=draft_text,
         primary_books_context=primary_context,
         primary_books_list=primary_books_list,
         soul_mood_description=soul_mood_description,
@@ -438,7 +446,7 @@ Anforderungen:
         chat_client,
         authenticity_prompt,
         temperature=0.1,
-        max_tokens=600,
+        max_tokens=900,
         operation="essay_completion_authenticity",
         retries=llm_retries,
         min_chars=300,
@@ -446,36 +454,47 @@ Anforderungen:
         require_sentence_end=True,
     )
 
-    # Second Qdrant search: All books (primary + secondary)
-    hits_all = await dense_retrieve(
-        query=adjusted_text,
-        k=int(k),
-        worldview=None,
-        book_types=["primary", "secondary"],
-        collection=collection,
-        embedding_client=embedding_client,
-        qdrant_client=qdrant_client,
-    )
-    all_books_context, all_books_refs = build_context(hits_all, max_chars=12000)
+    # Check if authenticity check approved the draft without changes
+    if "Keine Änderungen!" in verification_report:
+        # Skip rewrite step and use draft text directly
+        logger.info("Authenticity check passed without changes - skipping rewrite step")
+        revised_text = draft_text
+        all_books_refs = verify_refs  # Use refs from primary books search
+    else:
+        # Second Qdrant search: All books (primary + secondary)
+        hits_all = await dense_retrieve(
+            query=draft_text,
+            k=int(k),
+            worldview=None,
+            book_types=["primary", "secondary"],
+            collection=collection,
+            embedding_client=embedding_client,
+            qdrant_client=qdrant_client,
+        )
+        all_books_context, all_books_refs = build_context(hits_all, max_chars=12000)
 
-    # Final rewrite with all books context
-    rewrite_prompt = build_rewrite_prompt(
-        assistant=assistant,
-        draft_text=adjusted_text,
-        verification_report=verification_report,
-        context=all_books_context,
-    )
-    revised_text, _ = await _chat_with_retry(
-        chat_client,
-        rewrite_prompt,
-        temperature=0.3,
-        max_tokens=650,
-        operation="essay_completion_rewrite",
-        retries=llm_retries,
-        min_chars=200,
-        verbose=verbose,
-        require_sentence_end=True,
-    )
+        # Final rewrite with all books context
+        rewrite_prompt = build_rewrite_prompt(
+            assistant=assistant,
+            draft_text=draft_text,
+            verification_report=verification_report,
+            context=all_books_context,
+            part=str(mood_index),
+            style=soul_mood_style,
+            background=(essay_background or "").strip(),
+            primary_books_context=all_books_context,
+        )
+        revised_text, _ = await _chat_with_retry(
+            chat_client,
+            rewrite_prompt,
+            temperature=0.3,
+            max_tokens=650,
+            operation="essay_completion_rewrite",
+            retries=llm_retries,
+            min_chars=200,
+            verbose=verbose,
+            require_sentence_end=True,
+        )
 
     # Generate final header for revised text
     final_header_prompt = build_header_prompt(
@@ -503,10 +522,9 @@ Anforderungen:
         essay_title=str(essay_title),
         mood_index=int(mood_index),
         mood_name=final_mood_name,
-        header=current_header or draft_header,
-        draft_header=draft_header,
+        header=current_header or revised_header,
+        draft_header=revised_header,
         draft_text=draft_text.strip(),
-        adjusted_text=adjusted_text.strip(),
         verification_report=verification_report.strip(),
         revised_header=revised_header,
         revised_text=revised_text.strip(),

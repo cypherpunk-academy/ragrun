@@ -1,6 +1,8 @@
 """API router for essay:completion graph."""
 from __future__ import annotations
 
+import logging
+import traceback
 from functools import lru_cache
 from typing import List, Optional
 
@@ -10,6 +12,8 @@ from pydantic import BaseModel, Field
 from app.retrieval.models import EssayCompletionResult
 from app.retrieval.services.essay_completion_service import EssayCompletionService
 from app.retrieval.services.providers import get_deepseek_chat, get_embedding_client, get_qdrant_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -37,7 +41,6 @@ class EssayCompletionResponse(BaseModel):
     header: str
     draft_header: str
     draft_text: str
-    adjusted_text: str
     verification_report: str
     revised_header: str
     revised_text: str
@@ -90,11 +93,22 @@ async def essay_completion(
             force=bool(request.force),
         )
     except ValueError as exc:
+        logger.error("ValueError in essay_completion: %s", exc, exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        error_msg = str(exc) or type(exc).__name__
+        error_traceback = traceback.format_exc()
+        logger.error(
+            "essay-completion failed for assistant=%s, essay_slug=%s, mood_index=%s: %s\n%s",
+            assistant,
+            essay_slug,
+            request.mood_index,
+            error_msg,
+            error_traceback,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"essay-completion failed: {exc}",
+            detail=f"essay-completion failed: {error_msg}",
         ) from exc
 
     return EssayCompletionResponse(
@@ -106,7 +120,6 @@ async def essay_completion(
         header=result.header,
         draft_header=result.draft_header,
         draft_text=result.draft_text,
-        adjusted_text=result.adjusted_text,
         verification_report=result.verification_report,
         revised_header=result.revised_header,
         revised_text=result.revised_text,
