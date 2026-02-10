@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -13,17 +14,15 @@ from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
 from app.retrieval.models import EssayCompletionResult
 from app.retrieval.prompts.essay_completion import (
-    build_authenticity_check_prompt,
     build_completion_prompt,
     build_header_prompt,
-    build_rewrite_prompt,
-    build_verification_prompt,
+    build_rewrite_from_draft_prompt,
 )
 from app.retrieval.utils.retrievers import build_context, dense_retrieve
 from app.retrieval.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
-SENTENCE_END_RE = re.compile(r"[.!?][\"'”»\)\]]?\s*$")
+SENTENCE_END_RE = re.compile(r'[.!?][\"\'\u201c\u201d\u2019\u00BB\)\]]?\s*$')
 
 
 MOOD_NAMES = {
@@ -167,6 +166,38 @@ def _load_essay_metadata(assistant_dir: Path, essay_slug: str) -> tuple[str | No
     topic = _parse_essay_value(essay_text, "topic")
     background = _parse_essay_value(essay_text, "background")
     return topic, background
+
+
+def _load_previous_parts(
+    assistant_dir: Path,
+    essay_slug: str,
+    current_mood_index: int,
+    provided_parts: str | None = None,
+) -> str:
+    """Return formatted previous parts for parts 2-7.
+    
+    Args:
+        assistant_dir: Path to assistant directory
+        essay_slug: Essay slug/filename
+        current_mood_index: Current mood index (1-7)
+        provided_parts: Pre-formatted previous parts string from API caller (required for parts 2-7)
+    
+    Raises:
+        ValueError: If previous parts are required but missing/empty.
+    
+    Returns:
+        Provided previous parts text.
+    """
+    if current_mood_index <= 1:
+        return ""
+    
+    if provided_parts is None:
+        raise ValueError(
+            "previous_parts is required for mood_index >= 2 (filesystem fallback removed)"
+        )
+    if not provided_parts.strip():
+        raise ValueError("previous_parts must be non-empty for mood_index >= 2")
+    return provided_parts
 
 
 def _resolve_collection(assistant_dir: Path) -> str:
@@ -351,6 +382,7 @@ async def run_essay_completion_graph(
     mood_name: str | None,
     current_text: str | None,
     current_header: str | None,
+    previous_parts: str | None,
     k: int,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
@@ -388,18 +420,46 @@ async def run_essay_completion_graph(
     soul_mood_style = _load_soul_mood_style(mood_index, final_mood_name)
     
     primary_books_list = _load_primary_books_list_text(assistant_dir)
-    completion_prompt_path = _resolve_sigrid_essay_prompts_dir() / "completion.prompt"
-    completion_template = _load_text_or_throw(completion_prompt_path)
-    user_prompt = _render_template(
-        completion_template,
-        vars={
-            "part": str(mood_index),
-            "style": soul_mood_style.strip(),
-            "topic": (essay_topic or str(essay_title)).strip(),
-            "background": (essay_background or "").strip(),
-            "primary_books_list": primary_books_list or "- (keine angegeben)",
-        },
-    ).strip()
+    
+    # Choose prompt template based on mood_index
+    if mood_index == 1:
+        # Part 1: Use essay_write.prompt (no previous parts)
+        completion_prompt_path = _resolve_sigrid_essay_prompts_dir() / "essay_write.prompt"
+        completion_template = _load_text_or_throw(completion_prompt_path)
+        user_prompt = _render_template(
+            completion_template,
+            vars={
+                "part": str(mood_index),
+                "style": soul_mood_style.strip(),
+                "topic": (essay_topic or str(essay_title)).strip(),
+                "background": (essay_background or "").strip(),
+                "primary_books_list": primary_books_list or "- (keine angegeben)",
+            },
+        ).strip()
+    else:
+        # Parts 2-7: Use essay_write_supplement.prompt with previous parts
+        try:
+            previous_parts_text = _load_previous_parts(
+                assistant_dir, str(essay_slug), mood_index, provided_parts=previous_parts
+            )
+        except ValueError as e:
+            raise ValueError(
+                f"Cannot generate part {mood_index}: {str(e)}"
+            ) from e
+        
+        completion_prompt_path = _resolve_sigrid_essay_prompts_dir() / "essay_write_supplement.prompt"
+        completion_template = _load_text_or_throw(completion_prompt_path)
+        user_prompt = _render_template(
+            completion_template,
+            vars={
+                "part": str(mood_index),
+                "style": soul_mood_style.strip(),
+                "topic": (essay_topic or str(essay_title)).strip(),
+                "background": (essay_background or "").strip(),
+                "essay-parts": previous_parts_text,
+                "primary_books_list": primary_books_list or "- (keine angegeben)",
+            },
+        ).strip()
 
     # Generate draft text using soul mood instruction as system prompt
     draft_prompt = [
@@ -422,7 +482,7 @@ async def run_essay_completion_graph(
         require_sentence_end=True,
     )
 
-    # First Qdrant search: Primary books only
+    # Stage 4: Dual Qdrant search - Primary and Secondary books
     hits_primary = await dense_retrieve(
         query=draft_text,
         k=int(k),
@@ -432,74 +492,62 @@ async def run_essay_completion_graph(
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
     )
-    primary_context, verify_refs = build_context(hits_primary, max_chars=12000)
+    primary_context, primary_refs = build_context(hits_primary, max_chars=12000)
+    
+    hits_secondary = await dense_retrieve(
+        query=draft_text,
+        k=int(k),
+        worldview=None,
+        book_types=["secondary"],
+        collection=collection,
+        embedding_client=embedding_client,
+        qdrant_client=qdrant_client,
+    )
+    secondary_context, secondary_refs = build_context(hits_secondary, max_chars=12000)
 
-    # Authenticity check with soul mood description
-    authenticity_prompt = build_authenticity_check_prompt(
+    # Stage 5: Rewrite using draft as foundation with both primary and secondary contexts
+    # Prepare essay-parts context (empty for part 1, previous parts for parts 2-7)
+    essay_parts_context = ""
+    if mood_index > 1:
+        try:
+            essay_parts_context = _load_previous_parts(
+                assistant_dir, str(essay_slug), mood_index, provided_parts=previous_parts
+            )
+        except ValueError:
+            # If previous parts not provided, leave empty
+            pass
+    
+    rewrite_prompt = build_rewrite_from_draft_prompt(
         draft_text=draft_text,
-        primary_books_context=primary_context,
-        primary_books_list=primary_books_list,
-        soul_mood_description=soul_mood_description,
+        primary_context=primary_context,
+        secondary_context=secondary_context,
+        part=str(mood_index),
+        style=soul_mood_style,
+        topic=(essay_topic or str(essay_title)).strip(),
+        essay_parts=essay_parts_context,
+        mood_index=mood_index,
         mood_name=final_mood_name,
     )
-    verification_report, _ = await _chat_with_retry(
+    revised_text, _ = await _chat_with_retry(
         chat_client,
-        authenticity_prompt,
-        temperature=0.1,
-        max_tokens=900,
-        operation="essay_completion_authenticity",
+        rewrite_prompt,
+        temperature=0.3,
+        max_tokens=650,
+        operation="essay_completion_rewrite",
         retries=llm_retries,
-        min_chars=300,
+        min_chars=200,
         verbose=verbose,
         require_sentence_end=True,
     )
-
-    # Check if authenticity check approved the draft without changes
-    if "Keine Änderungen!" in verification_report:
-        # Skip rewrite step and use draft text directly
-        logger.info("Authenticity check passed without changes - skipping rewrite step")
-        revised_text = draft_text
-        all_books_refs = verify_refs  # Use refs from primary books search
-    else:
-        # Second Qdrant search: All books (primary + secondary)
-        hits_all = await dense_retrieve(
-            query=draft_text,
-            k=int(k),
-            worldview=None,
-            book_types=["primary", "secondary"],
-            collection=collection,
-            embedding_client=embedding_client,
-            qdrant_client=qdrant_client,
-        )
-        all_books_context, all_books_refs = build_context(hits_all, max_chars=12000)
-
-        # Final rewrite with all books context
-        rewrite_prompt = build_rewrite_prompt(
-            assistant=assistant,
-            draft_text=draft_text,
-            verification_report=verification_report,
-            context=all_books_context,
-            part=str(mood_index),
-            style=soul_mood_style,
-            background=(essay_background or "").strip(),
-            primary_books_context=all_books_context,
-        )
-        revised_text, _ = await _chat_with_retry(
-            chat_client,
-            rewrite_prompt,
-            temperature=0.3,
-            max_tokens=650,
-            operation="essay_completion_rewrite",
-            retries=llm_retries,
-            min_chars=200,
-            verbose=verbose,
-            require_sentence_end=True,
-        )
+    
+    # Combine refs for all_books_refs
+    all_books_refs = primary_refs + secondary_refs
 
     # Generate final header for revised text
     final_header_prompt = build_header_prompt(
         assistant=assistant,
         essay_title=str(essay_title),
+        mood_index=int(mood_index),
         mood_name=final_mood_name,
         text=revised_text,
     )
@@ -525,10 +573,10 @@ async def run_essay_completion_graph(
         header=current_header or revised_header,
         draft_header=revised_header,
         draft_text=draft_text.strip(),
-        verification_report=verification_report.strip(),
+        verification_report="",  # No longer used
         revised_header=revised_header,
         revised_text=revised_text.strip(),
-        verify_refs=verify_refs,
+        verify_refs=primary_refs,
         all_books_refs=all_books_refs,
         graph_event_id=None,
     )

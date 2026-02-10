@@ -35,6 +35,20 @@ def _resolve_sigrid_essay_prompts_dir() -> Path:
     return assistants_root / "sigrid-von-gleich" / "prompts" / "essays"
 
 
+def _load_soul_mood_instruction(mood_index: int, mood_name: str) -> str:
+    """Load instruction.md for a soul mood."""
+    repo_root = Path(__file__).resolve().parents[3]
+    configured = Path(settings.assistants_root)
+    assistants_root = configured if configured.is_absolute() else (repo_root / configured)
+    
+    mood_dir = assistants_root / "sigrid-von-gleich" / "soul-moods" / f"{mood_index}_{mood_name}"
+    instruction_path = mood_dir / "instruction.md"
+    
+    if not instruction_path.is_file():
+        raise FileNotFoundError(f"Soul mood instruction not found: {instruction_path}")
+    return instruction_path.read_text(encoding="utf-8").strip()
+
+
 def _render_template(template: str, *, vars: Mapping[str, str]) -> str:
     out = template
     for key, value in vars.items():
@@ -79,109 +93,140 @@ Anforderungen:
     ]
 
 
-def build_verification_prompt(
-    *,
-    assistant: str,
-    draft_text: str,
-    context: str,
-) -> list[Mapping[str, str]]:
-    system = load_essay_system_prompt(assistant)
-    user = f"""
-Pruefe den folgenden Abschnitt auf Stimmigkeit mit dem Kontext. Gib einen kurzen Bericht:
-a) Staerken (in Bezug auf die Buecher)
-b) Unklare oder zu starke Behauptungen
-c) Verbesserungsvorschlaege
-Bewertung: X/10
-
-Abschnitt:
-{draft_text}
-
-Kontext (Primary Books):
-{context}
-""".strip()
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-
-
 def build_header_prompt(
     *,
     assistant: str,
     essay_title: str,
+    mood_index: int,
     mood_name: str,
     text: str,
 ) -> list[Mapping[str, str]]:
-    system = load_essay_system_prompt(assistant)
-    user = f"""
-Erstelle einen prägnanten Header (maximal 100 Zeichen) für folgenden Essay-Abschnitt:
-
-Essay-Titel: {essay_title}
-Seelenstimmung: {mood_name}
-
-Text:
-{text}
-
-Anforderungen:
-- Maximal 100 Zeichen
-- Keine Meta-Erklärungen
-- Eine Zeile
-- Fasst den Kern des Texts zusammen
-""".strip()
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-
-
-def build_length_adjustment_prompt(
-    *,
-    soul_mood_instruction: str,
-    text: str,
-    target_tokens: int,
-    reason: str,
-) -> list[Mapping[str, str]]:
-    system = soul_mood_instruction
-    user = f"""
-Passe die Länge des folgenden Texts an auf {target_tokens} Tokens ({reason}).
-
-Aktueller Text:
-{text}
-
-Anforderungen:
-- Ziel: {target_tokens} Tokens (±10)
-- Inhalt und Stil beibehalten
-- Klare, lesbare Prosa
-- Keine Meta-Erklärungen
-""".strip()
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
-
-
-def build_authenticity_check_prompt(
-    *,
-    draft_text: str,
-    primary_books_context: str,
-    primary_books_list: str,
-    soul_mood_description: str,
-    mood_name: str,
-) -> list[Mapping[str, str]]:
-    system = "Du bist ein präziser Prüfer für Authentizität von Steiner-basierten Texten."
+    # Load system prompt from soul mood instruction.md
+    system = _load_soul_mood_instruction(mood_index, mood_name)
     
-    prompt_path = _resolve_sigrid_essay_prompts_dir() / "authenticity_check.prompt"
+    # Load user prompt from essay_header.prompt template
+    prompt_path = _resolve_sigrid_essay_prompts_dir() / "essay_header.prompt"
     if not prompt_path.is_file():
-        raise FileNotFoundError(f"Authenticity check prompt not found: {prompt_path}")
+        raise FileNotFoundError(f"Header prompt not found: {prompt_path}")
     
     template = prompt_path.read_text(encoding="utf-8").strip()
     user = _render_template(
         template,
         vars={
+            "essay_title": essay_title,
             "mood_name": mood_name,
-            "soul_mood_description": soul_mood_description,
-            "draft_text": draft_text,
-            "primary_books_context": primary_books_context,
+            "text": text,
+        },
+    ).strip()
+    
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_rewrite_from_draft_prompt(
+    *,
+    draft_text: str,
+    primary_context: str,
+    secondary_context: str,
+    part: str,
+    style: str,
+    topic: str,
+    essay_parts: str,
+    mood_index: int,
+    mood_name: str,
+) -> list[Mapping[str, str]]:
+    """Build rewrite prompt using draft as foundation with primary and secondary contexts.
+    
+    Uses essay_rewrite_from_draft.prompt template with:
+    - {background} = draft_text (draft becomes the Grundgedanke)
+    - {primary_context} = primary books chunks
+    - {secondary_context} = secondary books chunks
+    - {essay-parts-section} = previous parts for parts 2-7, empty for part 1
+    """
+    # System prompt from soul mood instruction
+    system = _load_soul_mood_instruction(mood_index, mood_name)
+    
+    # Load the dedicated rewrite template
+    prompt_path = _resolve_sigrid_essay_prompts_dir() / "essay_rewrite_from_draft.prompt"
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"Rewrite prompt template not found: {prompt_path}")
+    
+    template = prompt_path.read_text(encoding="utf-8").strip()
+    
+    # Build essay-parts section (empty for part 1, populated for parts 2-7)
+    essay_parts_section = ""
+    if essay_parts.strip():
+        essay_parts_section = f"Führe den Essay-Beginn fort:\n{essay_parts.strip()}\n"
+    
+    # Render template with all variables
+    user = _render_template(
+        template,
+        vars={
+            "part": part,
+            "style": style.strip(),
+            "topic": topic.strip(),
+            "background": draft_text.strip(),
+            "essay-parts-section": essay_parts_section,
+            "primary_context": primary_context.strip(),
+            "secondary_context": secondary_context.strip(),
+        },
+    ).strip()
+    
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_tune_part_prompt(
+    *,
+    current_text: str,
+    modifications: str,
+    primary_context: str,
+    secondary_context: str,
+    part: str,
+    style: str,
+    essay_parts: str,
+    mood_index: int,
+    mood_name: str,
+) -> list[Mapping[str, str]]:
+    """Build tune part prompt with modification instructions.
+    
+    Uses essay_tune_part.prompt template with:
+    - {current_text} = existing part text
+    - {modifications} = user modification instructions
+    - {primary_context} = primary books chunks
+    - {secondary_context} = secondary books chunks
+    - {essay-parts-section} = previous parts for context
+    """
+    # System prompt from soul mood instruction
+    system = _load_soul_mood_instruction(mood_index, mood_name)
+    
+    # Load the tune part template
+    prompt_path = _resolve_sigrid_essay_prompts_dir() / "essay_tune_part.prompt"
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"Tune part prompt template not found: {prompt_path}")
+    
+    template = prompt_path.read_text(encoding="utf-8").strip()
+    
+    # Build essay-parts section
+    essay_parts_section = ""
+    if essay_parts.strip():
+        essay_parts_section = f"{essay_parts.strip()}\n"
+    
+    # Render template with all variables
+    user = _render_template(
+        template,
+        vars={
+            "part": part,
+            "style": style.strip(),
+            "current_text": current_text.strip(),
+            "modifications": modifications.strip(),
+            "essay-parts-section": essay_parts_section,
+            "primary_context": primary_context.strip(),
+            "secondary_context": secondary_context.strip(),
         },
     ).strip()
     
@@ -202,9 +247,10 @@ def build_rewrite_prompt(
     background: str,
     primary_books_context: str,
 ) -> list[Mapping[str, str]]:
-    system = load_essay_system_prompt(assistant)
+    """DEPRECATED: Old rewrite prompt - kept for backward compatibility."""
+    system = load_essay_system_prompt("sigrid-von-gleich")
     
-    prompt_path = _resolve_sigrid_essay_prompts_dir() / "rewrite.prompt"
+    prompt_path = _resolve_sigrid_essay_prompts_dir() / "essay_rewrite.prompt"
     if not prompt_path.is_file():
         raise FileNotFoundError(f"Rewrite prompt not found: {prompt_path}")
     

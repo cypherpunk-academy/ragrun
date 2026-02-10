@@ -4,7 +4,7 @@ from __future__ import annotations
 from app.infra.deepseek_client import DeepSeekClient
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
-from app.retrieval.graphs.essay_finetune import run_essay_finetune_graph
+from app.retrieval.graphs.essay_finetune import run_essay_tune_part_graph as run_essay_finetune_graph
 from app.retrieval.models import EssayFinetuneResult
 
 

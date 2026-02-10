@@ -12,7 +12,7 @@ from app.retrieval.prompts.essay_evaluation import build_evaluation_prompt
 from app.retrieval.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
-SENTENCE_END_RE = re.compile(r"[.!?][\"'”»\)\]]?\s*$")
+SENTENCE_END_RE = re.compile(r'[.!?][\"\'\u201c\u201d\u2019\u00BB\)\]]?\s*$')
 
 
 class RetryableCompletionError(RuntimeError):

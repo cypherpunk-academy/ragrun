@@ -16,7 +16,7 @@ from app.retrieval.utils.retrievers import build_context, dense_retrieve
 from app.retrieval.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
-SENTENCE_END_RE = re.compile(r"[.!?][\"'”»\)\]]?\s*$")
+SENTENCE_END_RE = re.compile(r'[.!?][\"\'\u201c\u201d\u2019\u00BB\)\]]?\s*$')
 
 
 class RetryableCompletionError(RuntimeError):

@@ -90,11 +90,11 @@ class EssayCompletionResult:
     header: str
     draft_header: str
     draft_text: str
-    verification_report: str
     revised_header: str
     revised_text: str
-    verify_refs: List[str]
-    all_books_refs: List[str]
+    verify_refs: List[str]  # Primary book references
+    all_books_refs: List[str]  # Combined primary + secondary references
+    verification_report: str = ""  # Deprecated: No longer used in new pipeline
     graph_event_id: str | None = None
 
 
