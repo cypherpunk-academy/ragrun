@@ -41,6 +41,7 @@ class ChunkMirrorRepository:
                     "created_at": metadata.created_at,
                     "updated_at": metadata.updated_at,
                     "metadata": metadata.model_dump(mode="json"),
+                    "references": metadata.references or None,
                 }
             )
 

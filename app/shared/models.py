@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, constr
 
@@ -70,6 +70,10 @@ class ChunkMetadata(BaseModel):
     )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")
+    references: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="References to chunks that influenced this chunk's generation.",
+    )
 
     @classmethod
     def json_schema(cls) -> dict:

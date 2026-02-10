@@ -39,6 +39,7 @@ chunks_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("metadata", JSONType, nullable=False),
+    Column("references", JSONType),
 )
 
 

@@ -1,0 +1,21 @@
+Du bewertest, welche abgerufenen Chunks für den generierten Text tatsächlich relevant waren. Antworte auf Deutsch.
+
+Generated Text:
+{generated_text}
+
+Retrieved Chunks:
+{chunks_list}
+
+Gib für jeden relevanten Chunk an:
+1. chunk_id
+2. kurze Begründung, warum der Chunk für den generierten Text relevant ist (auf Deutsch)
+3. Relevanz-Score (0.0–1.0)
+
+Gib NUR ein JSON-Array mit Objekten zurück:
+[
+  {
+    "chunk_id": "string",
+    "description": "string",
+    "relevance": 0.0
+  }
+]

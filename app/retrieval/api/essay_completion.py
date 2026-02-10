@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import traceback
 from functools import lru_cache
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -47,6 +47,7 @@ class EssayCompletionResponse(BaseModel):
     revised_text: str
     verify_refs: List[str]
     all_books_refs: List[str]
+    references: Optional[List[dict[str, Any]]] = None
     graph_event_id: Optional[str] = None
 
 
@@ -134,5 +135,6 @@ async def essay_completion(
         revised_text=result.revised_text,
         verify_refs=result.verify_refs,
         all_books_refs=result.all_books_refs,
+        references=result.references,
         graph_event_id=result.graph_event_id,
     )

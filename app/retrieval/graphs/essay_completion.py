@@ -18,6 +18,7 @@ from app.retrieval.prompts.essay_completion import (
     build_header_prompt,
     build_rewrite_from_draft_prompt,
 )
+from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, dense_retrieve
 from app.retrieval.utils.retry import retry_async
 
@@ -564,6 +565,15 @@ async def run_essay_completion_graph(
     )
     revised_header = revised_header.strip()[:100]
 
+    # Evaluate references after final output is complete.
+    final_output = f"{revised_header}\n\n{revised_text.strip()}".strip()
+    references = await evaluate_chunk_relevance(
+        generated_text=final_output,
+        retrieved_chunks=hits_primary + hits_secondary,
+        llm=chat_client,
+        max_chunks=20,
+    )
+
     return EssayCompletionResult(
         assistant=assistant,
         essay_slug=str(essay_slug),
@@ -578,5 +588,6 @@ async def run_essay_completion_graph(
         revised_text=revised_text.strip(),
         verify_refs=primary_refs,
         all_books_refs=all_books_refs,
+        references=references,
         graph_event_id=None,
     )

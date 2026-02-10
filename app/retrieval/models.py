@@ -94,6 +94,7 @@ class EssayCompletionResult:
     revised_text: str
     verify_refs: List[str]  # Primary book references
     all_books_refs: List[str]  # Combined primary + secondary references
+    references: Optional[List[Mapping[str, Any]]] = None
     verification_report: str = ""  # Deprecated: No longer used in new pipeline
     graph_event_id: str | None = None
 
