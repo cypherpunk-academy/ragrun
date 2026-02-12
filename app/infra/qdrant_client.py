@@ -14,6 +14,26 @@ class QdrantClient:
         self.timeout = timeout
         self.headers = {"api-key": api_key} if api_key else None
 
+    async def get_version(self) -> str:
+        """Return Qdrant server version from GET /."""
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.get(f"{self.base_url}/")
+            response.raise_for_status()
+            data = response.json()
+            return str(data.get("version", "unknown"))
+
+    async def get_collection_info(self, collection: str) -> dict[str, object] | None:
+        """Return collection details (points_count, etc.) or None if not found."""
+
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.get(f"{self.base_url}/collections/{collection}")
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            return data.get("result", {}) or {}
+
     async def ensure_collection(
         self,
         name: str,

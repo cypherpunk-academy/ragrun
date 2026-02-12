@@ -22,6 +22,7 @@ from app.retrieval.prompts.authentic_concept_explain import (
     build_steiner_verify_prompt,
 )
 from app.retrieval.services.graph_event_recorder import GraphEventRecorder
+from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, dense_retrieve, rerank_by_embedding
 from app.retrieval.utils.retry import retry_async
 
@@ -400,6 +401,7 @@ async def run_authentic_concept_explain_chain(
     extra_context = ""
     extra_refs: list[str] = []
     extra_sources: list[dict[str, Any]] = []
+    missing_reranked: list[RetrievedSnippet] = []
     if b_section:
         verify_query_prompt = build_steiner_verify_query_prompt(
             b_section=b_section, primary_books_list=primary_books_list
@@ -484,12 +486,24 @@ async def run_authentic_concept_explain_chain(
         },
     )
 
+    # Evaluate references after final lexicon_entry is complete.
+    all_retrieved_chunks: list[RetrievedSnippet] = list(reranked)
+    if missing_reranked:
+        all_retrieved_chunks.extend(missing_reranked)
+    references = await evaluate_chunk_relevance(
+        generated_text=lexicon_entry,
+        retrieved_chunks=all_retrieved_chunks,
+        llm=chat_client,
+        max_chunks=20,
+    )
+
     return AuthenticConceptExplainResult(
         concept=concept,
         steiner_prior_text=steiner_prior_text,
         verify_refs=verify_refs,
         verification_report=verification_report,
         lexicon_entry=lexicon_entry,
+        references=references,
         graph_event_id=str(graph_event_id),
     )
 

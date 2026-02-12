@@ -8,7 +8,7 @@ Retrieved Chunks:
 
 Gib für jeden relevanten Chunk an:
 1. chunk_id
-2. kurze Begründung, warum der Chunk für den generierten Text relevant ist (auf Deutsch)
+2. description: Formuliere den Inhalt des Chunks als direkte Aussage (auf Deutsch). Keine Meta-Phrasen wie „Der Chunk beschreibt“, „thematisiert“ oder „Dies entspricht der Kernthese“. Sage direkt, was der Fall ist.
 3. Relevanz-Score (0.0–1.0)
 
 Gib NUR ein JSON-Array mit Objekten zurück:

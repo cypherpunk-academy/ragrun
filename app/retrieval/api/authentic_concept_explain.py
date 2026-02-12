@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -31,6 +31,7 @@ class AuthenticConceptExplainResponse(BaseModel):
     verify_refs: List[str]
     verification_report: str
     lexicon_entry: str
+    references: Optional[List[Dict[str, Any]]] = None
     graph_event_id: Optional[str] = None
 
 
@@ -73,6 +74,7 @@ async def authentic_concept_explain(
         verify_refs=result.verify_refs,
         verification_report=result.verification_report,
         lexicon_entry=result.lexicon_entry,
+        references=result.references,
         graph_event_id=result.graph_event_id,
     )
 

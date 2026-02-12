@@ -47,6 +47,7 @@ class AuthenticConceptExplainResult:
     verify_refs: List[str]
     verification_report: str
     lexicon_entry: str
+    references: Optional[List[Mapping[str, Any]]] = None
     graph_event_id: str | None = None
 
 
