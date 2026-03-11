@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
@@ -13,8 +14,11 @@ from ..shared.models import ChunkRecord
 
 from ..config import settings
 from ..db.session import get_engine
-from ..db.tables import chunks_table
+from ..db.tables import chunks_table, event_metadata_table
 from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine
+from ..retrieval.services.providers import get_deepseek_chat, get_embedding_client as get_retrieval_embedding
+from ..retrieval.services.quote_explain_service import explain_quote
+from ..retrieval.services.event_recorder import EventRecorder, enqueue_record_event, enqueue_record_metadata_only
 from ..core.telemetry import telemetry_client as ingestion_telemetry
 from ..ingestion.repositories import ChunkMirrorRepository
 from ..ingestion.services import IngestionService
@@ -192,6 +196,23 @@ async def upload_chunks(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+
+    chunk_ids = [c.chunk_id for c in chunks] if chunks else None
+    enqueue_record_metadata_only(
+        EventRecorder(),
+        endpoint="rag/upload-chunks",
+        collection=request.collection_name,
+        metadata={
+            "requested": result.requested,
+            "ingested": result.ingested,
+            "stale_deleted": result.stale_deleted,
+            "duplicates": result.duplicates,
+            "unchanged": result.unchanged,
+            "changed": result.changed,
+            "new": result.new,
+        },
+        chunk_ids=chunk_ids[:500] if chunk_ids and len(chunk_ids) > 500 else chunk_ids,
+    )
 
     return UploadChunksResponse(**asdict(result))
 
@@ -522,6 +543,13 @@ async def delete_chunks(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
+    enqueue_record_metadata_only(
+        EventRecorder(),
+        endpoint="rag/delete-chunks",
+        collection=collection,
+        metadata={"matched": len(chunk_ids), "deleted": result.deleted},
+    )
+
     return DeleteChunksResponse(
         collection=collection,
         matched=len(chunk_ids),
@@ -621,6 +649,158 @@ async def list_book_titles(
     }
 
 
+@router.get("/monitoring/chunks")
+async def monitoring_chunks(
+    collection: str,
+) -> Dict[str, Any]:
+    """Chunk statistics for the monitoring widget."""
+
+    engine = get_engine()
+    with engine.connect() as conn:
+        types_rows = conn.execute(
+            text(
+                """
+                SELECT chunk_type, COUNT(*) AS count
+                FROM rag_chunks
+                WHERE collection = :c
+                GROUP BY chunk_type
+                ORDER BY count DESC
+                """
+            ),
+            {"c": collection},
+        ).fetchall()
+
+        # Books with chunk count + usage count from event_metadata
+        books_rows = conn.execute(
+            text(
+                """
+                WITH usage AS (
+                    SELECT cid AS chunk_id, COUNT(*) AS cnt
+                    FROM event_metadata em,
+                         jsonb_array_elements_text(em.chunk_ids) AS cid
+                    WHERE (em.collection = :c OR em.collection IS NULL)
+                      AND em.chunk_ids IS NOT NULL
+                      AND jsonb_typeof(em.chunk_ids) = 'array'
+                    GROUP BY cid
+                ),
+                books_base AS (
+                    SELECT
+                        COALESCE(metadata->>'book_title', metadata->>'source_title') AS book_title,
+                        metadata->>'author' AS author,
+                        chunk_type,
+                        COUNT(*) AS chunk_count,
+                        COALESCE(SUM(u.cnt), 0)::bigint AS usage_count
+                    FROM rag_chunks rc
+                    LEFT JOIN usage u ON u.chunk_id = rc.chunk_id
+                    WHERE rc.collection = :c
+                      AND COALESCE(rc.metadata->>'book_title', rc.metadata->>'source_title') IS NOT NULL
+                    GROUP BY 1, 2, 3
+                )
+                SELECT book_title, author, chunk_type, chunk_count, usage_count
+                FROM books_base
+                ORDER BY chunk_count DESC
+                LIMIT 100
+                """
+            ),
+            {"c": collection},
+        ).fetchall()
+
+        total_usage = sum(r[4] for r in books_rows)
+
+    return {
+        "collection": collection,
+        "chunk_types": [{"chunk_type": r[0], "count": r[1]} for r in types_rows],
+        "books": [
+            {
+                "book_title": r[0],
+                "author": r[1],
+                "chunk_type": r[2],
+                "count": r[3],
+                "usage_count": r[4],
+                "usage_pct": round(100.0 * r[4] / total_usage, 1) if total_usage > 0 else 0.0,
+            }
+            for r in books_rows
+        ],
+        "total_usage": total_usage,
+    }
+
+
+@router.get("/monitoring/events")
+async def monitoring_events(
+    collection: str,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """Event statistics and log for the monitoring widget."""
+
+    engine = get_engine()
+    with engine.connect() as conn:
+        # Include events where collection matches OR is NULL (untyped events)
+        volume_rows = conn.execute(
+            text(
+                """
+                SELECT endpoint, COUNT(*) AS event_count
+                FROM event_metadata
+                WHERE collection = :c OR collection IS NULL
+                GROUP BY endpoint
+                ORDER BY event_count DESC
+                """
+            ),
+            {"c": collection},
+        ).fetchall()
+
+        # Log: one row per event_metadata AND one row per event_content (unified)
+        log_rows = conn.execute(
+            text(
+                """
+                (
+                    SELECT
+                        em.created_at,
+                        em.endpoint,
+                        CASE
+                            WHEN em.chunk_ids IS NOT NULL AND jsonb_typeof(em.chunk_ids) = 'array'
+                            THEN jsonb_array_length(em.chunk_ids)
+                            ELSE 0
+                        END AS chunk_count,
+                        NULL::text AS concept,
+                        'metadata' AS source
+                    FROM event_metadata em
+                    WHERE (em.collection = :c OR em.collection IS NULL)
+                )
+                UNION ALL
+                (
+                    SELECT
+                        ec.created_at,
+                        em.endpoint,
+                        NULL::bigint AS chunk_count,
+                        ec.concept,
+                        'content' AS source
+                    FROM event_content ec
+                    JOIN event_metadata em ON em.id = ec.event_metadata_id
+                    WHERE (em.collection = :c OR em.collection IS NULL)
+                )
+                ORDER BY created_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"c": collection, "lim": limit},
+        ).fetchall()
+
+    return {
+        "collection": collection,
+        "volume": [{"endpoint": r[0], "event_count": r[1]} for r in volume_rows],
+        "log": [
+            {
+                "endpoint": r[1],
+                "created_at": r[0].isoformat() if r[0] else None,
+                "chunk_count": r[2],
+                "concept": r[3],
+                "source": r[4],
+            }
+            for r in log_rows
+        ],
+    }
+
+
 @router.get("/collections")
 async def list_collections() -> Dict[str, Any]:
     """List all collections from Qdrant."""
@@ -630,3 +810,73 @@ async def list_collections() -> Dict[str, Any]:
     collections = await qdrant_client.list_collections()
 
     return {"collections": collections, "vector_db_path": str(settings.qdrant_url)}
+
+
+class QuoteExplainRequest(BaseModel):
+    """Request for quote explanation."""
+
+    quote: str = Field(..., min_length=1, description="The quote to explain")
+    assistant: Optional[str] = Field(
+        "philo-von-freisinn",
+        description="Assistant name (from assistant-manifest.yaml)",
+    )
+
+
+class QuoteExplainResponse(BaseModel):
+    """Response: chunk-shaped object with text and metadata."""
+
+    text: str
+    metadata: Dict[str, Any]
+
+
+@router.post("/quote-explain", response_model=QuoteExplainResponse)
+async def quote_explain(request: QuoteExplainRequest) -> QuoteExplainResponse:
+    """
+    Explain a quote using retrieval from primary book + lecture and DeepSeek.
+
+    Retrieves k=8 chunks (4 book + 4 lecture), generates ~300-token explanation,
+    evaluates chunk relevance, returns chunk-shaped object.
+    """
+    quote = (request.quote or "").strip()
+    if not quote:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="quote is required",
+        )
+    assistant = (request.assistant or "philo-von-freisinn").strip()
+
+    try:
+        result = await explain_quote(
+            quote=quote,
+            assistant=assistant,
+            embedding_client=get_retrieval_embedding(),
+            qdrant_client=get_qdrant_client(),
+            chat_client=get_deepseek_chat(),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"quote-explain failed: {exc}",
+        ) from exc
+
+    graph_event_id = str(uuid.uuid4())
+    enqueue_record_event(
+        EventRecorder(),
+        endpoint="rag/quote-explain",
+        graph_event_id=graph_event_id,
+        graph_name="quote_explain",
+        step="explain",
+        collection=result.get("collection"),
+        chunk_ids=result.get("chunk_ids"),
+        concept=None,
+        query_text=quote[:512] if quote else None,
+        response_text=result["text"][:2000] if result.get("text") else None,
+        context_refs=[r.get("chunk_id") for r in result.get("metadata", {}).get("references", []) if isinstance(r.get("chunk_id"), str)],
+    )
+
+    return QuoteExplainResponse(text=result["text"], metadata=result["metadata"])

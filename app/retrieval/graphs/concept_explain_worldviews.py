@@ -334,6 +334,7 @@ async def run_concept_explain_worldviews_graph(
             graph_name=graph_name,
             step=step,
             concept=concept,
+            collection=collection,
             **kwargs,
         )
 

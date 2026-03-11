@@ -103,6 +103,7 @@ async def run_translate_to_worldview_graph(
             graph_name=graph_name,
             step=step,
             concept=concept_for_events,
+            collection=collection,
             **kwargs,
         )
 

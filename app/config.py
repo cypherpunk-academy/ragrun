@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     ace_chunk_target_words: int = 260
     ace_chunk_max_words: int = 320
 
+    # CORS: comma-separated list of allowed origins (e.g. "http://localhost:8080,https://example.com")
+    cors_origins: str = ""
+
     use_hybrid_retrieval: bool = False
     hybrid_prefer_short_concepts: bool = True
     hybrid_short_concept_max_words: int = 2

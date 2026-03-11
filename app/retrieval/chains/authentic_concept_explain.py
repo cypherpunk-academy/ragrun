@@ -306,6 +306,7 @@ async def run_authentic_concept_explain_chain(
             graph_name=graph_name,
             step=step,
             concept=concept,
+            collection=collection,
             **kwargs,
         )
 

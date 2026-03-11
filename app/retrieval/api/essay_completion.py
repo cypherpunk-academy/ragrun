@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.retrieval.models import EssayCompletionResult
 from app.retrieval.services.essay_completion_service import EssayCompletionService
+from app.retrieval.services.event_recorder import EventRecorder, enqueue_record_event
 from app.retrieval.services.providers import get_deepseek_chat, get_embedding_client, get_qdrant_client
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,25 @@ async def essay_completion(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"essay-completion failed: {error_msg}",
         ) from exc
+
+    graph_event_id = result.graph_event_id or ""
+    if graph_event_id:
+        chunk_ids = list(result.verify_refs) + list(result.all_books_refs)
+        enqueue_record_event(
+            EventRecorder(),
+            endpoint="agent/philo-von-freisinn/graphs/essay-completion",
+            graph_event_id=graph_event_id,
+            graph_name="essay_completion",
+            step="complete",
+            collection=assistant,
+            metadata={
+                "essay_slug": essay_slug,
+                "mood_index": result.mood_index,
+            },
+            chunk_ids=chunk_ids[:100] if len(chunk_ids) > 100 else chunk_ids,
+            response_text=result.revised_text[:2000] if result.revised_text else None,
+            context_refs=result.verify_refs,
+        )
 
     return EssayCompletionResponse(
         assistant=result.assistant,

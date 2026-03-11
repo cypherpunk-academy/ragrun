@@ -7,7 +7,6 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -43,61 +42,51 @@ chunks_table = Table(
 )
 
 
-retrieval_events_table = Table(
-    "retrieval_events",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("concept", String(512), nullable=False),
-    Column("branch", String(128), nullable=False),
-    Column("collection", String(128), nullable=False),
-    Column("answer", Text),
-    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-)
-
-
-retrieval_chunks_table = Table(
-    "retrieval_chunks",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column(
-        "event_id",
-        Integer,
-        ForeignKey("retrieval_events.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
-    Column("kind", String(32), nullable=False),
-    Column("text", Text, nullable=False),
-    Column("score", Float),
-    Column("source_id", String(256)),
-    Column("chunk_type", String(128)),
-    Column("metadata", JSONType),
-    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-)
-
-
-retrieval_graph_events_table = Table(
-    "retrieval_graph_events",
+# --- event_metadata: dauerhaftes Logging (Metadaten, chunk_ids, Timestamps) ---
+event_metadata_table = Table(
+    "event_metadata",
     metadata,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
-    Column("graph_event_id", String(64), nullable=False),
-    Column("graph_name", String(128), nullable=False),
-    Column("step", String(128), nullable=False),
-    Column("concept", String(512), nullable=False),
+    Column("endpoint", String(256), nullable=False),
+    Column("graph_event_id", String(64)),
+    Column("graph_name", String(128)),
+    Column("step", String(128)),
+    Column("collection", String(128)),
     Column("worldview", String(256)),
+    Column("retrieval_mode", String(64)),
+    Column("sufficiency", String(32)),
+    Column("error_count", Integer),
+    Column("metadata", JSONType),
+    Column("chunk_ids", JSONType),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+Index("idx_em_endpoint", event_metadata_table.c.endpoint)
+Index("idx_em_created_at", event_metadata_table.c.created_at)
+Index("idx_em_graph_event_id", event_metadata_table.c.graph_event_id)
+
+# --- event_content: 7-Tage-Rotation (Inhalte, Zwischenergebnisse) ---
+event_content_table = Table(
+    "event_content",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column(
+        "event_metadata_id",
+        BigInteger,
+        ForeignKey("event_metadata.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("concept", String(512)),
     Column("query_text", Text),
     Column("prompt_messages", JSONType),
     Column("context_refs", JSONType),
     Column("context_source", JSONType),
     Column("context_text", Text),
     Column("response_text", Text),
-    Column("retrieval_mode", String(64)),
-    Column("sufficiency", String(32)),
     Column("errors", JSONType),
-    Column("metadata", JSONType),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )
 
-Index("idx_rge_graph_event_id", retrieval_graph_events_table.c.graph_event_id)
-Index("idx_rge_graph_event_step", retrieval_graph_events_table.c.graph_event_id, retrieval_graph_events_table.c.step)
-Index("idx_rge_graph_event_worldview", retrieval_graph_events_table.c.graph_event_id, retrieval_graph_events_table.c.worldview)
+Index("idx_ec_event_metadata_id", event_content_table.c.event_metadata_id)
+Index("idx_ec_created_at", event_content_table.c.created_at)
 

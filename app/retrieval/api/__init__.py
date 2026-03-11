@@ -6,7 +6,6 @@ from fastapi import APIRouter
 from .concept_explain_worldviews import router as worldviews_router
 from .authentic_concept_explain import router as authentic_router
 from .essay_create import router as essay_create_router
-# from .essay_finetune import router as essay_finetune_router  # Disabled - incompatible with current implementation
 from .essay_completion import router as essay_completion_router
 from .essay_tune_part import router as essay_tune_part_router
 from .essay_evaluation import router as essay_evaluation_router
@@ -16,7 +15,6 @@ router = APIRouter()
 router.include_router(worldviews_router, prefix="/agent/philo-von-freisinn")
 router.include_router(authentic_router, prefix="/agent/philo-von-freisinn")
 router.include_router(essay_create_router, prefix="/agent/philo-von-freisinn")
-# router.include_router(essay_finetune_router, prefix="/agent/philo-von-freisinn")  # Disabled
 router.include_router(essay_completion_router, prefix="/agent/philo-von-freisinn")
 router.include_router(essay_tune_part_router, prefix="/agent/philo-von-freisinn")
 router.include_router(essay_evaluation_router, prefix="/agent/philo-von-freisinn")
