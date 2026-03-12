@@ -12,7 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .api import rag as rag_router
+from .api.chat import router as chat_router
 from .retrieval.api import router as retrieval_router
+from .retrieval.graphs.assistant_chat_graph import build_chat_graph
 from .core.providers import (
     get_deepseek_reasoner_client,
 )
@@ -23,6 +25,15 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # Chat-Graph (Iter. 1: MemorySaver im RAM)
+    # Iter. 2: MemorySaver ersetzen durch AsyncPostgresSaver:
+    #   from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    #   checkpointer = AsyncPostgresSaver.from_conn_string(str(settings.postgres_dsn))
+    #   await checkpointer.setup()
+    #   app.state.chat_graph = build_chat_graph(checkpointer=checkpointer)
+    app.state.chat_graph = build_chat_graph()
+    logger.info("Chat graph initialized (MemorySaver)")
+
     cleanup_task = asyncio.create_task(run_cleanup_loop())
     try:
         yield
@@ -124,3 +135,4 @@ if _cors_origins:
 
 app.include_router(rag_router.router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")

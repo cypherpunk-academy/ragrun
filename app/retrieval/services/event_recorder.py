@@ -119,6 +119,7 @@ class EventRecorder:
 
         content_row = {
             "event_metadata_id": meta_id,
+            "thread_id": str(graph_event_id),
             "concept": concept,
             "query_text": query_text,
             "prompt_messages": (

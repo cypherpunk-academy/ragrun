@@ -29,6 +29,9 @@ def payload_filter(worldview: str | None, book_types: Iterable[str]) -> Mapping[
     """
     Build a Qdrant payload filter for worldview- and book-type scoped retrieval.
 
+    - If worldview is set: only chunks where worldviews contains that value.
+    - If worldview is None: only chunks where worldviews is null (general, non-worldview-specific).
+
     Note: older ingestions stored the type under `chunk_type` (book/secondary_book)
     rather than `book_type`. We prefer `chunk_type` to avoid empty results.
     """
@@ -37,6 +40,14 @@ def payload_filter(worldview: str | None, book_types: Iterable[str]) -> Mapping[
 
     if worldview:
         must.append({"key": "worldviews", "match": {"value": worldview}})
+    else:
+        # Match both null and empty array (ingestion may store either)
+        must.append({
+            "should": [
+                {"is_null": {"key": "worldviews"}},
+                {"is_empty": {"key": "worldviews"}},
+            ]
+        })
 
     # Map logical book_types to the stored chunk_type values.
     chunk_types: list[str] = []

@@ -8,6 +8,7 @@ from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Iterable, Mapping, Sequence, Any
 
 from app.config import settings
@@ -266,6 +267,7 @@ async def run_authentic_concept_explain_chain(
     event_recorder: GraphEventRecorder | None = None,
     verbose: bool = False,
     llm_retries: int = 3,
+    progress_callback: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> AuthenticConceptExplainResult:
     if not concept or not concept.strip():
         raise ValueError("concept is required")
@@ -274,6 +276,13 @@ async def run_authentic_concept_explain_chain(
     graph_event_id = uuid.uuid4()
     graph_name = "authentic_concept_explain"
     recorder = event_recorder or GraphEventRecorder()
+
+    async def _progress(step: str, label: str) -> None:
+        if progress_callback is not None:
+            try:
+                await progress_callback(step, label)
+            except Exception:
+                logger.debug("progress_callback failed for step=%s", step)
 
     async def _record_event(step: str, **kwargs: object) -> None:
         if verbose:
@@ -311,6 +320,7 @@ async def run_authentic_concept_explain_chain(
         )
 
     # Step 1.1: Steiner prior (no retrieval)
+    await _progress("steiner_prior", "Steiner-Vorwissen generieren…")
     primary_books_list = _load_primary_books_list_text()
     prior_prompt = build_steiner_prior_prompt(concept=concept, primary_books_list=primary_books_list)
     steiner_prior_text, prior_prompt_messages = await _chat_with_retry(
@@ -330,6 +340,7 @@ async def run_authentic_concept_explain_chain(
     )
 
     # Step 1.2: Retrieve Steiner-ish chunks (chunk_type=book) + verify against context
+    await _progress("steiner_verify_retrieval", "Textbelege abrufen…")
     raw_hits = await dense_retrieve(
         query=steiner_prior_text,
         k=cfg.k_base,
@@ -375,6 +386,7 @@ async def run_authentic_concept_explain_chain(
     if not reranked:
         raise ValueError("Verification retrieval returned no hits; aborting")
 
+    await _progress("steiner_verify_reasoning", "Belege prüfen…")
     verify_prompt = build_steiner_verify_prompt(
         steiner_prior_text=steiner_prior_text, context=verify_context
     )
@@ -453,6 +465,7 @@ async def run_authentic_concept_explain_chain(
         )
 
     # Step 1.3: Final lexicon entry grounded in retrieved context + verification (+ optional extra context)
+    await _progress("steiner_lexicon", "Lexikoneintrag verfassen…")
     combined_context = verify_context
     if extra_context:
         # Keep input size bounded; the model doesn't need unlimited context here.

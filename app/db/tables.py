@@ -76,6 +76,7 @@ event_content_table = Table(
         ForeignKey("event_metadata.id", ondelete="CASCADE"),
         nullable=False,
     ),
+    Column("thread_id", String(64), nullable=True),
     Column("concept", String(512)),
     Column("query_text", Text),
     Column("prompt_messages", JSONType),
@@ -88,5 +89,6 @@ event_content_table = Table(
 )
 
 Index("idx_ec_event_metadata_id", event_content_table.c.event_metadata_id)
+Index("idx_ec_thread_id", event_content_table.c.thread_id)
 Index("idx_ec_created_at", event_content_table.c.created_at)
 
