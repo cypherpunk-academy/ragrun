@@ -49,7 +49,7 @@ from app.retrieval.models import RetrievedSnippet
 from app.retrieval.chains.authentic_concept_explain import run_authentic_concept_explain_chain
 from app.retrieval.services.graph_event_recorder import GraphEventRecorder
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
-from app.retrieval.utils.retrievers import build_context, hybrid_retrieve
+from app.retrieval.utils.retrievers import build_context, hybrid_retrieve, hybrid_retrieve_quote_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,19 @@ def _normalize_lemma(raw: str) -> str:
     cleaned = _ARTICLE_PREFIX.sub("", raw.strip()).lower()
     parts = cleaned.split()
     return parts[-1] if parts else cleaned
+
+
+def _lemma_lookup_variants(lemma: str) -> list[str]:
+    """Return lemma variants to try for DB lookup (exact first, then singular).
+
+    German nouns in begriff_list are stored in singular. When the user asks
+    "Was bedeutet Geister bei Steiner?", the LLM may extract "geister" (plural).
+    We try exact match first, then plural -en → singular (remove -en).
+    """
+    variants = [lemma]
+    if len(lemma) > 3 and lemma.endswith("en"):
+        variants.append(lemma[:-2])
+    return variants
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +190,12 @@ def _compute_sufficiency(chunks: list) -> str:
 async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
     prompt_template = _load_intent_classify_prompt()
 
+    await adispatch_custom_event(
+        "ace_progress",
+        {"step": "classify_intent", "label": "Ich klassifiziere den Prompt"},
+        config=config,
+    )
+
     recent_human = [
         m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)
     ][-3:]
@@ -202,6 +221,18 @@ async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
         "Intent: %s (confidence=%.2f, lemma=%r)",
         result.intent, result.confidence, result.lemma,
     )
+
+    if result.intent == "begriff_definieren":
+        normalized_lemma = _normalize_lemma(result.lemma)
+        await adispatch_custom_event(
+            "ace_progress",
+            {
+                "step": "classify_intent",
+                "label": f'Erkannt als "begriff_definieren", Begriff ist: "{normalized_lemma}"',
+            },
+            config=config,
+        )
+
     return {
         "intent": result.intent,
         "intent_confidence": result.confidence,
@@ -265,6 +296,11 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
 
     if not lemma:
         logger.info("Lemma lookup: empty lemma, falling back to broad retrieval")
+        await adispatch_custom_event(
+            "ace_progress",
+            {"step": "lemma_lookup", "label": "Begriff nicht gefunden, ich bestimme ihn neu (das kann eine Weile dauern)."},
+            config=config,
+        )
         await _record_lemma_lookup_event(
             config=config,
             user_message=state["user_message"],
@@ -282,24 +318,39 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
 
     # When no worldview is specified: only begriff_list chunks with worldviews null or empty
     # (Postgres stores both as possible; empty array displays as {})
+    # Try lemma variants (exact, then singular) since DB stores concepts in singular
     async_session = get_async_sessionmaker()
-    async with async_session() as session:
-        row = await session.execute(
-            text(
-                "SELECT chunk_id, text, metadata FROM rag_chunks "
-                "WHERE collection = :col "
-                "  AND chunk_type = 'begriff_list' "
-                "  AND metadata->>'segment_title' = :lemma "
-                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
-                "LIMIT 1"
-            ),
-            {"col": state["collection_name"], "lemma": lemma},
-        )
-        rec = row.fetchone()
+    rec = None
+    matched_lemma = lemma
+    for variant in _lemma_lookup_variants(lemma):
+        async with async_session() as session:
+            row = await session.execute(
+                text(
+                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "WHERE collection = :col "
+                    "  AND chunk_type = 'begriff_list' "
+                    "  AND metadata->>'segment_title' = :lemma "
+                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
+                    "LIMIT 1"
+                ),
+                {"col": state["collection_name"], "lemma": variant},
+            )
+            rec = row.fetchone()
+        if rec and rec.text:
+            matched_lemma = variant
+            break
 
     if rec and rec.text:
-        logger.info("Lemma lookup: '%s' found in begriff_list", lemma)
+        if matched_lemma != lemma:
+            logger.info("Lemma lookup: '%s' found in begriff_list (via singular '%s')", lemma, matched_lemma)
+        else:
+            logger.info("Lemma lookup: '%s' found in begriff_list", lemma)
         meta = rec.metadata or {}
+        await adispatch_custom_event(
+            "ace_progress",
+            {"step": "lemma_lookup", "label": "Begriff gefunden, gebe ihn zurück"},
+            config=config,
+        )
         await _record_lemma_lookup_event(
             config=config,
             user_message=state["user_message"],
@@ -321,6 +372,11 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
         }
 
     logger.info("Lemma lookup: '%s' not found, using authentic_concept_explain", lemma)
+    await adispatch_custom_event(
+        "ace_progress",
+        {"step": "lemma_lookup", "label": "Begriff nicht gefunden, ich bestimme ihn neu (das kann eine Weile dauern)."},
+        config=config,
+    )
     await _record_lemma_lookup_event(
         config=config,
         user_message=state["user_message"],
@@ -454,17 +510,27 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
     # On retry: widen to all chunk types (no filter)
     book_types: list[str] = [] if retry >= 1 else list(state.get("retrieval_plan") or [])
 
-    chunks = await hybrid_retrieve(
-        query=state["user_message"],
-        k_dense=15 + retry * 10,
-        k_sparse=15 + retry * 10,
-        k_fused=10 + retry * 5,
-        worldview=None,
-        book_types=book_types,
-        collection=collection,
-        embedding_client=embedding_client,
-        qdrant_client=qdrant_client,
-    )
+    if state.get("intent") == "quelle_suchen" and retry == 0:
+        chunks = await hybrid_retrieve_quote_parallel(
+            query=state["user_message"],
+            k_per_branch=8,
+            k_fused=12,
+            collection=collection,
+            embedding_client=embedding_client,
+            qdrant_client=qdrant_client,
+        )
+    else:
+        chunks = await hybrid_retrieve(
+            query=state["user_message"],
+            k_dense=15 + retry * 10,
+            k_sparse=15 + retry * 10,
+            k_fused=10 + retry * 5,
+            worldview=None,
+            book_types=book_types,
+            collection=collection,
+            embedding_client=embedding_client,
+            qdrant_client=qdrant_client,
+        )
 
     sufficiency = _compute_sufficiency(chunks)
     context_text, context_refs = build_context(chunks)

@@ -1,6 +1,7 @@
 """Retrieval helpers for concept-explain-worldviews."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Iterable, List, Mapping, Sequence, Tuple
 
@@ -25,12 +26,17 @@ async def embed_text(text: str, embedding_client: EmbeddingClient) -> Sequence[f
     return result.embeddings[0]
 
 
-def payload_filter(worldview: str | None, book_types: Iterable[str]) -> Mapping[str, object]:
+def payload_filter(
+    worldview: str | None,
+    book_types: Iterable[str],
+    author: str | None = None,
+) -> Mapping[str, object]:
     """
-    Build a Qdrant payload filter for worldview- and book-type scoped retrieval.
+    Build a Qdrant payload filter for worldview-, book-type- and author-scoped retrieval.
 
     - If worldview is set: only chunks where worldviews contains that value.
     - If worldview is None: only chunks where worldviews is null (general, non-worldview-specific).
+    - If author is set: only chunks where author matches (e.g. "Rudolf Steiner").
 
     Note: older ingestions stored the type under `chunk_type` (book/secondary_book)
     rather than `book_type`. We prefer `chunk_type` to avoid empty results.
@@ -48,6 +54,9 @@ def payload_filter(worldview: str | None, book_types: Iterable[str]) -> Mapping[
                 {"is_empty": {"key": "worldviews"}},
             ]
         })
+
+    if author:
+        must.append({"key": "author", "match": {"value": author}})
 
     # Map logical book_types to the stored chunk_type values.
     chunk_types: list[str] = []
@@ -80,13 +89,14 @@ async def dense_retrieve(
     collection: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    author: str | None = None,
 ) -> list[RetrievedSnippet]:
     vector = await embed_text(query, embedding_client)
     hits = await qdrant_client.search_points(
         collection,
         vector=vector,
         limit=k,
-        filter_=payload_filter(worldview, book_types),
+        filter_=payload_filter(worldview, book_types, author=author),
         with_payload=True,
     )
     out: list[RetrievedSnippet] = []
@@ -108,6 +118,7 @@ async def sparse_retrieve(
     book_types: Iterable[str],
     collection: str,
     qdrant_client: QdrantClient,
+    author: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Sparse-only BM25 retrieval with payload filtering."""
 
@@ -119,7 +130,7 @@ async def sparse_retrieve(
             collection=collection,
             text=query,
             limit=k,
-            filter_=payload_filter(worldview, book_types),
+            filter_=payload_filter(worldview, book_types, author=author),
         )
     except Exception:
         logger.exception("Sparse retrieval failed")
@@ -148,6 +159,7 @@ async def hybrid_retrieve(
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     force_sparse: bool = False,
+    author: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Hybrid dense+BM25 with RRF; falls back to dense-only if sparse unavailable."""
 
@@ -159,6 +171,7 @@ async def hybrid_retrieve(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        author=author,
     )
 
     if (not settings.use_hybrid_retrieval and not force_sparse) or k_sparse <= 0:
@@ -171,7 +184,7 @@ async def hybrid_retrieve(
                 collection=collection,
                 text=query,
                 limit=k_sparse,
-                filter_=payload_filter(worldview, book_types),
+                filter_=payload_filter(worldview, book_types, author=author),
             )
             for item in sparse or []:
                 payload = item.get("payload", {}) if isinstance(item, Mapping) else {}
@@ -189,6 +202,48 @@ async def hybrid_retrieve(
 
     fused = _rrf_fuse(dense_hits, sparse_hits, k_fused=k_fused)
     return fused
+
+
+async def hybrid_retrieve_quote_parallel(
+    *,
+    query: str,
+    k_per_branch: int,
+    k_fused: int,
+    collection: str,
+    embedding_client: EmbeddingClient,
+    qdrant_client: QdrantClient,
+) -> list[RetrievedSnippet]:
+    """Zwei parallele Suchen: quote + book/secondary_book (author=Rudolf Steiner)."""
+
+    async def search_quote() -> list[RetrievedSnippet]:
+        return await hybrid_retrieve(
+            query=query,
+            k_dense=k_per_branch,
+            k_sparse=k_per_branch,
+            k_fused=k_per_branch,
+            worldview=None,
+            book_types=["quote"],
+            collection=collection,
+            embedding_client=embedding_client,
+            qdrant_client=qdrant_client,
+        )
+
+    async def search_steiner_books() -> list[RetrievedSnippet]:
+        return await hybrid_retrieve(
+            query=query,
+            k_dense=k_per_branch,
+            k_sparse=k_per_branch,
+            k_fused=k_per_branch,
+            worldview=None,
+            book_types=["book", "secondary_book"],
+            author="Rudolf Steiner",
+            collection=collection,
+            embedding_client=embedding_client,
+            qdrant_client=qdrant_client,
+        )
+
+    quote_hits, book_hits = await asyncio.gather(search_quote(), search_steiner_books())
+    return _rrf_fuse(quote_hits, book_hits, k_fused=k_fused)
 
 
 def _rrf_fuse(
