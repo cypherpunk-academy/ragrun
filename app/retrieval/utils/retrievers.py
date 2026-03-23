@@ -321,3 +321,38 @@ def build_context(snippets: Iterable[RetrievedSnippet], max_chars: int = 12000) 
         parts.append(snippet)
         total += len(snippet)
     return "\n\n".join(parts), refs
+
+
+def build_context_numbered(
+    snippets: Iterable[RetrievedSnippet],
+    start_index: int = 1,
+    max_chars: int = 12000,
+    include_score: bool = False,
+) -> Tuple[str, List[str], List[Tuple[int, str, str, Mapping[str, object]]]]:
+    """Like build_context but prefixes each chunk with [N]. Returns (context, refs, index_map).
+    index_map: list of (index, chunk_id, text, payload_meta) for citation linking.
+    If include_score, each chunk is prefixed with (r: X.X) for retrieval relevance."""
+    parts: list[str] = []
+    refs: list[str] = []
+    index_map: list[Tuple[int, str, str, Mapping[str, object]]] = []
+    total = 0
+    for idx, snip in enumerate(snippets):
+        text = snip.text.strip()
+        if not text:
+            continue
+        num = start_index + len(parts)
+        payload = snip.payload if isinstance(snip.payload, Mapping) else {}
+        meta = payload.get("payload", payload) if isinstance(payload.get("payload"), Mapping) else payload
+        if not isinstance(meta, dict):
+            meta = {}
+        cid = _extract_chunk_id(snip.payload) or ""
+        if cid:
+            refs.append(cid)
+        index_map.append((num, cid, text, meta))
+        score_str = f" (r: {snip.score:.1f})" if include_score else ""
+        prefixed = f"[{num}]{score_str} {text}"
+        if total + len(prefixed) > max_chars:
+            break
+        parts.append(prefixed)
+        total += len(prefixed)
+    return "\n\n".join(parts), refs, index_map

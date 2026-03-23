@@ -1,0 +1,16 @@
+Nutze die folgenden Quellen für eine dialektische Auseinandersetzung. Jede Quelle ist mit [1], [2], [3] usw. nummeriert. Zitiere mit [1], [2] usw. Prüfe Thesen und Gegenthesen.
+
+--- These / Hauptargumente ---
+{thesis}
+
+--- Gegenthesen / Kontrapunkte ---
+{counter}
+
+---
+
+Konversationskontext (falls vorhanden):
+{conversation_context}
+
+Nutzeranfrage: {user_prompt}
+
+Antworte prägnant und quellengestützt. Berücksichtige unterschiedliche Perspektiven.

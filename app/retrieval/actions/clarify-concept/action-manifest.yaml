@@ -1,0 +1,6 @@
+id: clarify-concept
+label: Begriff klären
+description: Definition eines einzelnen Begriffs.
+
+requires_retrieval: true
+requires_prompt: false

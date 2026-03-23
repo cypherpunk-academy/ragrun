@@ -1,0 +1,9 @@
+Der Nutzer gibt Feedback (Dank, Lob, Kritik) zur vorherigen Antwort.
+Reagiere kurz und freundlich. Kein Retrieval nötig.
+
+---
+
+Konversationskontext (falls vorhanden):
+{conversation_context}
+
+Nutzer-Feedback: {user_prompt}

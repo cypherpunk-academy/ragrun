@@ -1,0 +1,26 @@
+id: find-quote
+label: Zitat suchen
+description: Zitat oder Belegstelle zu einem Thema finden.
+
+requires_retrieval: true
+requires_prompt: true
+
+queries:
+  - name: quotes
+    chunk_types: [quote]
+    k: 5
+    method: hybrid
+    parallel_with: steiner-books
+
+  - name: steiner-books
+    chunk_types: [book, secondary_book]
+    k: 5
+    method: hybrid
+    author: "Rudolf Steiner"
+    parallel_with: quotes
+
+follow_ups:
+  - type: detail
+    question: "Soll ich ein Zitat genauer erklären?"
+  - type: source_deepen
+    question: "Soll ich den Kontext eines Zitats vertiefen?"

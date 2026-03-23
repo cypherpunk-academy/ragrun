@@ -1,0 +1,24 @@
+id: dialectic-dialogue
+label: Streitgespräch
+description: Dialektische Auseinandersetzung, Gegenthese prüfen.
+
+requires_retrieval: true
+requires_prompt: true
+
+queries:
+  - name: thesis
+    chunk_types: [book, talk]
+    k: 6
+    method: hybrid
+
+  - name: counter
+    chunk_types: [book, essay]
+    k: 6
+    method: dense
+
+follow_ups:
+  - type: detail
+    question: "Soll ich detaillierter antworten?"
+  - type: summary
+    question: "Das Gespräch scheint rund. Soll ich eine Zusammenfassung machen?"
+    condition: "turn_count >= 3"

@@ -1,0 +1,36 @@
+id: general-question
+label: Allgemeine Frage
+description: Breite Erklärung, Vergleich, Vertiefung zu einem Thema.
+
+requires_retrieval: true
+requires_prompt: true
+
+queries:
+  - name: primary-books
+    chunk_types: [book]
+    k: 8
+    method: hybrid
+
+  - name: secondary-books
+    chunk_types: [secondary_book, chapter_summary]
+    k: 8
+    method: dense
+
+  - name: concepts
+    chunk_types: [begriff_list]
+    k: 5
+    method: sparse
+
+  - name: quotes
+    chunk_types: [quote]
+    k: 5
+    method: hybrid
+
+follow_ups:
+  - type: detail
+    question: "Soll ich detaillierter antworten?"
+  - type: quote_request
+    question: "Soll ich ein passendes Zitat dazu suchen?"
+  - type: summary
+    question: "Das Gespräch scheint rund. Soll ich eine Zusammenfassung machen?"
+    condition: "turn_count >= 3"

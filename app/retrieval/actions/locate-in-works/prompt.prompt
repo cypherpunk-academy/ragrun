@@ -1,0 +1,13 @@
+Nutze die folgenden Quellen, um zu lokalisieren, wo ein Thema vorkommt. Jede Quelle ist mit [1], [2], [3] usw. nummeriert. Zitiere mit [1], [2] usw.
+
+--- Werke und Vorträge ---
+{works}
+
+---
+
+Konversationskontext (falls vorhanden):
+{conversation_context}
+
+Nutzeranfrage: {user_prompt}
+
+Antworte mit konkreten Werk- und Vortragsangaben.

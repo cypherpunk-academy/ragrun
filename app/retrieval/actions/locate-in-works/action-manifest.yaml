@@ -1,0 +1,18 @@
+id: locate-in-works
+label: In Werken oder Vorträgen suchen
+description: Wo findet sich ein Thema? (Buch, Vortrag, Reihe)
+
+requires_retrieval: true
+requires_prompt: true
+
+queries:
+  - name: works
+    chunk_types: [chapter_summary, talk, talk_summary]
+    k: 8
+    method: hybrid
+
+follow_ups:
+  - type: detail
+    question: "Soll ich detaillierter antworten?"
+  - type: quote_request
+    question: "Soll ich ein passendes Zitat dazu suchen?"
