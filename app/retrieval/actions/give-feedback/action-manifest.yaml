@@ -1,9 +1,11 @@
-id: thanks-feedback
-label: Dank oder Bewertung
+id: give-feedback
+label: Bewertung geben
 description: Kein Retrieval; Reinforcement-Feedback zur Antwortqualität.
 
 requires_retrieval: false
 requires_prompt: false
+
+position-in-chat: [continue, end]
 
 reinforcement_evaluation:
   prompt_ref: evaluate_feedback.prompt

@@ -5,6 +5,8 @@ description: Definition eines einzelnen Begriffs.
 requires_retrieval: true
 requires_prompt: false
 
+position-in-chat: [start, end]
+
 queries:
   - name: lemma-lookup
     chunk_types: [begriff_list]
@@ -12,3 +14,6 @@ queries:
     chunk_types: [book, explanation]
     k: 8
     method: dense
+
+follow_ups:
+  - action_id: give-feedback

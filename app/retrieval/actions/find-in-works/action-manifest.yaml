@@ -1,0 +1,25 @@
+id: find-in-works
+label: In Werken suchen
+description: Wo findet sich ein Thema? (Buch, Vortrag, Reihe)
+
+requires_retrieval: true
+requires_prompt: true
+
+position-in-chat: [start, continue]
+allows-empty-prompt: true
+
+queries:
+  - name: books_and_lectures
+    chunk_types: [book, secondary_book, chapter_summary, quote]
+    author: "Rudolf Steiner"
+    k: 8
+    method: hybrid
+
+follow_ups:
+  - action_id: find-in-works
+  - action_id: find-quote
+    allows-empty-prompt: true
+  - action_id: general-question
+  - action_id: summarize
+    condition: "turn_count >= 3"
+  - action_id: give-feedback

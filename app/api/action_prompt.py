@@ -317,8 +317,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                     chunk_text_by_id[cid] = s.get("text", "")
                     chunk_score_by_id[cid] = float(s.get("score", 0))
 
-            # References = all cited chunks; include slots from all actions (general-question,
-            # find-quote, locate-in-works, socratic-dialogue, clarify-concept fallback)
+            # References = all cited chunks; include slots from all actions
             cited_indices_set = set(cited_indices) if cited_indices else set()
             allowed_slots = {
                 "primary-books",
@@ -327,8 +326,8 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                 "secondary",
                 "quotes",
                 "steiner-books",
-                "books_and_lectures",  # locate-in-works
-                "works",  # locate-in-works (legacy/alias)
+                "books_and_lectures",  # find-in-works
+                "works",
                 "fallback-books",
                 "concepts",
             }

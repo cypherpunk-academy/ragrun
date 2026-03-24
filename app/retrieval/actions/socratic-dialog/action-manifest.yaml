@@ -5,6 +5,8 @@ description: Prüfender Dialog – findet Denkfehler, Unklarheiten und Widerspr�
 requires_retrieval: true
 requires_prompt: true
 
+position-in-chat: [start, continue]
+
 queries:
   - name: primary
     chunk_types: [book]
@@ -26,10 +28,11 @@ queries:
     method: lemma-lookup
 
 follow_ups:
-  - type: socratic_continue
-    question: "Möchtest du deinen Standpunkt nochmals formulieren?"
-  - type: detail
-    question: "Soll ich einen bestimmten Widerspruch vertiefen?"
-  - type: summary
-    question: "Sollen wir die Kernpunkte unseres Gesprächs zusammenfassen?"
+  - action_id: socratic-dialog
+  - action_id: find-quote
+    allows-empty-prompt: true
+  - action_id: find-in-works
+    allows-empty-prompt: true
+  - action_id: summarize
     condition: "turn_count >= 3"
+  - action_id: give-feedback

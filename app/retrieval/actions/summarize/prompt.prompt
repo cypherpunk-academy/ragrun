@@ -1,0 +1,13 @@
+Erstelle eine strukturierte Zusammenfassung des bisherigen Gesprächs.
+
+Konversationskontext:
+{conversation_context}
+
+---
+
+Fasse zusammen:
+- Die zentralen Thesen und Erkenntnisse
+- Wichtige Quellen oder Zitate, die gefallen sind
+- Offene Fragen oder Widersprüche, die noch bestehen
+
+Knapp und klar. Kein neues Retrieval, nur was im Gespräch war.

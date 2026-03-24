@@ -116,6 +116,9 @@ def list_actions() -> list[dict[str, Any]]:
                     "label": data.get("label", data["id"]),
                     "description": data.get("description", ""),
                     "requires_prompt": data.get("requires_prompt", True),
+                    "allows_empty_prompt": data.get("allows-empty-prompt", False),
+                    "position_in_chat": data.get("position-in-chat", ["start", "continue"]),
+                    "follow_ups": data.get("follow_ups", []),
                 })
         except Exception as exc:
             logger.warning("Failed to load manifest %s: %s", manifest_path, exc)
@@ -312,8 +315,14 @@ async def run_queries_and_fill_prompt(
      context_refs, retrieved_snippets_serialized).
     """
     manifest = load_action_manifest(action_id)
+
+    # allows-empty-prompt: fall back to last user turn from conversation_context
+    if not user_prompt.strip() and manifest.get("allows-empty-prompt"):
+        lines = [l.strip() for l in (conversation_context or "").splitlines() if l.strip()]
+        user_prompt = lines[-1] if lines else user_prompt
+
     if not manifest.get("requires_retrieval", True):
-        # thanks-feedback: no retrieval
+        # give-feedback / summarize: no retrieval
         prompt_template = load_action_prompt(action_id)
         all_placeholder_names = {
             "primary-books", "secondary-books", "primary", "secondary",

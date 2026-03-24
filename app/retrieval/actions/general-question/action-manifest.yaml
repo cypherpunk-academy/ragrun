@@ -5,6 +5,8 @@ description: Breite Erklärung, Vergleich, Vertiefung zu einem Thema.
 requires_retrieval: true
 requires_prompt: true
 
+position-in-chat: [start, continue]
+
 queries:
   - name: primary-books
     chunk_types: [book]
@@ -26,10 +28,12 @@ queries:
     method: hybrid
 
 follow_ups:
-  - type: detail
-    question: "Soll ich detaillierter antworten?"
-  - type: quote_request
-    question: "Soll ich ein passendes Zitat dazu suchen?"
-  - type: summary
-    question: "Das Gespräch scheint rund. Soll ich eine Zusammenfassung machen?"
+  - action_id: socratic-dialog
+  - action_id: find-quote
+    allows-empty-prompt: true
+  - action_id: find-in-works
+    allows-empty-prompt: true
+  - action_id: clarify-concept
+  - action_id: summarize
     condition: "turn_count >= 3"
+  - action_id: give-feedback

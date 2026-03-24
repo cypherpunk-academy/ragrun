@@ -5,6 +5,9 @@ description: Zitat oder Belegstelle zu einem Thema finden.
 requires_retrieval: true
 requires_prompt: true
 
+position-in-chat: [start, continue]
+allows-empty-prompt: true
+
 queries:
   - name: quotes
     chunk_types: [quote]
@@ -20,7 +23,11 @@ queries:
     parallel_with: quotes
 
 follow_ups:
-  - type: detail
-    question: "Soll ich ein Zitat genauer erklären?"
-  - type: source_deepen
-    question: "Soll ich den Kontext eines Zitats vertiefen?"
+  - action_id: find-quote
+    allows-empty-prompt: true
+  - action_id: find-in-works
+    allows-empty-prompt: true
+  - action_id: socratic-dialog
+  - action_id: summarize
+    condition: "turn_count >= 3"
+  - action_id: give-feedback
