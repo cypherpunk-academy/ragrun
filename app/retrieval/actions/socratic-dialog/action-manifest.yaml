@@ -1,24 +1,35 @@
-id: socratic-dialogue
-label: Streitgespräch
-description: Dialektische Auseinandersetzung, Gegenthese prüfen.
+id: socratic-dialog
+label: Sokratischer Dialog
+description: Prüfender Dialog – findet Denkfehler, Unklarheiten und Widersprüche zu den Primärquellen.
 
 requires_retrieval: true
 requires_prompt: true
 
 queries:
-  - name: thesis
-    chunk_types: [book, talk]
-    k: 6
+  - name: primary
+    chunk_types: [book]
+    k: 8
     method: hybrid
 
-  - name: counter
-    chunk_types: [book, essay]
+  - name: secondary
+    chunk_types: [secondary_book, essay, talk, explanation]
     k: 6
     method: dense
 
+  - name: quotes
+    chunk_types: [quote]
+    k: 3
+    method: dense
+
+  - name: concepts
+    chunk_types: [begriff_list]
+    method: lemma-lookup
+
 follow_ups:
+  - type: socratic_continue
+    question: "Möchtest du deinen Standpunkt nochmals formulieren?"
   - type: detail
-    question: "Soll ich detaillierter antworten?"
+    question: "Soll ich einen bestimmten Widerspruch vertiefen?"
   - type: summary
-    question: "Das Gespräch scheint rund. Soll ich eine Zusammenfassung machen?"
+    question: "Sollen wir die Kernpunkte unseres Gesprächs zusammenfassen?"
     condition: "turn_count >= 3"

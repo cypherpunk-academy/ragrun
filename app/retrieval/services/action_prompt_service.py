@@ -316,8 +316,8 @@ async def run_queries_and_fill_prompt(
         # thanks-feedback: no retrieval
         prompt_template = load_action_prompt(action_id)
         all_placeholder_names = {
-            "primary-books", "secondary-books", "concepts", "lemma-lookup",
-            "fallback-books", "quotes", "steiner-books", "works", "thesis", "counter",
+            "primary-books", "secondary-books", "primary", "secondary",
+            "concepts", "lemma-lookup", "fallback-books", "quotes", "steiner-books", "works",
         }
         slot_values = {
             "conversation_context": conversation_context or "(keine)",
@@ -467,8 +467,8 @@ async def run_queries_and_fill_prompt(
 
     # Build slot values for template (provide all known placeholders for safety)
     all_placeholder_names = {
-        "primary-books", "secondary-books", "concepts", "lemma-lookup",
-        "fallback-books", "quotes", "steiner-books", "works", "thesis", "counter",
+        "primary-books", "secondary-books", "primary", "secondary",
+        "concepts", "lemma-lookup", "fallback-books", "quotes", "steiner-books", "works",
     }
     slot_values: dict[str, str] = {
         "conversation_context": conversation_context or "(keine)",

@@ -323,12 +323,12 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
             allowed_slots = {
                 "primary-books",
                 "secondary-books",
+                "primary",
+                "secondary",
                 "quotes",
                 "steiner-books",
                 "books_and_lectures",  # locate-in-works
                 "works",  # locate-in-works (legacy/alias)
-                "thesis",
-                "counter",
                 "fallback-books",
                 "concepts",
             }
