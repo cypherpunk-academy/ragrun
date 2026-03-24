@@ -67,13 +67,16 @@ def _cited_refs_from_indices(
     return refs
 
 
+# Reference text: chars per ref; keep in sync with action_prompt_service.CHUNK_TEXT_MAX_CHARS
+REFERENCE_TEXT_MAX_CHARS = 2000
+
 def _make_llm(streaming: bool = True) -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.deepseek_chat_model or "deepseek-chat",
         openai_api_key=settings.deepseek_api_key,
         openai_api_base=f"{str(settings.deepseek_base_url).rstrip('/')}/",
         temperature=0.3,
-        max_tokens=800,
+        max_tokens=1200,  # room for full answer + all citations (was 800, refs cut off)
         streaming=streaming,
     )
 
@@ -195,7 +198,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
             inner = pl.get("payload") if isinstance(pl.get("payload"), dict) else pl
             cid = (inner or {}).get("chunk_id") if isinstance(inner, dict) else None
             if isinstance(cid, str):
-                text_by_id[cid] = (s.get("text") or "")[:2000]
+                text_by_id[cid] = (s.get("text") or "")[:REFERENCE_TEXT_MAX_CHARS]
         refs_enriched = []
         for r in refs_direct:
             c = next(
@@ -314,9 +317,21 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                     chunk_text_by_id[cid] = s.get("text", "")
                     chunk_score_by_id[cid] = float(s.get("score", 0))
 
-            # References = only primary-books + quotes that were cited
-            cited_indices_set = cited_indices
-            allowed_slots = {"primary-books", "quotes"}
+            # References = all cited chunks; include slots from all actions (general-question,
+            # find-quote, locate-in-works, socratic-dialogue, clarify-concept fallback)
+            cited_indices_set = set(cited_indices) if cited_indices else set()
+            allowed_slots = {
+                "primary-books",
+                "secondary-books",
+                "quotes",
+                "steiner-books",
+                "books_and_lectures",  # locate-in-works
+                "works",  # locate-in-works (legacy/alias)
+                "thesis",
+                "counter",
+                "fallback-books",
+                "concepts",
+            }
             references_enriched: list[dict] = []
             for entry in chunk_index_map:
                 slot = entry.get("slot")
@@ -340,7 +355,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                     "relevance": retrieval_score,
                     "source_title": c.get("source_title", ""),
                     "segment_title": c.get("segment_title", ""),
-                    "text": chunk_text_by_id.get(cid, entry.get("text", ""))[:2000],
+                    "text": chunk_text_by_id.get(cid, entry.get("text", ""))[:REFERENCE_TEXT_MAX_CHARS],
                     "cited": True,
                 }
                 references_enriched.append(ref_entry)

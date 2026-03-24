@@ -45,6 +45,22 @@ class ChunkMirrorRepository:
                 }
             )
 
+        # Deduplicate by (collection, chunk_id), keeping the row with latest updated_at.
+        # concepts.jsonl can contain multiple versions of the same concept (same chunk_id,
+        # different content); only one row per chunk_id is allowed in rag_chunks.
+        seen: dict[str, dict] = {}
+        for row in rows:
+            cid = row["chunk_id"]
+            existing = seen.get(cid)
+            if existing is None:
+                seen[cid] = row
+            else:
+                u_new = row.get("updated_at")
+                u_old = existing.get("updated_at")
+                if u_new is not None and (u_old is None or u_new > u_old):
+                    seen[cid] = row
+        rows = list(seen.values())
+
         chunk_ids = [row["chunk_id"] for row in rows]
 
         def _write() -> None:

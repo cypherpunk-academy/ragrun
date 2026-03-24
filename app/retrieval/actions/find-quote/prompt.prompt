@@ -1,4 +1,7 @@
-Nutze ausschließlich die folgenden Quellen. Jede Quelle ist mit [1], [2], [3] usw. nummeriert. Zitiere mit [1], [2] usw.
+{user_prompt}
+
+Finde dazu passend Zitate in folgenden Quellen. Nutze ausschließlich die folgenden Quellen. Jede Quelle ist mit [1], [2], [3] usw. nummeriert. Zitiere mit [1], [2] usw.
+Beachte die Buchstellen nur, wenn keine Zitate gefunden wurden.
 
 --- Zitate ---
 {quotes}
@@ -10,7 +13,5 @@ Nutze ausschließlich die folgenden Quellen. Jede Quelle ist mit [1], [2], [3] u
 
 Konversationskontext (falls vorhanden):
 {conversation_context}
-
-Nutzeranfrage: {user_prompt}
 
 Antworte mit konkreten Zitaten und Quellenangaben.

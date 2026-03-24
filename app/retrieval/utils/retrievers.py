@@ -13,6 +13,25 @@ from app.retrieval.models import RetrievedSnippet
 logger = logging.getLogger(__name__)
 
 
+def _filter_and_cap_hits(raw_items: list, k: int, *, score_key: str = "score") -> list[RetrievedSnippet]:
+    """Over-fetch and filter: keep only chunks with text >= min_chunk_chars, return up to k."""
+    out: list[RetrievedSnippet] = []
+    min_chars = getattr(settings, "min_chunk_chars", 80)
+    for item in raw_items:
+        if len(out) >= k:
+            break
+        payload = item.get("payload", {}) if isinstance(item, Mapping) else {}
+        text = payload.get("text") or ""
+        if not isinstance(text, str):
+            continue
+        t = text.strip()
+        if not t or len(t) < min_chars:
+            continue
+        score = float(item.get(score_key, 0.0) or 0.0)
+        out.append(RetrievedSnippet(text=text, score=score, payload=item))
+    return out
+
+
 def _extract_chunk_id(payload: Mapping[str, object]) -> str | None:
     inner = payload.get("payload")
     if isinstance(inner, Mapping):
@@ -91,23 +110,18 @@ async def dense_retrieve(
     qdrant_client: QdrantClient,
     author: str | None = None,
 ) -> list[RetrievedSnippet]:
+    mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
+    limit = max(k * mult, k + 30)
     vector = await embed_text(query, embedding_client)
     hits = await qdrant_client.search_points(
         collection,
         vector=vector,
-        limit=k,
+        limit=limit,
         filter_=payload_filter(worldview, book_types, author=author),
         with_payload=True,
     )
-    out: list[RetrievedSnippet] = []
-    for item in hits:
-        payload = item.get("payload", {}) if isinstance(item, Mapping) else {}
-        text = payload.get("text") or ""
-        if not isinstance(text, str) or not text.strip():
-            continue
-        score = float(item.get("score") or 0.0)
-        out.append(RetrievedSnippet(text=text, score=score, payload=item))
-    return out
+    items = list(hits) if hits else []
+    return _filter_and_cap_hits(items, k)
 
 
 async def sparse_retrieve(
@@ -125,26 +139,21 @@ async def sparse_retrieve(
     if not hasattr(qdrant_client, "search_sparse_points"):
         raise RuntimeError("Sparse retrieval not supported by qdrant client")
 
+    mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
+    limit = max(k * mult, k + 30)
     try:
-        sparse_hits = await qdrant_client.search_sparse_points(  # type: ignore[attr-defined]
+        sparse_raw = await qdrant_client.search_sparse_points(  # type: ignore[attr-defined]
             collection=collection,
             text=query,
-            limit=k,
+            limit=limit,
             filter_=payload_filter(worldview, book_types, author=author),
         )
     except Exception:
         logger.exception("Sparse retrieval failed")
         raise
 
-    out: list[RetrievedSnippet] = []
-    for item in sparse_hits or []:
-        payload = item.get("payload", {}) if isinstance(item, Mapping) else {}
-        text_val = payload.get("text") or ""
-        if not isinstance(text_val, str) or not text_val.strip():
-            continue
-        score = float(item.get("score") or 0.0)
-        out.append(RetrievedSnippet(text=text_val, score=score, payload=item))
-    return out
+    items = list(sparse_raw or [])
+    return _filter_and_cap_hits(items, k)
 
 
 async def hybrid_retrieve(
@@ -179,20 +188,16 @@ async def hybrid_retrieve(
 
     sparse_hits: list[RetrievedSnippet] = []
     if hasattr(qdrant_client, "search_sparse_points"):
+        mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
+        limit_sparse = max(k_sparse * mult, k_sparse + 30)
         try:
             sparse = await qdrant_client.search_sparse_points(  # type: ignore[attr-defined]
                 collection=collection,
                 text=query,
-                limit=k_sparse,
+                limit=limit_sparse,
                 filter_=payload_filter(worldview, book_types, author=author),
             )
-            for item in sparse or []:
-                payload = item.get("payload", {}) if isinstance(item, Mapping) else {}
-                text_val = payload.get("text") or ""
-                if not isinstance(text_val, str) or not text_val.strip():
-                    continue
-                score = float(item.get("score") or 0.0)
-                sparse_hits.append(RetrievedSnippet(text=text_val, score=score, payload=item))
+            sparse_hits = _filter_and_cap_hits(list(sparse or []), k_sparse)
         except Exception:
             logger.warning("Hybrid enabled but sparse search failed; falling back to dense-only", exc_info=True)
             return dense_hits

@@ -394,10 +394,11 @@ async def run_authentic_concept_explain_chain(
         chat_client,
         verify_prompt,
         temperature=0.1,
-        max_tokens=700,
+        max_tokens=1500,
         operation="steiner_verify_reasoning",
         retries=llm_retries,
-        min_chars=500,
+        min_chars=300,
+        require_sentence_end=False,
         verbose=verbose,
     )
     await _record_event(

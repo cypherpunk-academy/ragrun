@@ -28,6 +28,9 @@ from app.retrieval.utils.retrievers import (
 
 logger = logging.getLogger(__name__)
 
+# Max chars per chunk text in chunk_index_map; keep in sync with action_prompt.REFERENCE_TEXT_MAX_CHARS
+CHUNK_TEXT_MAX_CHARS = 2000
+
 _ARTICLE_PREFIX = re.compile(
     r"^(der|die|das|ein|eine|des|dem|den|einem|einer)\s+",
     re.IGNORECASE,
@@ -159,6 +162,81 @@ async def _lemma_lookup_begriff_list(
                 )
             return out
     return []
+
+
+async def _lemma_lookup_multi_begriff_list(
+    *,
+    user_prompt: str,
+    collection_name: str,
+) -> list[RetrievedSnippet]:
+    """Multi-lemma lookup: find all terms from user_prompt that exist in begriff_list, return their chunks."""
+    MIN_WORD_LEN = 3
+    MAX_CHUNKS = 10
+
+    async_session = get_async_sessionmaker()
+
+    async with async_session() as session:
+        row = await session.execute(
+            text(
+                "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM rag_chunks "
+                "WHERE collection = :col "
+                "  AND chunk_type = 'begriff_list' "
+                "  AND metadata->>'segment_title' IS NOT NULL "
+                "  AND metadata->>'segment_title' != '' "
+                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
+            ),
+            {"col": collection_name},
+        )
+        valid_lemmas = {r[0] for r in row.fetchall() if r[0]}
+
+    if not valid_lemmas:
+        return []
+
+    cleaned = _ARTICLE_PREFIX.sub("", user_prompt.strip()).lower()
+    words = re.findall(r"[a-zäöüß]+", cleaned)
+    seen: set[str] = set()
+    matched_lemmas: list[str] = []
+
+    for w in words:
+        if len(w) < MIN_WORD_LEN or w in seen:
+            continue
+        for variant in _lemma_lookup_variants(w):
+            if variant in valid_lemmas:
+                seen.add(variant)
+                matched_lemmas.append(variant)
+                break
+
+    if not matched_lemmas:
+        return []
+
+    out: list[RetrievedSnippet] = []
+    for lemma in matched_lemmas[:MAX_CHUNKS]:
+        async with async_session() as session:
+            row = await session.execute(
+                text(
+                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "WHERE collection = :col "
+                    "  AND chunk_type = 'begriff_list' "
+                    "  AND LOWER(metadata->>'segment_title') = :lemma "
+                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
+                    "LIMIT 1"
+                ),
+                {"col": collection_name, "lemma": lemma},
+            )
+            rows = row.fetchall()
+        if rows:
+            rec = rows[0]
+            meta = dict(rec.metadata) if rec.metadata else {}
+            meta["chunk_id"] = rec.chunk_id
+            meta.setdefault("segment_title", lemma)
+            out.append(
+                RetrievedSnippet(
+                    text=rec.text or "",
+                    score=1.0,
+                    payload={"payload": meta, "chunk_id": rec.chunk_id},
+                )
+            )
+    return out
 
 
 async def _run_query(
@@ -298,7 +376,7 @@ async def run_queries_and_fill_prompt(
             chunk_index_map.append({
                 "index": num,
                 "chunk_id": cid,
-                "text": (text or "")[:2000],
+                "text": (text or "")[:CHUNK_TEXT_MAX_CHARS],
                 "source_title": meta.get("source_title", ""),
                 "segment_title": meta.get("segment_title", ""),
                 "slot": name,
@@ -314,8 +392,9 @@ async def run_queries_and_fill_prompt(
     for q in standalone:
         name = q.get("name") or "unnamed"
         chunk_types = q.get("chunk_types") or []
-        if name == "lemma-lookup" and "begriff_list" in chunk_types:
-            hits = await _lemma_lookup_begriff_list(
+        method = (q.get("method") or "").lower()
+        if (name == "lemma-lookup" or method == "lemma-lookup") and "begriff_list" in chunk_types:
+            hits = await _lemma_lookup_multi_begriff_list(
                 user_prompt=user_prompt,
                 collection_name=collection_name,
             )
@@ -353,7 +432,7 @@ async def run_queries_and_fill_prompt(
                 chunk_index_map.append({
                     "index": num,
                     "chunk_id": cid,
-                    "text": (text or "")[:2000],
+                    "text": (text or "")[:CHUNK_TEXT_MAX_CHARS],
                     "source_title": meta.get("source_title", ""),
                     "segment_title": meta.get("segment_title", ""),
                     "slot": slot,

@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # Chat citation filtering: minimum relevance (0.0–1.0) for a chunk to be cited
     citation_relevance_threshold: float = 0.3
 
+    # Retrieval: filter out very short chunks (e.g. "13| Dr. Rudolf Steiner.")
+    min_chunk_chars: int = 80
+    retrieval_overfetch_multiplier: int = 2
+
     # concept_explain_worldviews graph retrieval sizing (final reranked chunk counts)
     # Note: base and widen sizes are derived from these finals in the graph to ensure
     # the system can actually return up to k_final (i.e. widen/base are >= k_final).

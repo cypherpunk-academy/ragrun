@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
-from ..shared.models import ChunkRecord
+from ..shared.models import ChunkRecord, CHUNK_TYPE_ENUM
 
 from ..config import settings
 from ..db.session import get_engine
@@ -197,7 +197,7 @@ async def upload_chunks(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
 
-    chunk_ids = [c.chunk_id for c in chunks] if chunks else None
+    chunk_ids = [c.id for c in chunks] if chunks else None
     enqueue_record_metadata_only(
         EventRecorder(),
         endpoint="rag/upload-chunks",
@@ -653,24 +653,52 @@ async def list_book_titles(
 async def monitoring_chunks(
     collection: str,
 ) -> Dict[str, Any]:
-    """Chunk statistics for the monitoring widget."""
+    """Chunk statistics for the monitoring widget. Returns all known chunk types (including 0 count)."""
 
     engine = get_engine()
     with engine.connect() as conn:
         types_rows = conn.execute(
             text(
                 """
-                SELECT chunk_type, COUNT(*) AS count
+                SELECT
+                    chunk_type,
+                    COUNT(*) AS count,
+                    ROUND(SUM(octet_length(COALESCE(text, ''))) / 1048576.0, 2) AS text_mb,
+                    MIN(updated_at) AS oldest,
+                    MAX(updated_at) AS newest
                 FROM rag_chunks
                 WHERE collection = :c
                 GROUP BY chunk_type
-                ORDER BY count DESC
                 """
             ),
             {"c": collection},
         ).fetchall()
 
-        # Books with chunk count + usage count from event_metadata
+        # Merge with full CHUNK_TYPE_ENUM so all types are shown (0 for missing)
+        type_stats = {r[0]: r for r in types_rows}
+        chunk_types_result = []
+        for t in CHUNK_TYPE_ENUM:
+            r = type_stats.get(t)
+            chunk_types_result.append({
+                "chunk_type": t,
+                "count": r[1] if r else 0,
+                "text_mb": float(r[2]) if r else 0.0,
+                "oldest": r[3].date().isoformat() if r and r[3] else None,
+                "newest": r[4].date().isoformat() if r and r[4] else None,
+            })
+        # Add any DB types not in enum (legacy/custom)
+        for t, r in type_stats.items():
+            if t not in CHUNK_TYPE_ENUM:
+                chunk_types_result.append({
+                    "chunk_type": t,
+                    "count": r[1],
+                    "text_mb": float(r[2]),
+                    "oldest": r[3].date().isoformat() if r[3] else None,
+                    "newest": r[4].date().isoformat() if r[4] else None,
+                })
+        chunk_types_result.sort(key=lambda x: -x["count"])
+
+        # Books with chunk count + usage count from event_metadata + links from event_content
         books_rows = conn.execute(
             text(
                 """
@@ -683,20 +711,32 @@ async def monitoring_chunks(
                       AND jsonb_typeof(em.chunk_ids) = 'array'
                     GROUP BY cid
                 ),
+                links AS (
+                    SELECT cid AS chunk_id, COUNT(*) AS cnt
+                    FROM event_content ec
+                    JOIN event_metadata em ON em.id = ec.event_metadata_id,
+                         jsonb_array_elements_text(ec.context_refs) AS cid
+                    WHERE (em.collection = :c OR em.collection IS NULL)
+                      AND ec.context_refs IS NOT NULL
+                      AND jsonb_typeof(ec.context_refs) = 'array'
+                    GROUP BY cid
+                ),
                 books_base AS (
                     SELECT
                         COALESCE(metadata->>'book_title', metadata->>'source_title') AS book_title,
                         metadata->>'author' AS author,
                         chunk_type,
                         COUNT(*) AS chunk_count,
-                        COALESCE(SUM(u.cnt), 0)::bigint AS usage_count
+                        COALESCE(SUM(u.cnt), 0)::bigint AS usage_count,
+                        COALESCE(SUM(lnk.cnt), 0)::bigint AS links_count
                     FROM rag_chunks rc
                     LEFT JOIN usage u ON u.chunk_id = rc.chunk_id
+                    LEFT JOIN links lnk ON lnk.chunk_id = rc.chunk_id
                     WHERE rc.collection = :c
                       AND COALESCE(rc.metadata->>'book_title', rc.metadata->>'source_title') IS NOT NULL
                     GROUP BY 1, 2, 3
                 )
-                SELECT book_title, author, chunk_type, chunk_count, usage_count
+                SELECT book_title, author, chunk_type, chunk_count, usage_count, links_count
                 FROM books_base
                 ORDER BY chunk_count DESC
                 LIMIT 100
@@ -709,7 +749,7 @@ async def monitoring_chunks(
 
     return {
         "collection": collection,
-        "chunk_types": [{"chunk_type": r[0], "count": r[1]} for r in types_rows],
+        "chunk_types": chunk_types_result,
         "books": [
             {
                 "book_title": r[0],
@@ -718,6 +758,7 @@ async def monitoring_chunks(
                 "count": r[3],
                 "usage_count": r[4],
                 "usage_pct": round(100.0 * r[4] / total_usage, 1) if total_usage > 0 else 0.0,
+                "links_count": r[5],
             }
             for r in books_rows
         ],
@@ -820,6 +861,10 @@ class QuoteExplainRequest(BaseModel):
         "philo-von-freisinn",
         description="Assistant name (from assistant-manifest.yaml)",
     )
+    language: Optional[str] = Field(
+        None,
+        description="BCP 47 locale (e.g. en-US, de-DE). Default: de-DE.",
+    )
 
 
 class QuoteExplainResponse(BaseModel):
@@ -834,7 +879,7 @@ async def quote_explain(request: QuoteExplainRequest) -> QuoteExplainResponse:
     """
     Explain a quote using retrieval from primary book + lecture and DeepSeek.
 
-    Retrieves k=8 chunks (4 book + 4 lecture), generates ~300-token explanation,
+    Retrieves k=8 chunks (4 book + 4 lecture), generates ~600-token explanation,
     evaluates chunk relevance, returns chunk-shaped object.
     """
     quote = (request.quote or "").strip()
@@ -844,11 +889,13 @@ async def quote_explain(request: QuoteExplainRequest) -> QuoteExplainResponse:
             detail="quote is required",
         )
     assistant = (request.assistant or "philo-von-freisinn").strip()
+    language = (request.language or "de-DE").strip()
 
     try:
         result = await explain_quote(
             quote=quote,
             assistant=assistant,
+            language=language,
             embedding_client=get_retrieval_embedding(),
             qdrant_client=get_qdrant_client(),
             chat_client=get_deepseek_chat(),

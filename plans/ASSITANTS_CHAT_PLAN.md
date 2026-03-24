@@ -1,6 +1,7 @@
 # Implementierungsplan: Assistenten-Chat (Philo von Freisinn)
 
 > Dieser Plan basiert auf der Analyse in `ASSISTANT_CHAT_ANALYSE_PHILO_VON_FREISINN.md`.
+> Intent-Modell und Abgrenzung: siehe `ASSISTANT_CHAT_INTENT_DESIGN.md`.
 > Architekturentscheidung: **LangGraph (Variante B)** von Anfang an.
 > Referenz-Spike: `spike/` (lauffaehig, alle Kernfragen beantwortet).
 
@@ -32,6 +33,8 @@ und Philo-Persona. History laeuft per `MemorySaver` im RAM.
 ### Schritt 1: `intents.py` anlegen
 
 **Datei:** `app/retrieval/graphs/intents.py` *(neu)*
+
+Intent-Design und Abgrenzung: siehe `ASSISTANT_CHAT_INTENT_DESIGN.md`.
 
 Alle Intent-Konstanten an einem Ort. Keine Logik.
 
@@ -82,6 +85,8 @@ die Unterscheidung nötig ist):**
 
 **Datei:** `app/retrieval/prompts/intent_classify.prompt` *(neu)*
 
+Intent-Design und Abgrenzungsregeln: siehe `ASSISTANT_CHAT_INTENT_DESIGN.md`.
+
 Der Prompt muss explizit verlangen, dass die Antwort ein JSON-Objekt ist (DeepSeek
 `json_mode`-Anforderung – bewaehrt im Spike).
 
@@ -92,9 +97,11 @@ Du bist ein Intent-Klassifikator fuer einen philosophischen Assistenten (Rudolf 
 Klassifiziere die folgende Nutzeranfrage in GENAU einen der erlaubten Intents.
 
 Erlaubte Intent-Labels und ihre Bedeutung:
-- "begriff_definieren"  → Der Nutzer fragt nach der Bedeutung oder Definition eines Begriffs
+- "begriff_definieren"  → Der Nutzer fragt NUR nach der Bedeutung oder Definition EINES Begriffs.
+                          NICHT bei Auflistungen: "Welches sind die 12 Weltanschauungen?" = erklaerung!
 - "quelle_suchen"       → Der Nutzer sucht ein konkretes Zitat oder eine Belegstelle
-- "erklaerung"          → Der Nutzer moechte etwas erklaert, vertieft, verglichen oder zusammengefasst haben
+- "erklaerung"          → Der Nutzer moechte etwas erklaert, vertieft, verglichen, zusammengefasst oder als Liste/Auflistung
+                          (z.B. "Welches sind die 12 Weltanschauungen?" – Liste, nicht Begriff-Definition!)
 - "skip"                → Gruss, Dank, Meta-Frage ueber den Assistenten, oder komplett themenfremde Anfrage
 - "sonstiges"           → Passt in keine der obigen Kategorien
 
@@ -110,6 +117,10 @@ Kontext der bisherigen Unterhaltung (falls vorhanden):
 Nutzeranfrage:
 {user_message}
 ```
+
+**Intent-Abgrenzung (wichtig):** `begriff_definieren` nur wenn der Nutzer die *Definition* eines
+Begriffs will. "Welches sind die 12 Weltanschauungen?" fragt nach einer *Liste*, nicht nach der
+Bedeutung von "Weltanschauung" – daher `erklaerung`. Negativbeispiele im Prompt halten das ab.
 
 **Verwendung im Node:** Keine `{intent_labels}`-Interpolation mehr nötig – die Labels
 sind direkt im Prompt erklärt (stabiler, weniger Prompt-Engineering).

@@ -6,8 +6,9 @@ requires_retrieval: true
 requires_prompt: true
 
 queries:
-  - name: works
-    chunk_types: [chapter_summary, talk, talk_summary]
+  - name: books_and_lectures
+    chunk_types: [book, secondary_book, chapter_summary, quote]
+    author: "Rudolf Steiner"
     k: 8
     method: hybrid
 

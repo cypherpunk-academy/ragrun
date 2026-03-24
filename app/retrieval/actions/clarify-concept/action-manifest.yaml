@@ -4,3 +4,11 @@ description: Definition eines einzelnen Begriffs.
 
 requires_retrieval: true
 requires_prompt: false
+
+queries:
+  - name: lemma-lookup
+    chunk_types: [begriff_list]
+  - name: fallback-books
+    chunk_types: [book, explanation]
+    k: 8
+    method: dense

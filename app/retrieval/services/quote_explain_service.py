@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 K_BOOKS = 4
 K_LECTURES = 4
 K_TOTAL = 8
-MAX_EXPLANATION_TOKENS = 400
+MAX_EXPLANATION_TOKENS = 600
 
 
 def _resolve_assistant_dir(assistant: str) -> Path:
@@ -40,16 +40,24 @@ def _load_manifest(assistant: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _load_quote_explain_prompt() -> str:
-    prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "quote_explain.prompt"
+def _load_quote_explain_prompt(*, language: str = "de-DE") -> str:
+    prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
+    if language.startswith("en"):
+        prompt_path = prompts_dir / "quote_explain_en.prompt"
+    else:
+        prompt_path = prompts_dir / "quote_explain.prompt"
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
-def _build_quote_explain_prompt(*, quote: str, context: str) -> list[Mapping[str, str]]:
-    template = _load_quote_explain_prompt()
+def _build_quote_explain_prompt(
+    *, quote: str, context: str, language: str = "de-DE"
+) -> list[Mapping[str, str]]:
+    template = _load_quote_explain_prompt(language=language)
     user_content = template.format(quote=quote.strip(), context=context)
+    # Erklärung immer auf Deutsch; Zitat bleibt in Originalsprache
+    system_content = "Antworte auf Deutsch. Halte die Erklärung prägnant (ca. 200–300 Wörter)."
     return [
-        {"role": "system", "content": "Antworte auf Deutsch. Halte die Erklärung prägnant (ca. 200–300 Wörter)."},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": user_content},
     ]
 
@@ -58,6 +66,7 @@ async def explain_quote(
     *,
     quote: str,
     assistant: str = "philo-von-freisinn",
+    language: str = "de-DE",
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     chat_client: DeepSeekClient,
@@ -104,7 +113,7 @@ async def explain_quote(
     if not context_str.strip():
         context_str = "(Kein Kontext verfügbar.)"
 
-    messages = _build_quote_explain_prompt(quote=quote, context=context_str)
+    messages = _build_quote_explain_prompt(quote=quote, context=context_str, language=language)
     explanation = await chat_client.chat(
         messages,
         temperature=0.3,
@@ -112,7 +121,7 @@ async def explain_quote(
     )
     explanation = explanation.strip()
 
-    # Combined output: quote + "Erklärung:" + explanation
+    # Combined output: quote (original) + Erklärung (immer Deutsch)
     combined_text = f"{quote}\n\nErklärung:\n\n{explanation}"
 
     # Evaluate chunk relevance
