@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 # Max chars per chunk text in chunk_index_map; keep in sync with action_prompt.REFERENCE_TEXT_MAX_CHARS
 CHUNK_TEXT_MAX_CHARS = 2000
+
+def _nfc(s: str) -> str:
+    """NFC-normalize a string so umlaut comparisons work across macOS/Linux/Postgres."""
+    return unicodedata.normalize("NFC", s)
+
 
 _ARTICLE_PREFIX = re.compile(
     r"^(der|die|das|ein|eine|des|dem|den|einem|einer)\s+",
@@ -90,6 +96,20 @@ def load_action_prompt(action_id: str) -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
+def load_assistant_name(assistant_slug: str) -> str:
+    """Load display name from assistant-manifest.yaml (falls back to slug)."""
+    manifest_path = _resolve_assistants_root() / assistant_slug / "assistant-manifest.yaml"
+    if not manifest_path.is_file():
+        return assistant_slug
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("name"), str):
+            return data["name"]
+    except Exception:
+        pass
+    return assistant_slug
+
+
 def load_assistant_instruction(assistant_slug: str) -> str:
     """Load instruction.prompt for the assistant from ragkeep."""
     prompt_path = (
@@ -125,12 +145,12 @@ def list_actions() -> list[dict[str, Any]]:
     return sorted(out, key=lambda a: a["id"])
 
 
-async def _lemma_lookup_begriff_list(
+async def _lemma_lookup_begrif(
     *,
     user_prompt: str,
     collection_name: str,
 ) -> list[RetrievedSnippet]:
-    """Exact lemma lookup in Postgres rag_chunks for begriff_list. Returns matching chunks."""
+    """Exact lemma lookup in Postgres rag_chunks for begriff. Returns matching chunks."""
     lemma = _normalize_lemma(user_prompt)
     if not lemma:
         return []
@@ -142,7 +162,7 @@ async def _lemma_lookup_begriff_list(
                 text(
                     "SELECT chunk_id, text, metadata FROM rag_chunks "
                     "WHERE collection = :col "
-                    "  AND chunk_type = 'begriff_list' "
+                    "  AND chunk_type = 'begriff' "
                     "  AND LOWER(metadata->>'segment_title') = :lemma "
                     "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 5"
@@ -167,12 +187,12 @@ async def _lemma_lookup_begriff_list(
     return []
 
 
-async def _lemma_lookup_multi_begriff_list(
+async def _lemma_lookup_multi_begrif(
     *,
     user_prompt: str,
     collection_name: str,
 ) -> list[RetrievedSnippet]:
-    """Multi-lemma lookup: find all terms from user_prompt that exist in begriff_list, return their chunks."""
+    """Multi-lemma lookup: find all terms from user_prompt that exist in begriff, return their chunks."""
     MIN_WORD_LEN = 3
     MAX_CHUNKS = 10
 
@@ -183,7 +203,7 @@ async def _lemma_lookup_multi_begriff_list(
             text(
                 "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM rag_chunks "
                 "WHERE collection = :col "
-                "  AND chunk_type = 'begriff_list' "
+                "  AND chunk_type = 'begriff' "
                 "  AND metadata->>'segment_title' IS NOT NULL "
                 "  AND metadata->>'segment_title' != '' "
                 "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
@@ -219,7 +239,7 @@ async def _lemma_lookup_multi_begriff_list(
                 text(
                     "SELECT chunk_id, text, metadata FROM rag_chunks "
                     "WHERE collection = :col "
-                    "  AND chunk_type = 'begriff_list' "
+                    "  AND chunk_type = 'begriff' "
                     "  AND LOWER(metadata->>'segment_title') = :lemma "
                     "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 1"
@@ -232,6 +252,100 @@ async def _lemma_lookup_multi_begriff_list(
             meta = dict(rec.metadata) if rec.metadata else {}
             meta["chunk_id"] = rec.chunk_id
             meta.setdefault("segment_title", lemma)
+            out.append(
+                RetrievedSnippet(
+                    text=rec.text or "",
+                    score=1.0,
+                    payload={"payload": meta, "chunk_id": rec.chunk_id},
+                )
+            )
+    return out
+
+
+async def _lemma_lookup_multi_typology(
+    *,
+    user_prompt: str,
+    collection_name: str,
+) -> list[RetrievedSnippet]:
+    """Multi-lemma lookup for typology chunks: matches segment_title and aliases against user prompt."""
+    MAX_CHUNKS = 5
+
+    async_session = get_async_sessionmaker()
+
+    # Build term -> segment_title map: include segment_titles and all aliases
+    async with async_session() as session:
+        seg_row = await session.execute(
+            text(
+                "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM rag_chunks "
+                "WHERE collection = :col "
+                "  AND chunk_type = 'typology' "
+                "  AND metadata->>'segment_title' IS NOT NULL "
+                "  AND metadata->>'segment_title' != '' "
+                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
+            ),
+            {"col": collection_name},
+        )
+        segment_titles = {_nfc(r[0]) for r in seg_row.fetchall() if r[0]}
+
+        alias_row = await session.execute(
+            text(
+                "SELECT LOWER(metadata->>'segment_title'), LOWER(alias_val) "
+                "FROM rag_chunks, "
+                "     jsonb_array_elements_text(metadata->'aliases') AS alias_val "
+                "WHERE collection = :col "
+                "  AND chunk_type = 'typology' "
+                "  AND jsonb_typeof(metadata->'aliases') = 'array' "
+                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
+            ),
+            {"col": collection_name},
+        )
+        alias_to_segment: dict[str, str] = {}
+        for r in alias_row.fetchall():
+            seg, alias = r[0], r[1]
+            if alias and seg:
+                alias_to_segment[_nfc(alias)] = _nfc(seg)
+
+    if not segment_titles and not alias_to_segment:
+        return []
+
+    # term -> segment_title (segment_title maps to itself), all NFC-normalized
+    term_to_segment: dict[str, str] = {_nfc(s): _nfc(s) for s in segment_titles}
+    term_to_segment.update(alias_to_segment)
+
+    cleaned = _nfc(_ARTICLE_PREFIX.sub("", user_prompt.strip()).lower())
+
+    # Match longest terms first (to prefer "12 weltanschauungen" over "weltanschauungen")
+    matched_segments: list[str] = []
+    seen_segments: set[str] = set()
+    for term in sorted(term_to_segment, key=lambda t: -len(t)):
+        seg = term_to_segment[term]
+        if seg not in seen_segments and term in cleaned:
+            seen_segments.add(seg)
+            matched_segments.append(seg)
+
+    if not matched_segments:
+        return []
+
+    out: list[RetrievedSnippet] = []
+    for segment in matched_segments[:MAX_CHUNKS]:
+        async with async_session() as session:
+            row = await session.execute(
+                text(
+                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "WHERE collection = :col "
+                    "  AND chunk_type = 'typology' "
+                    "  AND LOWER(metadata->>'segment_title') = :seg "
+                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
+                    "LIMIT 1"
+                ),
+                {"col": collection_name, "seg": segment},
+            )
+            rows = row.fetchall()
+        if rows:
+            rec = rows[0]
+            meta = dict(rec.metadata) if rec.metadata else {}
+            meta["chunk_id"] = rec.chunk_id
+            meta.setdefault("segment_title", segment)
             out.append(
                 RetrievedSnippet(
                     text=rec.text or "",
@@ -331,6 +445,7 @@ async def run_queries_and_fill_prompt(
         slot_values = {
             "conversation_context": conversation_context or "(keine)",
             "user_prompt": user_prompt,
+            "assistant_name": load_assistant_name(assistant_slug),
         }
         for key in all_placeholder_names:
             slot_values[key] = "(kein Retrieval)"
@@ -402,11 +517,18 @@ async def run_queries_and_fill_prompt(
         name = q.get("name") or "unnamed"
         chunk_types = q.get("chunk_types") or []
         method = (q.get("method") or "").lower()
-        if (name == "lemma-lookup" or method == "lemma-lookup") and "begriff_list" in chunk_types:
-            hits = await _lemma_lookup_multi_begriff_list(
-                user_prompt=user_prompt,
-                collection_name=collection_name,
-            )
+        if method == "lemma-lookup" or name == "lemma-lookup":
+            hits = []
+            if "begriff" in chunk_types:
+                hits += await _lemma_lookup_multi_begrif(
+                    user_prompt=user_prompt,
+                    collection_name=collection_name,
+                )
+            if "typology" in chunk_types:
+                hits += await _lemma_lookup_multi_typology(
+                    user_prompt=user_prompt,
+                    collection_name=collection_name,
+                )
         else:
             hits = await _run_query(
                 query=user_prompt,
@@ -482,6 +604,7 @@ async def run_queries_and_fill_prompt(
     slot_values: dict[str, str] = {
         "conversation_context": conversation_context or "(keine)",
         "user_prompt": user_prompt,
+        "assistant_name": load_assistant_name(assistant_slug),
     }
     for name in all_placeholder_names:
         slot_values[name] = "(nicht abgerufen)"

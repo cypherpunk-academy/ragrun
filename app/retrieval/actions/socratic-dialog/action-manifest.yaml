@@ -24,15 +24,13 @@ queries:
     method: dense
 
   - name: concepts
-    chunk_types: [begriff_list]
+    chunk_types: [begriff, typology]
     method: lemma-lookup
 
 follow_ups:
   - action_id: socratic-dialog
-  - action_id: find-quote
-    allows-empty-prompt: true
-  - action_id: find-in-works
-    allows-empty-prompt: true
   - action_id: summarize
+    condition: "turn_count >= 3"
+  - action_id: save-dialog
     condition: "turn_count >= 3"
   - action_id: give-feedback

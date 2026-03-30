@@ -37,7 +37,7 @@ def _map_chunk_types(user_types: list[str]) -> list[str]:
     mapping = {
         "book": ["book", "chapter_summary", "secondary_book"],
         "essay": ["essay"],
-        "concept": ["begriff_list"],
+        "concept": ["begriff"],
     }
     result: list[str] = []
     for t in user_types:

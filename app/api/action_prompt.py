@@ -18,6 +18,7 @@ from app.retrieval.services.action_prompt_service import (
     generate_prompt_id,
     get_prompt_state,
     list_actions,
+    load_action_manifest,
     load_assistant_instruction,
     run_queries_and_fill_prompt,
     store_prompt_state,
@@ -86,7 +87,10 @@ router = APIRouter(tags=["action-prompt"])
 class GeneratePromptRequest(BaseModel):
     assistant_slug: str | None = Field(None, description="Defaults to path param if omitted")
     action_id: str = Field(..., description="Action ID (e.g. general-question)")
-    user_prompt: str = Field(..., min_length=1)
+    user_prompt: str = Field(
+        default="",
+        description="May be empty when manifest allows-empty-prompt or requires_prompt is false",
+    )
     thread_id: str | None = Field(None, description="Optional thread for conversation context")
     conversation_context: str | None = Field(
         None,
@@ -119,6 +123,19 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
     # Match assistant_chat: collection = assistant_slug (or use assistant-manifest rag-collection)
     collection_name = effective_slug
     conversation_context = (body.conversation_context or "").strip()
+
+    if not body.user_prompt.strip():
+        try:
+            manifest = load_action_manifest(body.action_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        allows_empty = bool(manifest.get("allows-empty-prompt"))
+        requires_prompt = manifest.get("requires_prompt", True)
+        if not allows_empty and requires_prompt:
+            raise HTTPException(
+                status_code=400,
+                detail="user_prompt is required for this action unless allows-empty-prompt is set",
+            )
 
     embedding_client = get_embedding_client()
     qdrant_client = get_qdrant_client()

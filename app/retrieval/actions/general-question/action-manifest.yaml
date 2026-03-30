@@ -19,7 +19,7 @@ queries:
     method: dense
 
   - name: concepts
-    chunk_types: [begriff_list]
+    chunk_types: [begriff,typology]
     method: lemma-lookup
 
   - name: quotes

@@ -37,7 +37,7 @@ def main() -> None:
     )
     delete_parser.add_argument(
         "--chunk-type",
-        choices=["book", "secondary_book", "essay", "summary", "begriff_list", "quote"],
+        choices=["book", "secondary_book", "essay", "summary", "begriff", "quote"],
         help="Delete all chunks of this type (optionally scoped by --book)",
     )
     delete_parser.add_argument(

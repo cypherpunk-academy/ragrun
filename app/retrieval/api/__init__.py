@@ -10,10 +10,12 @@ from .essay_completion import router as essay_completion_router
 from .essay_tune_part import router as essay_tune_part_router
 from .essay_evaluation import router as essay_evaluation_router
 from .translate_to_worldview import router as translate_router
+from .typology_explain import router as typology_explain_router
 
 router = APIRouter()
 router.include_router(worldviews_router, prefix="/agent/philo-von-freisinn")
 router.include_router(authentic_router, prefix="/agent/philo-von-freisinn")
+router.include_router(typology_explain_router, prefix="/agent/philo-von-freisinn")
 router.include_router(essay_create_router, prefix="/agent/philo-von-freisinn")
 router.include_router(essay_completion_router, prefix="/agent/philo-von-freisinn")
 router.include_router(essay_tune_part_router, prefix="/agent/philo-von-freisinn")

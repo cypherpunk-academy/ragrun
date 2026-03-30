@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from typing import Iterable, List, Mapping, Sequence, Tuple
+import time
+from typing import Iterable, List, Mapping, Sequence, Tuple, cast
 
 from app.config import settings
 from app.infra.embedding_client import EmbeddingClient
@@ -11,6 +13,33 @@ from app.infra.qdrant_client import QdrantClient
 from app.retrieval.models import RetrievedSnippet
 
 logger = logging.getLogger(__name__)
+
+# region agent log
+_AGENT_DEBUG_LOG_PATH = "/Users/michael/Reniets/Ai/ragkeep/.cursor/debug-d085a7.log"
+
+
+def _agent_debug_ndjson(hypothesis_id: str, location: str, data: dict) -> None:
+    try:
+        with open(_AGENT_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "d085a7",
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": "typology_retrieval_debug",
+                        "data": data,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+
+
+# endregion
 
 
 def _filter_and_cap_hits(raw_items: list, k: int, *, score_key: str = "score") -> list[RetrievedSnippet]:
@@ -109,19 +138,40 @@ async def dense_retrieve(
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     author: str | None = None,
+    diagnostic_tag: str | None = None,
 ) -> list[RetrievedSnippet]:
     mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
     limit = max(k * mult, k + 30)
     vector = await embed_text(query, embedding_client)
+    pf = payload_filter(worldview, book_types, author=author)
     hits = await qdrant_client.search_points(
         collection,
         vector=vector,
         limit=limit,
-        filter_=payload_filter(worldview, book_types, author=author),
+        filter_=pf,
         with_payload=True,
     )
     items = list(hits) if hits else []
-    return _filter_and_cap_hits(items, k)
+    capped = _filter_and_cap_hits(items, k)
+    # region agent log
+    if diagnostic_tag:
+        try:
+            _agent_debug_ndjson(
+                "H_dense_cap",
+                "retrievers.py:dense_retrieve",
+                {
+                    "tag": diagnostic_tag,
+                    "collection": collection,
+                    "qdrant_hits": len(items),
+                    "after_min_chars_cap": len(capped),
+                    "min_chunk_chars": getattr(settings, "min_chunk_chars", 80),
+                    "payload_filter": pf,
+                },
+            )
+        except Exception:
+            pass
+    # endregion
+    return capped
 
 
 async def sparse_retrieve(
@@ -306,6 +356,239 @@ def _dot(a: Sequence[float], b: Sequence[float]) -> float:
     if len(a) != len(b):
         return 0.0
     return sum(x * y for x, y in zip(a, b))
+
+
+def _snippet_flat_payload(payload: Mapping[str, object]) -> Mapping[str, object]:
+    inner = payload.get("payload")
+    return cast(Mapping[str, object], inner) if isinstance(inner, Mapping) else payload
+
+
+def snippet_source_title(payload: Mapping[str, object]) -> str:
+    """Resolve `source_title` from a Qdrant hit payload (flat or nested metadata)."""
+
+    p = _snippet_flat_payload(payload)
+    md = p.get("metadata")
+    if isinstance(md, Mapping):
+        st = md.get("source_title")
+        if isinstance(st, str):
+            return st
+    st = p.get("source_title")
+    return st if isinstance(st, str) else ""
+
+
+def snippet_author(payload: Mapping[str, object]) -> str | None:
+    p = _snippet_flat_payload(payload)
+    md = p.get("metadata")
+    if isinstance(md, Mapping):
+        a = md.get("author")
+        if isinstance(a, str) and a.strip():
+            return a.strip()
+    a = p.get("author")
+    return a.strip() if isinstance(a, str) and a.strip() else None
+
+
+def snippet_chunk_type_value(payload: Mapping[str, object]) -> str | None:
+    p = _snippet_flat_payload(payload)
+    md = p.get("metadata")
+    if isinstance(md, Mapping):
+        ct = md.get("chunk_type")
+        if isinstance(ct, str) and ct.strip():
+            return ct.strip()
+    ct = p.get("chunk_type")
+    return ct.strip() if isinstance(ct, str) and ct.strip() else None
+
+
+def snippet_source_id(payload: Mapping[str, object]) -> str:
+    """Resolve `source_id` from a Qdrant hit payload (aligned with rag_chunks.source_id)."""
+
+    p = _snippet_flat_payload(payload)
+    md = p.get("metadata")
+    if isinstance(md, Mapping):
+        sid = md.get("source_id")
+        if isinstance(sid, str) and sid.strip():
+            return sid.strip()
+    sid = p.get("source_id")
+    return sid.strip() if isinstance(sid, str) and sid.strip() else ""
+
+
+def _normalize_person_name(name: str) -> str:
+    return " ".join(name.lower().replace("_", " ").split())
+
+
+def _source_title_matches_book_prefix(title: str, book_prefix: str) -> bool:
+    t = title.strip()
+    b = book_prefix.strip()
+    if not b:
+        return True
+    # Direct match
+    if t.startswith(b) or t == b:
+        return True
+    # Book-id format: "Author#Titel#GA" → extract title part (underscores → spaces)
+    parts = b.split("#")
+    if len(parts) >= 2:
+        title_part = parts[1].replace("_", " ")
+        if title_part and (t == title_part or t.startswith(title_part)):
+            return True
+    return False
+
+
+def filter_snippets_by_typology_source(
+    snippets: List[RetrievedSnippet],
+    *,
+    chunk_types: List[str] | None,
+    source_ids: List[str],
+) -> List[RetrievedSnippet]:
+    """
+    Post-filter retrieval hits by source_id (exact UUID match) and optional chunk_type allow-list.
+    """
+
+    id_set = {s.strip() for s in source_ids if isinstance(s, str) and s.strip()}
+    ct_allow = (
+        {c.strip() for c in chunk_types if isinstance(c, str) and c.strip()}
+        if chunk_types
+        else None
+    )
+
+    out: List[RetrievedSnippet] = []
+    for snip in snippets:
+        payload = snip.payload if isinstance(snip.payload, Mapping) else {}
+        if ct_allow:
+            ct = snippet_chunk_type_value(payload)
+            if not ct or ct not in ct_allow:
+                continue
+        if id_set:
+            sid = snippet_source_id(payload)
+            if sid not in id_set:
+                continue
+        out.append(snip)
+    return out
+
+
+def _diagnose_typology_post_filter(
+    snippets: List[RetrievedSnippet],
+    *,
+    book_prefixes: List[str],
+    authors: List[str] | None,
+    chunk_types: List[str] | None,
+    source_ids: List[str] | None,
+) -> dict[str, object]:
+    """Count first-failure drops vs filter_snippets_by_typology_source (debug)."""
+
+    id_set = (
+        {s.strip() for s in source_ids if isinstance(s, str) and s.strip()}
+        if source_ids
+        else set()
+    )
+    prefixes = [p.strip() for p in book_prefixes if p and p.strip()]
+    author_allow = (
+        {_normalize_person_name(a) for a in authors if isinstance(a, str) and a.strip()}
+        if authors
+        else None
+    )
+    ct_allow = (
+        {c.strip() for c in chunk_types if isinstance(c, str) and c.strip()}
+        if chunk_types
+        else None
+    )
+    drop_ct = 0
+    drop_au = 0
+    drop_sid = 0
+    drop_prefix = 0
+    kept = 0
+    sample_sid: list[str] = []
+    sample_ct: list[str | None] = []
+    sample_wv: list[object] = []
+    for snip in snippets:
+        payload = snip.payload if isinstance(snip.payload, Mapping) else {}
+        pflat = _snippet_flat_payload(payload)
+        if len(sample_wv) < 5:
+            md = pflat.get("metadata") if isinstance(pflat.get("metadata"), Mapping) else None
+            wv = md.get("worldviews") if isinstance(md, Mapping) else pflat.get("worldviews")
+            sample_wv.append(wv)
+        sid = snippet_source_id(payload)
+        if len(sample_sid) < 10:
+            sample_sid.append(sid)
+        ct = snippet_chunk_type_value(payload)
+        if len(sample_ct) < 10:
+            sample_ct.append(ct)
+        if ct_allow:
+            if not ct or ct not in ct_allow:
+                drop_ct += 1
+                continue
+        if author_allow:
+            au = snippet_author(payload)
+            if au and _normalize_person_name(au) not in author_allow:
+                drop_au += 1
+                continue
+        if id_set:
+            if sid not in id_set:
+                drop_sid += 1
+                continue
+        else:
+            st = snippet_source_title(payload)
+            if prefixes:
+                if not any(_source_title_matches_book_prefix(st, pref) for pref in prefixes):
+                    drop_prefix += 1
+                    continue
+        kept += 1
+    return {
+        "n_snippets": len(snippets),
+        "drop_chunk_type": drop_ct,
+        "drop_author": drop_au,
+        "drop_source_id": drop_sid,
+        "drop_prefix": drop_prefix,
+        "kept": kept,
+        "sample_source_ids": sample_sid,
+        "sample_chunk_types": sample_ct,
+        "sample_worldviews": sample_wv,
+        "id_set_size": len(id_set),
+    }
+
+
+async def typology_dense_retrieve(
+    *,
+    query: str,
+    k: int,
+    worldview: str | None,
+    book_types: Iterable[str],
+    collection: str,
+    embedding_client: EmbeddingClient,
+    qdrant_client: QdrantClient,
+    source_ids: List[str],
+    chunk_types: List[str] | None = None,
+) -> List[RetrievedSnippet]:
+    """
+    Dense search with over-fetch, then post-filter by source_id UUID and chunk_type.
+    """
+
+    if k <= 0:
+        return []
+
+    multipliers = (3, 6, 12, 24)
+    last_filtered: List[RetrievedSnippet] = []
+
+    for mult in multipliers:
+        fetch_k = min(max(k * mult, k + 20), 400)
+        raw = await dense_retrieve(
+            query=query,
+            k=fetch_k,
+            worldview=worldview,
+            book_types=book_types,
+            collection=collection,
+            embedding_client=embedding_client,
+            qdrant_client=qdrant_client,
+            diagnostic_tag=f"typology_dense_mult{mult}",
+        )
+        filtered = filter_snippets_by_typology_source(
+            raw,
+            chunk_types=chunk_types,
+            source_ids=source_ids,
+        )
+        last_filtered = filtered
+        if len(filtered) >= min(k, 6) or mult == multipliers[-1]:
+            break
+
+    return last_filtered[:k]
 
 
 def build_context(snippets: Iterable[RetrievedSnippet], max_chars: int = 12000) -> Tuple[str, List[str]]:

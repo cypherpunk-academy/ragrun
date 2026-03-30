@@ -1,0 +1,13 @@
+id: problem-solver
+label: Problem lösen
+description: Löst offene Probleme in einem automatisierten sokratischen Dialog (max. 7 Schritte). Ohne Prompt wird TEXT 2 der letzten summarize-Aktion verwendet.
+
+requires_retrieval: true
+requires_prompt: false
+allows-empty-prompt: true
+
+position-in-chat: [continue, end]
+
+follow_ups:
+  - action_id: save-dialog
+  - action_id: give-feedback

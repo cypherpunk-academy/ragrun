@@ -9,7 +9,7 @@ position-in-chat: [start, end]
 
 queries:
   - name: lemma-lookup
-    chunk_types: [begriff_list]
+    chunk_types: [begriff]
   - name: fallback-books
     chunk_types: [book, explanation]
     k: 8

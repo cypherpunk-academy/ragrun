@@ -11,7 +11,7 @@ CHUNK_TYPE_ENUM = (
     "book",
     "secondary_book",
     "chapter_summary",
-    "begriff_list",
+    "begriff",
     "talk",
     "talk_summary",
     "essay",
@@ -20,6 +20,7 @@ CHUNK_TYPE_ENUM = (
     "explanation",
     "explanation_summary",
     "typology",
+    "topology",
 )
 
 
@@ -66,13 +67,17 @@ class ChunkMetadata(BaseModel):
     updated_at: datetime = Field(..., description="ISO timestamp when metadata was last modified.")
     source_type: Optional[str] = Field(
         None,
-        description="Optional container type (book, begriff_list, essay, etc.).",
+        description="Optional container type (book, begriff, essay, etc.).",
     )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")
     references: Optional[List[Dict[str, Any]]] = Field(
         None,
         description="References to chunks that influenced this chunk's generation.",
+    )
+    aliases: List[str] = Field(
+        default_factory=list,
+        description="Synonyme / Suchbegriffe, die diesen Chunk semantisch triggern (z. B. Typologien).",
     )
 
     @classmethod
@@ -120,6 +125,8 @@ class ChunkMetadata(BaseModel):
             raise ValueError("chunk_type is required")
         payload["chunk_type"] = cls.validate_chunk_type(chunk_type)
         cls._normalize_worldviews(payload)
+        if payload.get("aliases") is None:
+            payload.pop("aliases", None)
         return cls(**payload)
 
 

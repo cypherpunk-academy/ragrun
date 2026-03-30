@@ -9,4 +9,7 @@ position-in-chat: [continue, end]
 allows-empty-prompt: true
 
 follow_ups:
+  - action_id: problem-solver
+    condition: "has_problem_text"
+  - action_id: save-dialog
   - action_id: give-feedback

@@ -110,7 +110,7 @@ def _normalize_lemma(raw: str) -> str:
 def _lemma_lookup_variants(lemma: str) -> list[str]:
     """Return lemma variants to try for DB lookup (exact first, then singular).
 
-    German nouns in begriff_list are stored in singular. When the user asks
+    German nouns in begriff are stored in singular. When the user asks
     "Was bedeutet Geister bei Steiner?", the LLM may extract "geister" (plural).
     We try exact match first, then plural -en → singular (remove -en).
     """
@@ -316,7 +316,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
             "retrieval_plan": ["book", "talk", "chapter_summary"],
         }
 
-    # When no worldview is specified: only begriff_list chunks with worldviews null or empty
+    # When no worldview is specified: only begriff chunks with worldviews null or empty
     # (Postgres stores both as possible; empty array displays as {})
     # Try lemma variants (exact, then singular) since DB stores concepts in singular
     async_session = get_async_sessionmaker()
@@ -328,7 +328,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
                 text(
                     "SELECT chunk_id, text, metadata FROM rag_chunks "
                     "WHERE collection = :col "
-                    "  AND chunk_type = 'begriff_list' "
+                    "  AND chunk_type = 'begriff' "
                     "  AND metadata->>'segment_title' = :lemma "
                     "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 1"
@@ -342,9 +342,9 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
 
     if rec and rec.text:
         if matched_lemma != lemma:
-            logger.info("Lemma lookup: '%s' found in begriff_list (via singular '%s')", lemma, matched_lemma)
+            logger.info("Lemma lookup: '%s' found in begriff (via singular '%s')", lemma, matched_lemma)
         else:
-            logger.info("Lemma lookup: '%s' found in begriff_list", lemma)
+            logger.info("Lemma lookup: '%s' found in begriff", lemma)
         meta = rec.metadata or {}
         await adispatch_custom_event(
             "ace_progress",
@@ -368,7 +368,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
                 "text": rec.text,
                 "metadata": dict(meta) if hasattr(meta, "items") else meta,
             },
-            "retrieval_plan": ["begriff_list", "explanation"],
+            "retrieval_plan": ["begriff", "explanation"],
         }
 
     logger.info("Lemma lookup: '%s' not found, using authentic_concept_explain", lemma)
@@ -399,7 +399,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
 # ---------------------------------------------------------------------------
 
 async def return_begriff_chunk(state: ChatState, config: RunnableConfig) -> dict:
-    """Return begriff_list chunk text directly with citation (no evaluation)."""
+    """Return begriff chunk text directly with citation (no evaluation)."""
     chunk = state.get("begriff_chunk")
     if not chunk or not chunk.get("text"):
         logger.warning("return_begriff_chunk: no begriff_chunk text, fallback to retrieval")
@@ -425,7 +425,7 @@ async def return_begriff_chunk(state: ChatState, config: RunnableConfig) -> dict
 # ---------------------------------------------------------------------------
 
 async def run_authentic_concept_explain(state: ChatState, config: RunnableConfig) -> dict:
-    """Run authentic_concept_explain chain when begriff_list has no chunk for lemma."""
+    """Run authentic_concept_explain chain when begriff has no chunk for lemma."""
     lemma = _normalize_lemma(state.get("extracted_lemma", ""))
     if not lemma:
         logger.warning("run_authentic_concept_explain: empty lemma, fallback to retrieval")

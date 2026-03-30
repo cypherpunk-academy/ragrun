@@ -52,6 +52,16 @@ class AuthenticConceptExplainResult:
 
 
 @dataclass(slots=True)
+class TypologyExplainResult:
+    name: str
+    members: List[str]
+    explanation: str
+    aliases: List[str]
+    references: Optional[List[Mapping[str, Any]]] = None
+    graph_event_id: str | None = None
+
+
+@dataclass(slots=True)
 class TranslateToWorldviewResult:
     input_text: str
     worldviews: List[WorldviewAnswer]

@@ -14,6 +14,7 @@ from .config import settings
 from .api import rag as rag_router
 from .api.chat import router as chat_router
 from .api.action_prompt import router as action_prompt_router
+from .api.problem_solver import router as problem_solver_router
 from .retrieval.api import router as retrieval_router
 from .retrieval.graphs.assistant_chat_graph import build_chat_graph
 from .core.providers import (
@@ -138,3 +139,4 @@ app.include_router(rag_router.router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(action_prompt_router, prefix="/api/v1")
+app.include_router(problem_solver_router, prefix="/api/v1")

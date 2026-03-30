@@ -1,0 +1,3 @@
+Diese Aktion verwendet einen eigenen Endpoint: POST /api/v1/agent/{{assistant_slug}}/problem-solver
+
+Bitte nicht über generate-prompt/execute-prompt aufrufen.

@@ -1,0 +1,15 @@
+id: save-dialog
+label: Dialog speichern
+description: Gibt den gesamten Dialog als formatierten Markdown-Text zurück.
+
+requires_retrieval: false
+requires_prompt: false
+allows-empty-prompt: true
+
+position-in-chat: [continue, end]
+
+follow_ups:
+  - action_id: give-feedback
+  - action_id: summarize
+    condition: "turn_count >= 3"
+  

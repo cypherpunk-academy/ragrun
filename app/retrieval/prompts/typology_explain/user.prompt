@@ -1,0 +1,19 @@
+Erkläre die Typologie: **{name}**
+
+Synonyme und Suchbegriffe (alle müssen im ersten Absatz von `explanation` vorkommen):
+{aliases_block}
+
+Bekannte Mitglieder (verwende diese als Grundlage; korrigiere Schreibweise anhand der Quellen, falls nötig):
+{known_members_block}
+
+Quelltexte (Auszüge aus den angegebenen Büchern):
+{chunks}
+
+Gib NUR ein JSON-Objekt zurück (kein Markdown außerhalb des JSON), Schema:
+{
+  "members": ["…"],
+  "explanation": "Vollständiger Markdown-Text; erster Absatz mit dem kanonischen Namen und allen Aliasen; dann Liste oder Abschnitt **Mitglieder:**; dann **Beschreibung:**",
+  "aliases_extra": []
+}
+
+`members` ist die geordnete Liste der Typologie-Mitglieder (kurze Namen, wie in den Quellen). Wenn bekannte Mitglieder angegeben sind, verwende diese als Basis und ergänze/korrigiere sie nur, wenn die Quellen eindeutig etwas anderes belegen.
