@@ -19,6 +19,7 @@ from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
 from app.retrieval.models import RetrievedSnippet
 from app.retrieval.utils.retrievers import (
+    _extract_chunk_id,
     build_context,
     build_context_numbered,
     dense_retrieve,
@@ -356,6 +357,43 @@ async def _lemma_lookup_multi_typology(
     return out
 
 
+def _resolve_refs_for_hits(hits: list[RetrievedSnippet]) -> list[str]:
+    """Return chunk_ids to use as potential references for the given hits.
+
+    For essay/talk chunks: use the chunk_ids listed in their `references` metadata field
+    (these point to the primary sources the essay drew from) rather than the essay chunk
+    itself.  For all other chunk types: use the direct chunk_id as usual.
+    """
+    ref_ids: list[str] = []
+    seen: set[str] = set()
+
+    for snip in hits:
+        payload = snip.payload if isinstance(snip.payload, dict) else {}
+        inner = payload.get("payload", payload) if isinstance(payload.get("payload"), dict) else payload
+        if not isinstance(inner, dict):
+            continue
+
+        chunk_type = inner.get("chunk_type", "")
+        if chunk_type in ("essay", "talk"):
+            refs = inner.get("references") or []
+            # Fallback: references may be nested under a "metadata" key
+            if not refs and isinstance(inner.get("metadata"), dict):
+                refs = inner["metadata"].get("references") or []
+            for r in refs:
+                if isinstance(r, dict):
+                    cid = r.get("chunk_id")
+                    if isinstance(cid, str) and cid and cid not in seen:
+                        seen.add(cid)
+                        ref_ids.append(cid)
+        else:
+            cid = _extract_chunk_id(payload) or ""
+            if cid and cid not in seen:
+                seen.add(cid)
+                ref_ids.append(cid)
+
+    return ref_ids
+
+
 async def _run_query(
     *,
     query: str,
@@ -538,7 +576,7 @@ async def run_queries_and_fill_prompt(
                 qdrant_client=qdrant_client,
             )
         _build_and_store(name, hits)
-        all_refs.extend(query_results[name].get("chunk_ids", []))
+        all_refs.extend(_resolve_refs_for_hits(hits))
         all_snippets.extend(hits)
 
     # Parallel group: run each query, fill each slot (optionally fuse for citations)
@@ -645,12 +683,21 @@ async def run_queries_and_fill_prompt(
         else:
             direct_response = "Den Begriff habe ich nicht gefunden."
 
+    # Deduplicate all_refs while preserving order (essay reference expansion can produce
+    # the same primary-source chunk_id from multiple essay/talk hits)
+    seen_refs: set[str] = set()
+    deduped_refs: list[str] = []
+    for cid in all_refs:
+        if cid not in seen_refs:
+            seen_refs.add(cid)
+            deduped_refs.append(cid)
+
     return (
         full_system,
         filled,
         query_results,
         citations_metadata,
-        all_refs,
+        deduped_refs,
         retrieved_serialized,
         direct_response,
         chunk_index_map,

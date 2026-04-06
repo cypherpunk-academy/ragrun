@@ -14,7 +14,7 @@ queries:
     method: hybrid
 
   - name: secondary-books
-    chunk_types: [secondary_book, chapter_summary]
+    chunk_types: [secondary_book, chapter_summary, essay, talk]
     k: 8
     method: dense
 

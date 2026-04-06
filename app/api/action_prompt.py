@@ -376,6 +376,18 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                 }
                 references_enriched.append(ref_entry)
 
+            # Deduplicate references_enriched by chunk_id (same primary source can appear
+            # at multiple cited indices if referenced by more than one essay/talk chunk)
+            seen_cids: set[str] = set()
+            deduped_references: list[dict] = []
+            for ref in references_enriched:
+                cid = ref.get("chunk_id")
+                if cid and cid not in seen_cids:
+                    seen_cids.add(cid)
+                    deduped_references.append(ref)
+                elif not cid:
+                    deduped_references.append(ref)
+
             enqueue_record_metadata_only(
                 EventRecorder(),
                 endpoint="execute_prompt",
@@ -386,7 +398,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
             yield {
                 "data": json.dumps({
                     "type": "done",
-                    "references": references_enriched,
+                    "references": deduped_references,
                     "response": response_text,
                     "collection": collection_name,
                     "chunk_index_map": chunk_index_map,

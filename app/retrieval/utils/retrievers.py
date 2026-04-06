@@ -637,7 +637,12 @@ def build_context_numbered(
         if cid:
             refs.append(cid)
         index_map.append((num, cid, text, meta))
-        score_str = f" (r: {snip.score:.1f})" if include_score else ""
+        if include_score:
+            chunk_type = snippet_chunk_type_value(payload) or ""
+            ct_str = f", \033[38;5;208m{chunk_type}\033[0m" if chunk_type else ""
+            score_str = f" (r: {snip.score:.1f}{ct_str})"
+        else:
+            score_str = ""
         prefixed = f"[{num}]{score_str} {text}"
         if total + len(prefixed) > max_chars:
             break
