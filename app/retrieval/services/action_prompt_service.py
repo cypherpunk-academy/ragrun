@@ -263,6 +263,37 @@ async def _lemma_lookup_multi_begrif(
     return out
 
 
+async def fetch_snippets_for_chunk_ids(
+    chunk_ids: list[str],
+    collection_name: str,
+) -> list[RetrievedSnippet]:
+    """Fetch primary-source snippets from rag_chunks for a list of chunk_ids."""
+    if not chunk_ids:
+        return []
+    async_session = get_async_sessionmaker()
+    async with async_session() as session:
+        row = await session.execute(
+            text(
+                "SELECT chunk_id, text, metadata FROM rag_chunks "
+                "WHERE collection = :col AND chunk_id = ANY(:ids)"
+            ),
+            {"col": collection_name, "ids": chunk_ids},
+        )
+        rows = row.fetchall()
+    out: list[RetrievedSnippet] = []
+    for rec in rows:
+        meta = dict(rec.metadata) if rec.metadata else {}
+        meta["chunk_id"] = rec.chunk_id
+        out.append(
+            RetrievedSnippet(
+                text=rec.text or "",
+                score=1.0,
+                payload={"payload": meta, "chunk_id": rec.chunk_id},
+            )
+        )
+    return out
+
+
 async def _lemma_lookup_multi_typology(
     *,
     user_prompt: str,
@@ -460,11 +491,12 @@ async def run_queries_and_fill_prompt(
     conversation_context: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
-) -> tuple[str, str, dict[str, Any], list[dict[str, Any]], list[str], list[dict[str, Any]]]:
+) -> tuple[str, str, dict[str, Any], list[dict[str, Any]], list[str], list[dict[str, Any]], str | None, list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Run queries per action-manifest, fill prompt template. Returns:
     (full_system_prompt, action_prompt_filled, query_results, citations_metadata,
-     context_refs, retrieved_snippets_serialized).
+     context_refs, retrieved_snippets_serialized, direct_response, chunk_index_map,
+     context_ref_snippets_serialized).
     """
     manifest = load_action_manifest(action_id)
 
@@ -490,7 +522,7 @@ async def run_queries_and_fill_prompt(
         filled = prompt_template.format(**slot_values)
         instruction = load_assistant_instruction(assistant_slug)
         full_system = f"{instruction}\n\n{filled}"
-        return full_system, filled, {}, [], [], [], None, []
+        return full_system, filled, {}, [], [], [], None, [], []
 
     prompt_template = load_action_prompt(action_id)
     queries: list[dict[str, Any]] = manifest.get("queries") or []
@@ -692,6 +724,13 @@ async def run_queries_and_fill_prompt(
             seen_refs.add(cid)
             deduped_refs.append(cid)
 
+    # Fetch primary-source snippets for relevance evaluation in execute-prompt
+    context_ref_snippets = await fetch_snippets_for_chunk_ids(deduped_refs, collection_name)
+    context_ref_snippets_serialized: list[dict[str, Any]] = [
+        {"text": s.text, "score": s.score, "payload": dict(s.payload) if isinstance(s.payload, dict) else {}}
+        for s in context_ref_snippets
+    ]
+
     return (
         full_system,
         filled,
@@ -701,6 +740,7 @@ async def run_queries_and_fill_prompt(
         retrieved_serialized,
         direct_response,
         chunk_index_map,
+        context_ref_snippets_serialized,
     )
 
 
@@ -719,6 +759,7 @@ def store_prompt_state(
     user_prompt: str,
     retrieved_snippets: list[dict[str, Any]],
     chunk_index_map: list[dict[str, Any]] | None = None,
+    context_ref_snippets: list[dict[str, Any]] | None = None,
 ) -> None:
     """Store prompt state for execute-prompt (cached with TTL)."""
     expires = datetime.now(timezone.utc) + timedelta(seconds=_PROMPT_CACHE_TTL_SECONDS)
@@ -730,6 +771,7 @@ def store_prompt_state(
         "citations_metadata": citations_metadata,
         "context_refs": context_refs,
         "chunk_index_map": chunk_index_map or [],
+        "context_ref_snippets": context_ref_snippets or [],
         "assistant_slug": assistant_slug,
         "action_id": action_id,
         "collection_name": collection_name,

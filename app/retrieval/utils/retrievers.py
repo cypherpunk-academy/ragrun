@@ -639,7 +639,9 @@ def build_context_numbered(
         index_map.append((num, cid, text, meta))
         if include_score:
             chunk_type = snippet_chunk_type_value(payload) or ""
-            ct_str = f", \033[38;5;208m{chunk_type}\033[0m" if chunk_type else ""
+            # Plain text only — rp ragChat colors (r: …) and chunk_type in the CLI; embedded
+            # ANSI resets here would turn the rest of the line white after the orange label.
+            ct_str = f", {chunk_type}" if chunk_type else ""
             score_str = f" (r: {snip.score:.1f}{ct_str})"
         else:
             score_str = ""

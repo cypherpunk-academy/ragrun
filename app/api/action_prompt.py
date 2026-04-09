@@ -23,7 +23,7 @@ from app.retrieval.services.action_prompt_service import (
     run_queries_and_fill_prompt,
     store_prompt_state,
 )
-from app.retrieval.services.providers import get_embedding_client, get_qdrant_client
+from app.retrieval.services.providers import get_embedding_client, get_qdrant_client, get_deepseek_chat
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.models import RetrievedSnippet
 
@@ -39,33 +39,46 @@ def _extract_cited_indices(response_text: str) -> set[int]:
     return {int(m.group(1)) for m in _CITATION_INDEX_RE.finditer(response_text)}
 
 
-def _cited_refs_from_indices(
+def _resolve_bracket_chunk_ids(
     cited_indices: set[int],
     chunk_index_map: list[dict],
-    citations_metadata: list[dict],
-) -> list[dict]:
-    """Build cited_refs from indices using chunk_index_map. Preserves primary-source precedence."""
+    retrieved_serialized: list[dict],
+) -> set[str]:
+    """Resolve bracket-cited indices to primary-source chunk_ids.
+
+    For essay/talk chunks: expands to their referenced primary-source chunk_ids.
+    For all other chunk types: uses the chunk_id directly.
+    """
+    payload_by_cid: dict[str, dict] = {}
+    for s in retrieved_serialized:
+        pl = s.get("payload") or {}
+        inner = pl.get("payload") if isinstance(pl.get("payload"), dict) else pl
+        cid = inner.get("chunk_id") if isinstance(inner, dict) else None
+        if isinstance(cid, str) and cid:
+            payload_by_cid[cid] = pl
+
     index_to_entry = {e["index"]: e for e in chunk_index_map}
-    refs: list[dict] = []
-    seen_ids: set[str] = set()
-    for idx in sorted(cited_indices):
+    result: set[str] = set()
+    for idx in cited_indices:
         entry = index_to_entry.get(idx)
-        if not entry or not entry.get("chunk_id"):
+        if not entry:
             continue
-        cid = entry["chunk_id"]
-        if cid in seen_ids:
+        cid = entry.get("chunk_id")
+        if not cid:
             continue
-        seen_ids.add(cid)
-        c = next(
-            (m for m in citations_metadata if m.get("chunk_id") == cid),
-            {},
-        )
-        refs.append({
-            "chunk_id": cid,
-            "description": c.get("segment_title") or c.get("source_title", ""),
-            "relevance": 1.0,
-        })
-    return refs
+        pl = payload_by_cid.get(cid, {})
+        inner = pl.get("payload", pl) if isinstance(pl.get("payload"), dict) else pl
+        chunk_type = inner.get("chunk_type", "") if isinstance(inner, dict) else ""
+        if chunk_type in ("essay", "talk"):
+            refs = inner.get("references") or []
+            for r in refs:
+                if isinstance(r, dict):
+                    ref_cid = r.get("chunk_id")
+                    if isinstance(ref_cid, str) and ref_cid:
+                        result.add(ref_cid)
+        else:
+            result.add(cid)
+    return result
 
 
 # Reference text: chars per ref; keep in sync with action_prompt_service.CHUNK_TEXT_MAX_CHARS
@@ -149,6 +162,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
         retrieved_serialized,
         direct_response,
         chunk_index_map,
+        context_ref_snippets_serialized,
     ) = await run_queries_and_fill_prompt(
         action_id=body.action_id,
         assistant_slug=effective_slug,
@@ -174,6 +188,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
         user_prompt=body.user_prompt,
         retrieved_snippets=retrieved_serialized,
         chunk_index_map=chunk_index_map,
+        context_ref_snippets=context_ref_snippets_serialized,
     )
 
     estimated_tokens = len(full_system.split()) * 2  # rough
@@ -254,14 +269,13 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
 
     system_prompt = body.modified_prompt if body.modified_prompt else state["filled_prompt"]
     user_prompt = state["user_prompt"]
-    context_refs = state["context_refs"]
     retrieved_serialized = state["retrieved_snippets"]
     citations_metadata = state["citations_metadata"]
     chunk_index_map = state.get("chunk_index_map") or []
     collection_name = state.get("collection_name", assistant_slug)
 
     llm = _make_llm(streaming=body.stream)
-    chat_client = llm  # evaluate_chunk_relevance needs ChatModel protocol
+    chat_client = get_deepseek_chat()
 
     async def event_generator():
         yield {"data": json.dumps({"type": "start"})}
@@ -281,124 +295,88 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                 response_text = (resp.content or "").strip()
                 yield {"data": json.dumps({"type": "token", "content": response_text})}
 
-            # Prefer references from actually cited indices [1], [7] etc. in the response
+            # 1. Resolve bracket citations ([n]) to primary-source chunk_ids
             cited_indices = _extract_cited_indices(response_text)
-            cited_refs: list[dict] = []
-            if cited_indices and chunk_index_map:
-                cited_refs = _cited_refs_from_indices(
-                    cited_indices, chunk_index_map, citations_metadata
-                )
-            if not cited_refs:
-                # Fallback: evaluate by LLM relevance
-                snippets = [
-                    RetrievedSnippet(
-                        text=s.get("text", ""),
-                        score=float(s.get("score", 0)),
-                        payload=s.get("payload") or {},
-                    )
-                    for s in retrieved_serialized
-                ]
-                refs: list[dict] = []
-                if snippets and response_text:
-                    refs = await evaluate_chunk_relevance(
-                        generated_text=response_text,
-                        retrieved_chunks=snippets,
-                        llm=chat_client,
-                    )
-                cited_refs = [
-                    r for r in refs if float(r.get("relevance", 0)) >= CITATION_THRESHOLD
-                ]
-            if not cited_refs:
-                # Fallback: use context_refs with minimal ref shape
-                chunk_ids_fallback = list(context_refs)[:5] if context_refs else []
-                for cid in chunk_ids_fallback:
-                    cited_refs.append(
-                        {"chunk_id": cid, "description": "", "relevance": 0.5}
-                    )
-                if not cited_refs and citations_metadata:
-                    for c in citations_metadata[:5]:
-                        cid = c.get("chunk_id")
-                        if cid:
-                            cited_refs.append(
-                                {"chunk_id": cid, "description": "", "relevance": 0.5}
-                            )
+            bracket_primary_cids = _resolve_bracket_chunk_ids(
+                cited_indices, chunk_index_map, retrieved_serialized
+            )
 
-            # Build chunk_id -> text and chunk_id -> retrieval_score maps
-            chunk_text_by_id: dict[str, str] = {}
+            # 2. Rebuild primary-source snippets from cache for relevance evaluation
+            context_ref_snippets_serialized = state.get("context_ref_snippets") or []
+            context_ref_snippets = [
+                RetrievedSnippet(
+                    text=s.get("text", ""),
+                    score=float(s.get("score", 1.0)),
+                    payload=s.get("payload") or {},
+                )
+                for s in context_ref_snippets_serialized
+            ]
+
+            # 3. Always evaluate chunk relevance on primary-source snippets
+            eval_refs: list[dict] = []
+            if context_ref_snippets and response_text:
+                eval_refs = await evaluate_chunk_relevance(
+                    generated_text=response_text,
+                    retrieved_chunks=context_ref_snippets,
+                    llm=chat_client,
+                )
+            eval_refs = [r for r in eval_refs if float(r.get("relevance", 0)) >= CITATION_THRESHOLD]
+
+            # 4. Build fast-lookup maps
+            #    chunk_score_by_id: fallback retrieval score from original Qdrant hits
             chunk_score_by_id: dict[str, float] = {}
             for s in retrieved_serialized:
                 pl = s.get("payload") or {}
                 inner = pl.get("payload") if isinstance(pl.get("payload"), dict) else pl
                 cid = (inner or {}).get("chunk_id") if isinstance(inner, dict) else None
                 if isinstance(cid, str):
-                    chunk_text_by_id[cid] = s.get("text", "")
                     chunk_score_by_id[cid] = float(s.get("score", 0))
 
-            # References = all cited chunks; include slots from all actions
-            cited_indices_set = set(cited_indices) if cited_indices else set()
-            allowed_slots = {
-                "primary-books",
-                "secondary-books",
-                "primary",
-                "secondary",
-                "quotes",
-                "steiner-books",
-                "books_and_lectures",  # find-in-works
-                "works",
-                "fallback-books",
-                "concepts",
-            }
-            references_enriched: list[dict] = []
-            for entry in chunk_index_map:
-                slot = entry.get("slot")
-                if slot not in allowed_slots:
-                    continue
-                idx = entry.get("index")
-                if idx not in cited_indices_set:
-                    continue
-                cid = entry.get("chunk_id")
-                if not cid:
-                    continue
-                c = next(
-                    (m for m in citations_metadata if m.get("chunk_id") == cid),
-                    {},
-                )
-                retrieval_score = chunk_score_by_id.get(cid, 0.0)
-                ref_entry = {
-                    "index": idx,
-                    "chunk_id": cid,
-                    "description": c.get("segment_title") or c.get("source_title", ""),
-                    "relevance": retrieval_score,
-                    "source_title": c.get("source_title", ""),
-                    "segment_title": c.get("segment_title", ""),
-                    "text": chunk_text_by_id.get(cid, entry.get("text", ""))[:REFERENCE_TEXT_MAX_CHARS],
-                    "cited": True,
-                }
-                references_enriched.append(ref_entry)
+            #    crs_meta_by_id: text + metadata from primary-source snippets
+            crs_meta_by_id: dict[str, dict] = {}
+            for s in context_ref_snippets_serialized:
+                pl = s.get("payload") or {}
+                inner = pl.get("payload", pl) if isinstance(pl.get("payload"), dict) else pl
+                cid = inner.get("chunk_id") if isinstance(inner, dict) else None
+                if isinstance(cid, str) and cid:
+                    crs_meta_by_id[cid] = {"text": s.get("text", ""), **inner}
 
-            # Deduplicate references_enriched by chunk_id (same primary source can appear
-            # at multiple cited indices if referenced by more than one essay/talk chunk)
-            seen_cids: set[str] = set()
-            deduped_references: list[dict] = []
-            for ref in references_enriched:
-                cid = ref.get("chunk_id")
-                if cid and cid not in seen_cids:
-                    seen_cids.add(cid)
-                    deduped_references.append(ref)
-                elif not cid:
-                    deduped_references.append(ref)
+            # 5. Union: eval results + bracket-cited primary sources
+            eval_by_cid = {r["chunk_id"]: r for r in eval_refs}
+            all_primary_cids = set(eval_by_cid) | bracket_primary_cids
+
+            references_enriched: list[dict] = []
+            for cid in all_primary_cids:
+                meta = crs_meta_by_id.get(cid, {})
+                c = next((m for m in citations_metadata if m.get("chunk_id") == cid), {})
+                eval_entry = eval_by_cid.get(cid)
+                references_enriched.append({
+                    "chunk_id": cid,
+                    "description": (
+                        (eval_entry or {}).get("description")
+                        or c.get("segment_title")
+                        or c.get("source_title", "")
+                    ),
+                    "relevance": float(
+                        (eval_entry or {}).get("relevance", chunk_score_by_id.get(cid, 0.5))
+                    ),
+                    "source_title": meta.get("source_title") or c.get("source_title", ""),
+                    "segment_title": meta.get("segment_title") or c.get("segment_title", ""),
+                    "text": (meta.get("text") or "")[:REFERENCE_TEXT_MAX_CHARS],
+                    "cited": cid in bracket_primary_cids,
+                })
 
             enqueue_record_metadata_only(
                 EventRecorder(),
                 endpoint="execute_prompt",
                 collection=collection_name,
-                metadata={"references": cited_refs},
+                metadata={"references": references_enriched},
             )
 
             yield {
                 "data": json.dumps({
                     "type": "done",
-                    "references": deduped_references,
+                    "references": references_enriched,
                     "response": response_text,
                     "collection": collection_name,
                     "chunk_index_map": chunk_index_map,
