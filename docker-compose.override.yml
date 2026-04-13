@@ -1,0 +1,82 @@
+volumes:
+  vector_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /Users/michael/Reniets/Ai/ragrun/data/vector_db
+  backup_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /Users/michael/Reniets/Ai/ragrun/data/backups
+  log_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /Users/michael/Reniets/Ai/ragrun/data/logs
+  embeddings_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /Users/michael/Reniets/Ai/ragrun/data/embeddings_cache
+  embeddings_models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /Users/michael/Reniets/Ai/ragrun/personal-embeddings-service/models
+  embeddings_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /Users/michael/Reniets/Ai/ragrun/personal-embeddings-service/logs
+
+# Override file for local development
+# This file is automatically loaded by docker-compose to extend docker-compose.yml
+
+services:
+  ragrun-api:
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - ENVIRONMENT=development
+      # CORS (optional; app reads RAGRUN_CORS_ORIGINS from .env in production)
+      - BACKEND_CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080"]
+    volumes:
+      # Mount source code for hot reload during development
+      - ./app:/app/app:ro
+      - ./scripts:/app/scripts:ro
+      - ./config:/app/config:ro
+      # Override data mounts to absolute bind paths
+      - type: bind
+        source: /Users/michael/Reniets/Ai/ragrun/data/vector_db
+        target: /app/data/vector_db
+      - type: bind
+        source: /Users/michael/Reniets/Ai/ragrun/data/backups
+        target: /app/data/backups
+      - type: bind
+        source: /Users/michael/Reniets/Ai/ragrun/data/logs
+        target: /app/data/logs
+      - type: bind
+        source: /Users/michael/Reniets/Ai/ragrun/data/embeddings_cache
+        target: /app/data/embeddings_cache
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  embedding-service:
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    ports:
+      - "8001:8001"
+    volumes:
+      - type: bind
+        source: /Users/michael/Reniets/Ai/ragrun/personal-embeddings-service/models
+        target: /app/models
+      - type: bind
+        source: /Users/michael/Reniets/Ai/ragrun/personal-embeddings-service/logs
+        target: /app/logs

@@ -1,0 +1,10 @@
+Bitte antworte ausschließlich mit einem **gültigen und kommentarlosen JSON-Objekt** im folgenden Format:
+
+    {
+        "gedanken_in_weltanschauung": <Array mit drei neuen Texten>
+        "gedanke": {{ gedanke }}
+    }
+
+Gebe drei Varianten von folgendem Gedanken in jeweils weniger als 20 Worten, in deiner eigenen Art, in der Weltanschauung {{ weltanschauung }}, aber weise nicht direkt auf die Weltanschauung hin. Ändere nicht die Perspektive. Sprich nicht über den Text, nur zusammenfassen. Verwende dabei in jeder Variante eines der komma-getrennten Worte: "{{ stichwort }}". Sollte der Satz einen Gedankenfehler enthalten, erhalte diesen möglichst treu, auch wenn du anderer Meinung bist. 
+
+** {{ gedanke }} ** 

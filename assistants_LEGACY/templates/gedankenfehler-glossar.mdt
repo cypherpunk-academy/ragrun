@@ -1,0 +1,18 @@
+Bitte antworte ausschließlich mit einem **gültigen und kommentarlosen JSON-Objekt** im folgenden Format:
+
+    {
+        "glossar": [{
+            "begriff": <Begriff>
+            "beschreibung": <Beschreibung>
+        }]
+    }
+
+Stelle sicher, dass wirklich nur der Text des JSON-Objekts zurückgegeben wird, und nicht ```oder andere delimiter. Erstes Zeichen des JSON-Objekts muss ein "{" sein.
+
+Nimm die Korrektur aus dem vorangegangenen Dialog und suche fünf zentrale Begiffe heraus. Sie sollten in der Regel aus einem einzigen Wort bestehen.
+
+------------------------------------------------------------------------------
+** {{ korrektur }} **
+------------------------------------------------------------------------------
+
+Schreibe zu jedem Begriff eine kurze Beschreibung in 50 - 80 Worte, aus deiner Weltanschuung {{ weltanschauung }} heraus, in deinem ureigenen "Sound". Sei präzise, es soll eine fundierte Umschreibung des Wortes sein. 

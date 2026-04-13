@@ -1,0 +1,19 @@
+Bitte antworte ausschließlich mit einem **gültigen und kommentarlosen JSON-Objekt** im folgenden Format:
+
+    {
+        "gedanke_kurz": <Präzise 30-35 Wort Zusammenfassung>
+    }
+
+Stelle sicher, dass wirklich nur der Text des JSON-Objekts zurückgegeben wird, und nicht ```oder andere delimiter. Erstes Zeichen des JSON-Objekts muss ein "{" sein.
+
+Fasse folgenden philosophischen Text in 30-35 Worten zusammen:
+
+------------------------------------------------------------------------------
+** {{ gedanke }} **
+------------------------------------------------------------------------------
+
+Behalte die philosophische Präzision bei und erfasse die Kernaussage. Verwende KEINE Metabezüge oder erklärende Zusätze. Konzentriere dich auf die wesentliche philosophische Einsicht und formuliere sie als vollständigen, in sich geschlossenen Gedanken.
+
+Die Zusammenfassung soll die Essenz des Textes in konzentrierter Form wiedergeben - prägnant, aber vollständig. Verwende präzise philosophische Sprache aus der Perspektive des {{ weltanschauung }}, aber erwähne diese Weltanschauung nicht direkt.
+
+Sprich in deinem ureigenen "Sound" und sorge dafür, dass die Zusammenfassung für sich allein stehen kann. 

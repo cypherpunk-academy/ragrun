@@ -1,0 +1,9 @@
+Metadata-Version: 2.1
+Name: rag-cli
+Version: 0.1.0
+Summary: Command Line Interface for RAG (Retrieval-Augmented Generation) Management
+Author: Your Name
+Requires-Dist: click
+Requires-Dist: tqdm
+Requires-Dist: pinecone-client
+Requires-Dist: sentence-transformers

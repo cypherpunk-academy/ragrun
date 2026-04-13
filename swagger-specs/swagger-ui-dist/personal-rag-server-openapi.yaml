@@ -1,0 +1,1819 @@
+openapi: 3.0.3
+info:
+    title: Personal RAG Server API
+    description: |
+        Personal RAG Server with FastAPI - Secure and Production Ready
+
+        Vector Database: Local (ChromaDB-based) with `philosophical_768` default collection
+    version: 1.0.0
+    contact:
+        name: API Support
+servers:
+    - url: /
+      description: Root
+    - url: /api/v1
+      description: API v1
+
+components:
+    securitySchemes:
+        bearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+        apiKeyAuth:
+            type: apiKey
+            in: header
+            name: X-API-Key
+
+    schemas:
+        Message:
+            type: object
+            properties:
+                role:
+                    type: string
+                    enum: [user, assistant, system]
+                content:
+                    type: string
+            required:
+                - role
+                - content
+
+        RAGQueryRequest:
+            type: object
+            properties:
+                messages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Message'
+                filter:
+                    type: object
+                    additionalProperties: true
+                system_prompt:
+                    type: string
+                top_k:
+                    type: integer
+                    default: 5
+            required:
+                - messages
+
+        RAGQueryResponse:
+            type: object
+            properties:
+                content:
+                    type: string
+                model:
+                    type: string
+                retrieved_documents:
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: true
+            required:
+                - content
+
+        ReasonerFilters:
+            type: object
+            properties:
+                book_ids:
+                    type: array
+                    items:
+                        type: string
+                authors:
+                    type: array
+                    items:
+                        type: string
+                chapters:
+                    type: array
+                    items:
+                        type: string
+
+        ReasonerRequest:
+            type: object
+            properties:
+                query:
+                    type: string
+                user_prompt_template:
+                    type: string
+                    description: Template with placeholders {context} and {question}
+                system_prompt:
+                    type: string
+                collection_name:
+                    type: string
+                top_k:
+                    type: integer
+                    default: 8
+                filters:
+                    $ref: '#/components/schemas/ReasonerFilters'
+            required:
+                - query
+                - user_prompt_template
+
+        ReasonerResponse:
+            type: object
+            properties:
+                content:
+                    type: string
+                model:
+                    type: string
+                retrieved_documents:
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: true
+            required:
+                - content
+
+        DocumentAddRequest:
+            type: object
+            properties:
+                content:
+                    type: string
+                metadata:
+                    type: object
+                    additionalProperties: true
+                chunk_size:
+                    type: integer
+                    default: 1000
+                chunk_overlap:
+                    type: integer
+                    default: 200
+            required:
+                - content
+                - metadata
+
+        DocumentAddResponse:
+            type: object
+            properties:
+                document_id:
+                    type: string
+            required:
+                - document_id
+
+        SearchRequest:
+            type: object
+            properties:
+                query:
+                    type: string
+                filter:
+                    type: object
+                    additionalProperties: true
+                top_k:
+                    type: integer
+                    default: 5
+            required:
+                - query
+
+        UserCreate:
+            type: object
+            properties:
+                username:
+                    type: string
+                email:
+                    type: string
+                    format: email
+                password:
+                    type: string
+                    format: password
+                full_name:
+                    type: string
+                role:
+                    type: string
+                    enum: [user, admin, moderator]
+            required:
+                - username
+                - email
+                - password
+
+        UserUpdate:
+            type: object
+            properties:
+                email:
+                    type: string
+                    format: email
+                password:
+                    type: string
+                    format: password
+                full_name:
+                    type: string
+                role:
+                    type: string
+                    enum: [user, admin, moderator]
+                is_active:
+                    type: boolean
+
+        User:
+            type: object
+            properties:
+                id:
+                    type: string
+                username:
+                    type: string
+                email:
+                    type: string
+                    format: email
+                full_name:
+                    type: string
+                role:
+                    type: string
+                    enum: [user, admin, moderator]
+                is_active:
+                    type: boolean
+                created_at:
+                    type: string
+                    format: date-time
+                last_login:
+                    type: string
+                    format: date-time
+                login_count:
+                    type: integer
+            required:
+                - id
+                - username
+                - email
+                - role
+                - is_active
+
+        Token:
+            type: object
+            properties:
+                access_token:
+                    type: string
+                token_type:
+                    type: string
+                expires_at:
+                    type: string
+                    format: date-time
+            required:
+                - access_token
+                - token_type
+
+        APIKeyCreate:
+            type: object
+            properties:
+                name:
+                    type: string
+                expires_in_days:
+                    type: integer
+            required:
+                - name
+
+        APIKey:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                prefix:
+                    type: string
+                created_at:
+                    type: string
+                    format: date-time
+                expires_at:
+                    type: string
+                    format: date-time
+                is_active:
+                    type: boolean
+            required:
+                - id
+                - name
+                - prefix
+                - created_at
+                - is_active
+
+        APIKeyResponse:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                key:
+                    type: string
+                prefix:
+                    type: string
+                created_at:
+                    type: string
+                    format: date-time
+                expires_at:
+                    type: string
+                    format: date-time
+            required:
+                - id
+                - name
+                - key
+                - prefix
+                - created_at
+
+        Assistant:
+            type: object
+            properties:
+                id:
+                    type: string
+                    description: Assistant identifier
+                object:
+                    type: string
+                    default: 'assistant'
+                    description: Object type
+                name:
+                    type: string
+                    description: Assistant name
+                description:
+                    type: string
+                    nullable: true
+                    description: Assistant description
+                model:
+                    type: string
+                    description: LLM model used by assistant
+                instructions:
+                    type: string
+                    nullable: true
+                    description: Assistant instructions
+                weltanschauung:
+                    type: string
+                    nullable: true
+                    enum: [Idealismus, Materialismus, Realismus, Spiritualismus]
+                    description: Philosophical worldview
+                status:
+                    type: string
+                    description: Assistant status
+                created_at:
+                    type: string
+                    description: Creation timestamp
+                metadata:
+                    type: object
+                    additionalProperties: true
+                    nullable: true
+                    description: Additional metadata
+                capabilities:
+                    $ref: '#/components/schemas/AssistantCapabilities'
+                    nullable: true
+                    description: Assistant capabilities
+            required:
+                - id
+                - object
+                - name
+                - model
+                - status
+                - created_at
+
+        AssistantCapabilities:
+            type: object
+            properties:
+                templates:
+                    type: array
+                    items:
+                        type: string
+                        enum: [resolve, reformulate, glossary]
+                max_context_length:
+                    type: integer
+                supported_languages:
+                    type: array
+                    items:
+                        type: string
+                        enum: [de, en]
+
+        AssistantListResponse:
+            type: object
+            properties:
+                object:
+                    type: string
+                    default: 'list'
+                    description: Object type
+                data:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Assistant'
+                    description: List of assistants
+                first_id:
+                    type: string
+                    nullable: true
+                    description: First assistant ID
+                last_id:
+                    type: string
+                    nullable: true
+                    description: Last assistant ID
+                has_more:
+                    type: boolean
+                    default: false
+                    description: Whether there are more assistants
+            required:
+                - object
+                - data
+                - has_more
+
+        AssistantCreate:
+            type: object
+            properties:
+                name:
+                    type: string
+                description:
+                    type: string
+                model:
+                    type: string
+                    default: 'deepseek-reasoner'
+                instructions:
+                    type: string
+                weltanschauung:
+                    type: string
+                    enum: [Idealismus, Materialismus, Realismus, Spiritualismus]
+                temperature:
+                    type: number
+                    format: float
+                    minimum: 0
+                    maximum: 2
+                    default: 1.0
+                top_p:
+                    type: number
+                    format: float
+                    minimum: 0
+                    maximum: 1
+                    default: 1.0
+                metadata:
+                    type: object
+                    additionalProperties: true
+            required:
+                - name
+                - weltanschauung
+                - instructions
+
+        AssistantUpdate:
+            type: object
+            properties:
+                name:
+                    type: string
+                description:
+                    type: string
+                instructions:
+                    type: string
+                temperature:
+                    type: number
+                    format: float
+                    minimum: 0
+                    maximum: 2
+                top_p:
+                    type: number
+                    format: float
+                    minimum: 0
+                    maximum: 1
+                metadata:
+                    type: object
+                    additionalProperties: true
+
+        AssistantQuery:
+            type: object
+            properties:
+                query:
+                    type: string
+                template:
+                    type: string
+                template_variables:
+                    type: object
+                    additionalProperties: true
+            required:
+                - query
+
+        AssistantResponse:
+            type: object
+            properties:
+                response:
+                    type: object
+                    additionalProperties: true
+                model:
+                    type: string
+                weltanschauung:
+                    type: string
+                retrieved_documents:
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: true
+            required:
+                - response
+
+        # Phase 4 Template Endpoint Schemas
+        ResolveRequest:
+            type: object
+            properties:
+                gedanke_in_weltanschauung:
+                    type: string
+                    maxLength: 500
+                    description: The philosophical misconception to correct
+                    example: 'Geld macht glücklich'
+                aspekte:
+                    type: string
+                    maxLength: 200
+                    description: Optional specific aspects to consider in the correction
+                    example: 'materielle Sicherheit, soziale Beziehungen'
+            required:
+                - gedanke_in_weltanschauung
+
+        ResolveResponse:
+            type: object
+            properties:
+                gedanke:
+                    type: string
+                    description: 300-word philosophical correction
+                gedanke_zusammenfassung:
+                    type: string
+                    description: Brief summary of the correction
+                gedanke_kind:
+                    type: string
+                    description: Child-friendly explanation (10-year-old level)
+                assistant_id:
+                    type: string
+                weltanschauung:
+                    type: string
+                processing_time:
+                    type: number
+                    format: float
+            required:
+                - gedanke
+                - gedanke_zusammenfassung
+                - gedanke_kind
+                - assistant_id
+                - weltanschauung
+
+        ReformulateRequest:
+            type: object
+            properties:
+                gedanke:
+                    type: string
+                    maxLength: 200
+                    description: The original thought to reformulate
+                    example: 'Bewusstsein ist nur ein Nebenprodukt des Gehirns'
+                stichwort:
+                    type: string
+                    maxLength: 100
+                    description: Comma-separated keywords to incorporate
+                    example: 'Emergenz, Komplexität, Reduktionismus'
+            required:
+                - gedanke
+                - stichwort
+
+        ReformulateResponse:
+            type: object
+            properties:
+                gedanken_in_weltanschauung:
+                    type: array
+                    items:
+                        type: string
+                    minItems: 3
+                    maxItems: 3
+                    description: Three reformulated variations (max 20 words each)
+                gedanke:
+                    type: string
+                    description: Original thought (echoed back)
+                assistant_id:
+                    type: string
+                weltanschauung:
+                    type: string
+                processing_time:
+                    type: number
+                    format: float
+            required:
+                - gedanken_in_weltanschauung
+                - gedanke
+                - assistant_id
+                - weltanschauung
+
+        GlossaryRequest:
+            type: object
+            properties:
+                korrektur:
+                    type: string
+                    maxLength: 1000
+                    description: Text to extract concepts from (when using text input)
+                    example: 'Die Phänomenologie untersucht das Bewusstsein und seine intentionalen Strukturen'
+                begriffe:
+                    type: array
+                    items:
+                        type: string
+                    maxItems: 5
+                    description: Specific concepts to define (when using direct input)
+                    example:
+                        ['Bewusstsein', 'Intentionalität', 'Phänomenologie']
+            oneOf:
+                - required: [korrektur]
+                - required: [begriffe]
+
+        GlossaryResponse:
+            type: object
+            properties:
+                glossar:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            begriff:
+                                type: string
+                                description: The philosophical concept
+                            beschreibung:
+                                type: string
+                                description: 50-80 word explanation from worldview perspective
+                        required:
+                            - begriff
+                            - beschreibung
+                    minItems: 1
+                    maxItems: 5
+                assistant_id:
+                    type: string
+                weltanschauung:
+                    type: string
+                processing_time:
+                    type: number
+                    format: float
+            required:
+                - glossar
+                - assistant_id
+                - weltanschauung
+
+        ErrorResponse:
+            type: object
+            properties:
+                error:
+                    type: string
+                    description: Error type
+                message:
+                    type: string
+                    description: Human-readable error message
+                details:
+                    type: object
+                    additionalProperties: true
+                    description: Additional error details
+            required:
+                - error
+                - message
+
+paths:
+    /rag/retrieve:
+        post:
+            summary: Return top-k book chunks for the given prompt (retrieval-only)
+            operationId: retrieve_chunks
+            tags:
+                - rag
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                '200':
+                    description: Retrieved chunks
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                '500':
+                    description: Retrieve failed
+
+    /rag/upload:
+        post:
+            summary: Upload a processed book to the vector store
+            operationId: upload_book
+            tags:
+                - rag
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                '200':
+                    description: Upload result
+                '500':
+                    description: Upload failed
+
+    
+
+    /rag/collections:
+        get:
+            summary: List available vector collections
+            operationId: list_collections
+            tags:
+                - rag
+            responses:
+                '200':
+                    description: Collections list
+                '500':
+                    description: Failed to list collections
+
+    /rag/books/titles:
+        get:
+            summary: List distinct book titles (optionally with authors)
+            operationId: list_book_titles
+            tags:
+                - rag
+            parameters:
+                - name: collection_name
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+                - name: limit
+                  in: query
+                  required: false
+                  schema:
+                      type: integer
+                      minimum: 1
+                - name: min_count
+                  in: query
+                  required: false
+                  schema:
+                      type: integer
+                      minimum: 1
+                - name: include_author
+                  in: query
+                  required: false
+                  schema:
+                      type: boolean
+                      default: true
+            responses:
+                '200':
+                    description: Distinct titles
+                '500':
+                    description: Failed to list titles
+
+    /rag/upload-chunks:
+        post:
+            summary: Bulk upload JSONL chunks into the vector store
+            operationId: upload_chunks
+            tags:
+                - rag
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                '200':
+                    description: Upload summary
+                '400':
+                    description: Invalid input
+                '500':
+                    description: Failed to upload chunks
+
+    /rag/delete-chunks:
+        post:
+            summary: Delete chunks from the vector store by filter or all
+            operationId: delete_chunks
+            tags:
+                - rag
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                '200':
+                    description: Deletion summary
+                '400':
+                    description: Invalid input
+                '500':
+                    description: Failed to delete chunks
+
+    /rag/health:
+        get:
+            summary: System health for embeddings service and vector store
+            operationId: system_health
+            tags:
+                - rag
+            responses:
+                '200':
+                    description: System health
+                '503':
+                    description: Unhealthy status with error details
+    /:
+        get:
+            summary: Root endpoint for health check
+            operationId: root
+            tags:
+                - status
+            responses:
+                '200':
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+                                    version:
+                                        type: string
+                                    security_enabled:
+                                        type: boolean
+                                    environment:
+                                        type: string
+
+    /health:
+        get:
+            summary: Detailed health check endpoint
+            operationId: health_check
+            tags:
+                - status
+            responses:
+                '200':
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    timestamp:
+                                        type: string
+                                        format: date-time
+                                    version:
+                                        type: string
+                                    environment:
+                                        type: string
+                                    dependencies:
+                                        type: object
+                                    statistics:
+                                        type: object
+
+    /info:
+        get:
+            summary: Application information endpoint
+            operationId: app_info
+            tags:
+                - status
+            responses:
+                '200':
+                    description: Application information including security and feature details
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    name:
+                                        type: string
+                                        description: Project name
+                                    version:
+                                        type: string
+                                        description: Application version
+                                    environment:
+                                        type: string
+                                        description: Runtime environment
+                                    security:
+                                        type: object
+                                        properties:
+                                            authentication:
+                                                type: string
+                                                description: Authentication method
+                                            authorization:
+                                                type: string
+                                                description: Authorization method
+                                            rate_limiting:
+                                                type: string
+                                                description: Rate limiting status
+                                            cors:
+                                                type: string
+                                                description: CORS configuration status
+                                            security_headers:
+                                                type: boolean
+                                                description: Security headers enabled
+                                    features:
+                                        type: object
+                                        properties:
+                                            rag_system:
+                                                type: string
+                                                description: RAG system status
+                                            vector_db:
+                                                type: string
+                                                description: Vector database type
+                                            llm_provider:
+                                                type: string
+                                                description: LLM provider
+                                            embeddings_model:
+                                                type: string
+                                                description: Embeddings model used
+                                            user_management:
+                                                type: string
+                                                description: User management status
+                                            api_keys:
+                                                type: string
+                                                description: API keys feature status
+                                example:
+                                    name: 'Personal RAG Server'
+                                    version: '1.0.0'
+                                    environment: 'production'
+                                    security:
+                                        authentication: 'JWT + API Keys'
+                                        authorization: 'RBAC'
+                                        rate_limiting: 'Enabled'
+                                        cors: 'Configured'
+                                        security_headers: true
+                                    features:
+                                        rag_system: 'Enabled'
+                                        vector_db: 'pinecone'
+                                        llm_provider: 'deepseek'
+                                        embeddings_model: 'multilingual-e5-large'
+                                        user_management: 'Enabled'
+                                        api_keys: 'Enabled'
+
+    /auth/login:
+        post:
+            summary: User login with username and password
+            operationId: login
+            tags:
+                - authentication
+            requestBody:
+                required: true
+                content:
+                    application/x-www-form-urlencoded:
+                        schema:
+                            type: object
+                            properties:
+                                username:
+                                    type: string
+                                password:
+                                    type: string
+                                    format: password
+                            required:
+                                - username
+                                - password
+            responses:
+                '200':
+                    description: Successful login
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Token'
+                '401':
+                    description: Incorrect username or password
+
+    /auth/register:
+        post:
+            summary: Register a new user
+            operationId: register
+            tags:
+                - authentication
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UserCreate'
+            responses:
+                '200':
+                    description: User successfully created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/User'
+                '400':
+                    description: Bad request
+
+    /auth/me:
+        get:
+            summary: Get current user information
+            operationId: get_current_user_info
+            tags:
+                - users
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            responses:
+                '200':
+                    description: Current user information
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/User'
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: User not found
+
+        put:
+            summary: Update current user information
+            operationId: update_current_user
+            tags:
+                - users
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UserUpdate'
+            responses:
+                '200':
+                    description: User successfully updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/User'
+                '400':
+                    description: Bad request
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: User not found
+
+    /auth/api-keys:
+        post:
+            summary: Create a new API key for the current user
+            operationId: create_api_key
+            tags:
+                - api-keys
+            security:
+                - bearerAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/APIKeyCreate'
+            responses:
+                '200':
+                    description: API key successfully created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/APIKeyResponse'
+                '401':
+                    description: Unauthorized
+
+        get:
+            summary: List API keys for the current user
+            operationId: list_my_api_keys
+            tags:
+                - api-keys
+            security:
+                - bearerAuth: []
+            responses:
+                '200':
+                    description: List of API keys
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: '#/components/schemas/APIKey'
+                '401':
+                    description: Unauthorized
+
+    /auth/api-keys/{api_key_id}:
+        delete:
+            summary: Delete an API key
+            operationId: delete_api_key
+            tags:
+                - api-keys
+            security:
+                - bearerAuth: []
+            parameters:
+                - name: api_key_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+            responses:
+                '200':
+                    description: API key deleted successfully
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    message:
+                                        type: string
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: API key not found
+
+    /auth/api-keys/{api_key_id}/revoke:
+        patch:
+            summary: Revoke an API key (disable without deleting)
+            operationId: revoke_api_key
+            tags:
+                - api-keys
+            security:
+                - bearerAuth: []
+            parameters:
+                - name: api_key_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+            responses:
+                '200':
+                    description: API key revoked successfully
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    message:
+                                        type: string
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: API key not found
+
+    /auth/validate-password:
+        post:
+            summary: Validate password strength without authentication
+            operationId: validate_password
+            tags:
+                - utilities
+            parameters:
+                - name: password
+                  in: query
+                  required: true
+                  schema:
+                      type: string
+                      format: password
+                  description: The password to validate
+                  example: 'MySecurePass123!'
+            responses:
+                '200':
+                    description: Password validation result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    is_valid:
+                                        type: boolean
+                                    message:
+                                        type: string
+                                    requirements:
+                                        type: object
+                                        properties:
+                                            min_length:
+                                                type: integer
+                                            require_uppercase:
+                                                type: boolean
+                                            require_lowercase:
+                                                type: boolean
+                                            require_numbers:
+                                                type: boolean
+                                            require_special:
+                                                type: boolean
+
+    /rag/query:
+        post:
+            summary: Generate a response using RAG (Retrieval Augmented Generation)
+            operationId: rag_query
+            tags:
+                - rag
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RAGQueryRequest'
+            responses:
+                '200':
+                    description: RAG response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RAGQueryResponse'
+                '401':
+                    description: Unauthorized
+                '500':
+                    description: RAG query failed
+
+    /rag/documents:
+        post:
+            summary: Add a document to the RAG system
+            operationId: add_document
+            tags:
+                - rag
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/DocumentAddRequest'
+            responses:
+                '200':
+                    description: Document added successfully
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DocumentAddResponse'
+                '401':
+                    description: Unauthorized
+                '500':
+                    description: Failed to add document
+
+    /rag/search:
+        post:
+            summary: Search for documents using semantic search
+            operationId: search_documents
+            tags:
+                - rag
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchRequest'
+            responses:
+                '200':
+                    description: Search results
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+                                    additionalProperties: true
+                '401':
+                    description: Unauthorized
+                '500':
+                    description: Search failed
+
+    /rag/reasoner:
+        post:
+            summary: Retrieve book chunks and call DeepSeek Reasoner with augmented prompt
+            operationId: reasoner
+            tags:
+                - rag
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReasonerRequest'
+            responses:
+                '200':
+                    description: Reasoner response with retrieved documents
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ReasonerResponse'
+                '400':
+                    description: Invalid request
+                '500':
+                    description: Reasoner failed
+
+    /assistants:
+        get:
+            summary: List all assistants with optional filtering and capabilities
+            operationId: list_assistants
+            tags:
+                - assistants
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: weltanschauung
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+                      enum:
+                          [Idealismus, Materialismus, Realismus, Spiritualismus]
+                  description: Filter assistants by weltanschauung
+                  example: Idealismus
+                - name: status
+                  in: query
+                  required: false
+                  schema:
+                      type: string
+                      enum: [Ready, Initializing, Failed]
+                  description: Filter assistants by status
+                  example: Ready
+                - name: include_capabilities
+                  in: query
+                  required: false
+                  schema:
+                      type: boolean
+                      default: false
+                  description: Include template capabilities in response
+                  example: true
+            responses:
+                '200':
+                    description: List of assistants with capabilities
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AssistantListResponse'
+                            example:
+                                object: 'list'
+                                data:
+                                    - id: 'aurelian-i--schelling'
+                                      object: 'assistant'
+                                      name: 'aurelian-i--schelling'
+                                      description: 'Philosophical assistant for Idealism worldview - focuses on ideas as primary reality'
+                                      model: 'deepseek-reasoner'
+                                      instructions: 'Philosophical assistant with specialized worldview knowledge'
+                                      weltanschauung: 'Idealismus'
+                                      status: 'Ready'
+                                      created_at: '2024-01-15T10:30:00Z'
+                                      metadata:
+                                          worldview: 'Idealismus'
+                                          created_by: 'pinecone-assistant-api'
+                                      capabilities:
+                                          templates:
+                                              [
+                                                  'resolve',
+                                                  'reformulate',
+                                                  'glossary',
+                                              ]
+                                          max_context_length: 8192
+                                          supported_languages: ['de', 'en']
+                                first_id: 'aurelian-i--schelling'
+                                last_id: 'aurelian-i--schelling'
+                                has_more: false
+                '401':
+                    description: Unauthorized
+
+    /assistants/{assistant_id}:
+        get:
+            summary: Get assistant details
+            operationId: get_assistant
+            tags:
+                - assistants
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+                  example: 'aurelian-i--schelling'
+            responses:
+                '200':
+                    description: Assistant details
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Assistant'
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: Assistant not found
+
+        delete:
+            summary: Delete a Pinecone assistant
+            operationId: delete_assistant
+            tags:
+                - assistants
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+                  example: 'aurelian-i--schelling'
+            responses:
+                '200':
+                    description: Assistant deleted successfully
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    id:
+                                        type: string
+                                        description: Assistant ID
+                                    object:
+                                        type: string
+                                        default: 'assistant.deleted'
+                                        description: Object type
+                                    deleted:
+                                        type: boolean
+                                        default: true
+                                        description: Deletion status
+                                required:
+                                    - id
+                                    - object
+                                    - deleted
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: Assistant not found
+                '500':
+                    description: Failed to delete assistant
+
+    /assistants/{assistant_id}/query:
+        post:
+            summary: Query an assistant
+            operationId: query_assistant
+            tags:
+                - assistants
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AssistantQuery'
+            responses:
+                '200':
+                    description: Assistant response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AssistantResponse'
+                '400':
+                    description: Invalid request
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: Assistant not found
+                '500':
+                    description: Query failed
+
+    # Phase 4 Template Endpoints
+    /assistants/{assistant_id}/resolve:
+        post:
+            summary: Correct philosophical misconceptions from assistant's worldview
+            description: |
+                Uses the gedankenfehler-formulieren template to correct philosophical misconceptions.
+                The assistant analyzes the provided thinking mistake and provides a correction
+                from their specific worldview perspective, along with a summary and child-friendly explanation.
+            operationId: resolve_philosophical_mistake
+            tags:
+                - philosophical-templates
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+                  description: ID of the philosophical assistant
+                  example: 'aurelian-i--schelling'
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ResolveRequest'
+                        examples:
+                            basic_example:
+                                summary: Basic philosophical mistake
+                                value:
+                                    gedanke_in_weltanschauung: 'Geld macht glücklich'
+                            with_aspects:
+                                summary: With specific aspects to consider
+                                value:
+                                    gedanke_in_weltanschauung: 'Bewusstsein ist nur ein Nebenprodukt des Gehirns'
+                                    aspekte: 'Emergenz, Qualia, harte Problem des Bewusstseins'
+            responses:
+                '200':
+                    description: Philosophical correction from assistant's worldview
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ResolveResponse'
+                            example:
+                                gedanke: 'Aus Sicht des Idealismus zeigt sich, dass Geld lediglich...'
+                                gedanke_zusammenfassung: 'Wahres Glück entspringt geistigen Werten, nicht materiellem Besitz'
+                                gedanke_kind: 'Geld ist wie Spielzeug - es macht nur kurz Freude, aber Freunde und Lernen machen länger glücklich'
+                                assistant_id: 'aurelian-i--schelling'
+                                weltanschauung: 'Idealismus'
+                                processing_time: 8.5
+                '400':
+                    description: Invalid request - missing or malformed input
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: Assistant not found
+                '408':
+                    description: Request timeout - processing took too long
+                '500':
+                    description: Internal server error
+
+    /assistants/{assistant_id}/reformulate:
+        post:
+            summary: Reformulate thoughts from assistant's worldview perspective
+            description: |
+                Uses the gedankenfehler-wiederholen template to reformulate a given thought
+                from the assistant's specific worldview, creating three variations that
+                incorporate specified keywords while maintaining the assistant's philosophical perspective.
+            operationId: reformulate_philosophical_thought
+            tags:
+                - philosophical-templates
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+                  description: ID of the philosophical assistant
+                  example: 'aloys-i--freud'
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReformulateRequest'
+                        examples:
+                            consciousness_example:
+                                summary: Consciousness reformulation
+                                value:
+                                    gedanke: 'Bewusstsein ist nur ein Nebenprodukt des Gehirns'
+                                    stichwort: 'Emergenz, Komplexität, Reduktionismus'
+                            free_will_example:
+                                summary: Free will reformulation
+                                value:
+                                    gedanke: 'Der freie Wille ist eine Illusion'
+                                    stichwort: 'Determinismus, Kausalität, Entscheidung'
+            responses:
+                '200':
+                    description: Three reformulated variations from assistant's worldview
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ReformulateResponse'
+                            example:
+                                gedanken_in_weltanschauung:
+                                    - 'Bewusstsein entsteht durch emergente Gehirnprozesse'
+                                    - 'Komplexe Neuronetzwerke erzeugen bewusste Erfahrung'
+                                    - 'Reduktionismus erklärt Bewusstsein vollständig'
+                                gedanke: 'Bewusstsein ist nur ein Nebenprodukt des Gehirns'
+                                assistant_id: 'aloys-i--freud'
+                                weltanschauung: 'Materialismus'
+                                processing_time: 6.2
+                '400':
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: Assistant not found
+                '500':
+                    description: Internal server error
+
+    /assistants/{assistant_id}/glossary:
+        post:
+            summary: Generate philosophical glossary from text or concepts
+            description: |
+                Uses the gedankenfehler-glossar template to create a philosophical glossary.
+                Can either extract key concepts from provided text or define specific concepts provided.
+                Definitions are given from the assistant's worldview perspective.
+            operationId: generate_philosophical_glossary
+            tags:
+                - philosophical-templates
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+                  description: ID of the philosophical assistant
+                  example: 'arvid-i--steiner'
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/GlossaryRequest'
+                        examples:
+                            text_extraction:
+                                summary: Extract concepts from text
+                                value:
+                                    korrektur: 'Die Phänomenologie untersucht das Bewusstsein und seine intentionalen Strukturen sowie die Lebenswelt als Horizont aller Erfahrung'
+                            direct_concepts:
+                                summary: Define specific concepts
+                                value:
+                                    begriffe:
+                                        [
+                                            'Bewusstsein',
+                                            'Intentionalität',
+                                            'Phänomenologie',
+                                            'Lebenswelt',
+                                            'Erfahrung',
+                                        ]
+            responses:
+                '200':
+                    description: Philosophical glossary from assistant's worldview
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GlossaryResponse'
+                            example:
+                                glossar:
+                                    - begriff: 'Bewusstsein'
+                                      beschreibung: 'Das erkennende Ich, das sich selbst und die Welt erfasst. Im Realismus zeigt sich Bewusstsein als Einheit von Wahrnehmung und Begriff, wodurch der Mensch zur Erkenntnis der geistigen Wirklichkeit gelangen kann.'
+                                    - begriff: 'Intentionalität'
+                                      beschreibung: 'Die Gerichtetheit des Bewusstseins auf Gegenstände. Jeder Bewusstseinsakt bezieht sich auf etwas, sei es wahrgenommen, erinnert oder gedacht. Diese Struktur ermöglicht die Verbindung zwischen Subjekt und objektiver Welt.'
+                                assistant_id: 'arvid-i--steiner'
+                                weltanschauung: 'Realismus'
+                                processing_time: 12.1
+                '400':
+                    description: Invalid request - must provide either korrektur or begriffe
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+                '401':
+                    description: Unauthorized
+                '404':
+                    description: Assistant not found
+                '500':
+                    description: Internal server error
+
+    /assistants/{assistant_id}/models:
+        get:
+            summary: Get available models for Pinecone assistants
+            operationId: get_available_models
+            tags:
+                - assistants
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            parameters:
+                - name: assistant_id
+                  in: path
+                  required: true
+                  schema:
+                      type: string
+                  example: 'aurelian-i--schelling'
+            responses:
+                '200':
+                    description: List of available models
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    object:
+                                        type: string
+                                        default: 'list'
+                                    data:
+                                        type: array
+                                        items:
+                                            type: object
+                                            properties:
+                                                id:
+                                                    type: string
+                                                object:
+                                                    type: string
+                                                    default: 'model'
+                                                created:
+                                                    type: integer
+                                                owned_by:
+                                                    type: string
+                                                    default: 'pinecone'
+                            example:
+                                object: 'list'
+                                data:
+                                    - id: 'deepseek-reasoner'
+                                      object: 'model'
+                                      created: 1640995200
+                                      owned_by: 'pinecone'
+                                    - id: 'deepseek-chat'
+                                      object: 'model'
+                                      created: 1640995200
+                                      owned_by: 'pinecone'
+                '401':
+                    description: Unauthorized
+                '500':
+                    description: Error getting models
+
+    /assistants/weltanschauungen/list:
+        get:
+            summary: List available philosophical worldviews with their associated assistants
+            operationId: list_weltanschauungen
+            tags:
+                - assistants
+            security:
+                - bearerAuth: []
+                - apiKeyAuth: []
+            responses:
+                '200':
+                    description: List of available weltanschauungen with their assistants
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    object:
+                                        type: string
+                                        default: 'list'
+                                    data:
+                                        type: array
+                                        items:
+                                            type: object
+                                            properties:
+                                                id:
+                                                    type: string
+                                                    description: Worldview identifier
+                                                name:
+                                                    type: string
+                                                    description: Worldview name
+                                                description:
+                                                    type: string
+                                                    description: Worldview description
+                                                assistants:
+                                                    type: array
+                                                    description: Available assistants for this worldview
+                                                    items:
+                                                        type: object
+                                                        properties:
+                                                            id:
+                                                                type: string
+                                                                description: Assistant ID
+                                                            name:
+                                                                type: string
+                                                                description: Assistant name
+                                                            model:
+                                                                type: string
+                                                                description: Model used by assistant
+                                                            status:
+                                                                type: string
+                                                                description: Assistant status
+                                                            created_at:
+                                                                type: string
+                                                                format: date-time
+                                                                description: Creation timestamp
+                            example:
+                                object: 'list'
+                                data:
+                                    - id: 'Idealismus'
+                                      name: 'Idealismus'
+                                      description: 'Focuses on ideas as primary reality'
+                                      assistants:
+                                          - id: 'aurelian-i--schelling'
+                                            name: 'aurelian-i--schelling'
+                                            model: 'deepseek-reasoner'
+                                            status: 'Ready'
+                                            created_at: '2024-01-15T10:30:00Z'
+                                    - id: 'Materialismus'
+                                      name: 'Materialismus'
+                                      description: 'Emphasizes material reality and biological processes'
+                                      assistants:
+                                          - id: 'aloys-i--freud'
+                                            name: 'aloys-i--freud'
+                                            model: 'deepseek-reasoner'
+                                            status: 'Ready'
+                                            created_at: '2024-01-15T10:30:00Z'
+                                    - id: 'Realismus'
+                                      name: 'Realismus'
+                                      description: 'Balances spiritual and material perspectives'
+                                      assistants:
+                                          - id: 'arvid-i--steiner'
+                                            name: 'arvid-i--steiner'
+                                            model: 'deepseek-reasoner'
+                                            status: 'Ready'
+                                            created_at: '2024-01-15T10:30:00Z'
+                                    - id: 'Spiritualismus'
+                                      name: 'Spiritualismus'
+                                      description: 'Emphasizes spiritual hierarchies and development'
+                                      assistants:
+                                          - id: 'amara-i--steiner'
+                                            name: 'amara-i--steiner'
+                                            model: 'deepseek-reasoner'
+                                            status: 'Ready'
+                                            created_at: '2024-01-15T10:30:00Z'
+                '401':
+                    description: Unauthorized
+                '500':
+                    description: Error retrieving weltanschauungen

@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: personal-rag-server
+Version: 0.1.0
+Summary: Personal RAG server with philosophical assistants
+Author: 
+Author-email: 
+Requires-Python: >=3.8

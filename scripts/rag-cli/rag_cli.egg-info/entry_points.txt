@@ -1,0 +1,2 @@
+[console_scripts]
+rag-cli = scripts.rag_cli.main:cli
