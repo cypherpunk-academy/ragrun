@@ -1,6 +1,7 @@
 id: give-feedback
-label: Bewertung geben
+label: Dein Kommentar
 description: Kein Retrieval; Reinforcement-Feedback zur Antwortqualität.
+category: helper
 
 requires_retrieval: false
 requires_prompt: false

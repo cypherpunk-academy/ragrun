@@ -20,6 +20,7 @@ from app.retrieval.services.action_prompt_service import (
     list_actions,
     load_action_manifest,
     load_assistant_instruction,
+    load_assistant_name,
     run_queries_and_fill_prompt,
     store_prompt_state,
 )
@@ -46,7 +47,7 @@ def _resolve_bracket_chunk_ids(
 ) -> set[str]:
     """Resolve bracket-cited indices to primary-source chunk_ids.
 
-    For essay/talk chunks: expands to their referenced primary-source chunk_ids.
+    For talk chunks: expands to their referenced primary-source chunk_ids.
     For all other chunk types: uses the chunk_id directly.
     """
     payload_by_cid: dict[str, dict] = {}
@@ -69,7 +70,7 @@ def _resolve_bracket_chunk_ids(
         pl = payload_by_cid.get(cid, {})
         inner = pl.get("payload", pl) if isinstance(pl.get("payload"), dict) else pl
         chunk_type = inner.get("chunk_type", "") if isinstance(inner, dict) else ""
-        if chunk_type in ("essay", "talk"):
+        if chunk_type == "talk":
             refs = inner.get("references") or []
             for r in refs:
                 if isinstance(r, dict):
@@ -99,7 +100,7 @@ router = APIRouter(tags=["action-prompt"])
 
 class GeneratePromptRequest(BaseModel):
     assistant_slug: str | None = Field(None, description="Defaults to path param if omitted")
-    action_id: str = Field(..., description="Action ID (e.g. general-question)")
+    action_id: str = Field(..., description="Action ID (e.g. assistant-host)")
     user_prompt: str = Field(
         default="",
         description="May be empty when manifest allows-empty-prompt or requires_prompt is false",
@@ -121,7 +122,8 @@ class ExecutePromptRequest(BaseModel):
 @router.get("/agent/{assistant_slug}/actions")
 async def list_available_actions(assistant_slug: str) -> dict:
     """List all available actions (prompt types) for the assistant."""
-    actions = list_actions()
+    assistant_name = load_assistant_name(assistant_slug)
+    actions = list_actions(assistant_name=assistant_name)
     return {"assistant_slug": assistant_slug, "actions": actions}
 
 
@@ -154,7 +156,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
     qdrant_client = get_qdrant_client()
 
     (
-        full_system,
+        system_prompt,
         action_filled,
         query_results,
         citations_metadata,
@@ -176,8 +178,8 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
     prompt_id = generate_prompt_id()
     store_prompt_state(
         prompt_id=prompt_id,
-        filled_prompt=full_system,
-        instruction_prompt="",  # included in filled_prompt
+        filled_prompt=system_prompt,
+        instruction_prompt="",
         action_prompt_filled=action_filled,
         query_results=query_results,
         citations_metadata=citations_metadata,
@@ -191,14 +193,14 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
         context_ref_snippets=context_ref_snippets_serialized,
     )
 
-    estimated_tokens = len(full_system.split()) * 2  # rough
+    estimated_tokens = len((system_prompt + action_filled).split()) * 2  # rough
     expires = datetime.now(timezone.utc) + timedelta(minutes=30)
 
     instruction = load_assistant_instruction(effective_slug)
     out: dict = {
         "prompt_id": prompt_id,
         "action_id": body.action_id,
-        "filled_prompt": full_system,
+        "filled_prompt": action_filled,
         "action_prompt_filled": action_filled,
         "instruction_prompt": instruction,
         "query_results": query_results,
@@ -241,6 +243,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
                 "chunk_id": r["chunk_id"],
                 "description": r["description"],
                 "relevance": r["relevance"],
+                "chunk_type": c.get("chunk_type", ""),
                 "source_title": c.get("source_title", ""),
                 "segment_title": c.get("segment_title", ""),
                 "text": text_by_id.get(r["chunk_id"], ""),
@@ -267,8 +270,8 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
     if not state:
         raise HTTPException(status_code=404, detail="prompt_id expired or not found")
 
-    system_prompt = body.modified_prompt if body.modified_prompt else state["filled_prompt"]
-    user_prompt = state["user_prompt"]
+    system_prompt = state["filled_prompt"]  # identity + personality mode (fixed per turn)
+    user_message = body.modified_prompt if body.modified_prompt else state["action_prompt_filled"]
     retrieved_serialized = state["retrieved_snippets"]
     citations_metadata = state["citations_metadata"]
     chunk_index_map = state.get("chunk_index_map") or []
@@ -283,7 +286,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
         try:
             messages = [
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt),
+                HumanMessage(content=user_message),
             ]
             if body.stream:
                 async for chunk in llm.astream(messages):
@@ -360,6 +363,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                     "relevance": float(
                         (eval_entry or {}).get("relevance", chunk_score_by_id.get(cid, 0.5))
                     ),
+                    "chunk_type": meta.get("chunk_type") or c.get("chunk_type", ""),
                     "source_title": meta.get("source_title") or c.get("source_title", ""),
                     "segment_title": meta.get("segment_title") or c.get("segment_title", ""),
                     "text": (meta.get("text") or "")[:REFERENCE_TEXT_MAX_CHARS],

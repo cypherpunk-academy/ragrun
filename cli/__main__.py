@@ -32,12 +32,12 @@ def main() -> None:
     delete_parser.add_argument(
         "--chunk-types",
         nargs="*",
-        choices=["book", "essay", "concept"],
-        help="Filter by chunk types (book, essay, concept)",
+        choices=["book", "concept"],
+        help="Filter by chunk types (book, concept)",
     )
     delete_parser.add_argument(
         "--chunk-type",
-        choices=["book", "secondary_book", "essay", "summary", "begriff", "quote"],
+        choices=["book", "secondary_book", "summary", "begriff", "quote"],
         help="Delete all chunks of this type (optionally scoped by --book)",
     )
     delete_parser.add_argument(

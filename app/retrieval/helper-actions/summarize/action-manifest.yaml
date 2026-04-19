@@ -1,6 +1,7 @@
 id: summarize
-label: Zusammenfassen
+label: Zusammenfassung speichern
 description: Fasst das bisherige Gespräch strukturiert zusammen.
+category: helper
 
 requires_retrieval: false
 requires_prompt: true
@@ -9,7 +10,5 @@ position-in-chat: [continue, end]
 allows-empty-prompt: true
 
 follow_ups:
-  - action_id: problem-solver
-    condition: "has_problem_text"
   - action_id: save-dialog
   - action_id: give-feedback

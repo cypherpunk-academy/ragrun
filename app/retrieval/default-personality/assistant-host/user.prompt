@@ -1,5 +1,3 @@
-{user_prompt}
--------------------------------
 Nutze ausschließlich die folgenden Quellen. Jede Quelle ist mit [1], [2], [3] usw. nummeriert.
 Zitiere im Text mit [1], [2] usw. (z.B. „…wie Steiner ausführt [2].“ oder „…in dieser Hinsicht [1][3].“).
 
@@ -23,5 +21,12 @@ Zitiere im Text mit [1], [2] usw. (z.B. „…wie Steiner ausführt [2].“ oder
 
 Konversationskontext (falls vorhanden):
 {conversation_context}
+
+---
+
+Aussage / Frage des Users:
+{user_prompt}
+
+---
 
 Antworte prägnant und quellengestützt.

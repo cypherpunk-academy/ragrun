@@ -104,7 +104,7 @@ async def _retrieve_broad(
         query=query,
         k=4,
         worldview=None,
-        book_types=["secondary_book", "essay", "talk", "explanation"],
+        book_types=["secondary_book", "talk", "explanation"],
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,

@@ -47,9 +47,12 @@ services:
       RAGRUN_QDRANT_URL: http://qdrant:6333
       RAGRUN_POSTGRES_DSN: postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun
       RAGRUN_EMBEDDINGS_BASE_URL: http://embedding-service:8001
-      RAGRUN_DEEPSEEK_API_KEY: sk-008222804107459782197d95e06905e7
+      RAGRUN_DEEPSEEK_API_KEY: ${RAGRUN_DEEPSEEK_API_KEY}
+      RAGRUN_PERSONALITIES_ROOT: /personalities
     ports:
       - "8000:8000"
+    volumes:
+      - /Users/michael/Reniets/Ai/ragrun-personalities:/personalities:ro
     depends_on:
       - postgres
       - qdrant

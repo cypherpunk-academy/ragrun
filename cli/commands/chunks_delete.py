@@ -33,10 +33,9 @@ def _resolve_assistant(assistant: str) -> str:
 
 
 def _map_chunk_types(user_types: list[str]) -> list[str]:
-    """Map user-facing chunk types (book, essay, concept) to DB chunk_type values."""
+    """Map user-facing chunk types (book, concept) to DB chunk_type values."""
     mapping = {
         "book": ["book", "chapter_summary", "secondary_book"],
-        "essay": ["essay"],
         "concept": ["begriff"],
     }
     result: list[str] = []

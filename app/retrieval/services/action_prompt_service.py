@@ -66,9 +66,21 @@ _PROMPT_STATE_CACHE: dict[str, dict[str, Any]] = {}
 _PROMPT_CACHE_TTL_SECONDS = 1800  # 30 minutes
 
 
-def _resolve_actions_root() -> Path:
-    """Resolve actions directory (app/retrieval/actions)."""
-    return Path(__file__).resolve().parents[1] / "actions"
+def _resolve_personalities_root() -> Path | None:
+    """Resolve external chat-personalities directory from config. Returns None if not configured."""
+    if settings.personalities_root:
+        return Path(settings.personalities_root)
+    return None
+
+
+def _resolve_default_personality_root() -> Path:
+    """Resolve built-in default-personality directory (always available as fallback)."""
+    return Path(__file__).resolve().parents[1] / "default-personality"
+
+
+def _resolve_helpers_root() -> Path:
+    """Resolve helper-actions directory (app/retrieval/helper-actions)."""
+    return Path(__file__).resolve().parents[1] / "helper-actions"
 
 
 def _resolve_assistants_root() -> Path:
@@ -78,10 +90,36 @@ def _resolve_assistants_root() -> Path:
     return configured if configured.is_absolute() else (repo_root / configured)
 
 
+def _action_root(action_id: str) -> Path:
+    """Return the directory for the given action_id.
+
+    Search order: external personalities → built-in default-personality → helpers.
+    """
+    roots: list[Path] = []
+    personalities_root = _resolve_personalities_root()
+    if personalities_root is not None:
+        roots.append(personalities_root)
+    roots.append(_resolve_default_personality_root())
+    roots.append(_resolve_helpers_root())
+    for root in roots:
+        # Fast path: folder name matches action_id directly.
+        candidate = root / action_id
+        if candidate.is_dir():
+            return candidate
+        # Compatibility path: folder slug differs, but action-manifest.yaml contains the id.
+        for manifest_path in root.glob("*/action-manifest.yaml"):
+            try:
+                data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data.get("id") == action_id:
+                    return manifest_path.parent
+            except Exception as exc:
+                logger.warning("Failed to load manifest %s: %s", manifest_path, exc)
+    raise ValueError(f"Action not found in any root: {action_id!r}")
+
+
 def load_action_manifest(action_id: str) -> dict[str, Any]:
     """Load action-manifest.yaml for the given action_id."""
-    actions_root = _resolve_actions_root()
-    manifest_path = actions_root / action_id / "action-manifest.yaml"
+    manifest_path = _action_root(action_id) / "action-manifest.yaml"
     if not manifest_path.is_file():
         raise ValueError(f"Action manifest not found: {manifest_path}")
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -89,12 +127,26 @@ def load_action_manifest(action_id: str) -> dict[str, Any]:
 
 
 def load_action_prompt(action_id: str) -> str:
-    """Load prompt.prompt template for the given action_id."""
-    actions_root = _resolve_actions_root()
-    prompt_path = actions_root / action_id / "prompt.prompt"
+    """Load user.prompt template for the given action_id."""
+    prompt_path = _action_root(action_id) / "user.prompt"
     if not prompt_path.is_file():
         raise ValueError(f"Action prompt not found: {prompt_path}")
     return prompt_path.read_text(encoding="utf-8").strip()
+
+
+def _load_personality_system(action_id: str) -> str | None:
+    """Load system.prompt for a personality action, if present.
+
+    Searches external personalities root first, then built-in default-personality.
+    """
+    try:
+        path = _action_root(action_id) / "system.prompt"
+    except ValueError:
+        return None
+    if path.is_file():
+        text = path.read_text(encoding="utf-8").strip()
+        return text or None
+    return None
 
 
 def load_assistant_name(assistant_slug: str) -> str:
@@ -124,25 +176,35 @@ def load_assistant_instruction(assistant_slug: str) -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
-def list_actions() -> list[dict[str, Any]]:
-    """List all available actions (from action-manifest files)."""
-    actions_root = _resolve_actions_root()
+def list_actions(assistant_name: str = "") -> list[dict[str, Any]]:
+    """List all available actions (from action-manifest files in personalities + helpers)."""
     out: list[dict[str, Any]] = []
-    for manifest_path in actions_root.glob("*/action-manifest.yaml"):
-        try:
-            data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("id"):
-                out.append({
-                    "id": data["id"],
-                    "label": data.get("label", data["id"]),
-                    "description": data.get("description", ""),
-                    "requires_prompt": data.get("requires_prompt", True),
-                    "allows_empty_prompt": data.get("allows-empty-prompt", False),
-                    "position_in_chat": data.get("position-in-chat", ["start", "continue"]),
-                    "follow_ups": data.get("follow_ups", []),
-                })
-        except Exception as exc:
-            logger.warning("Failed to load manifest %s: %s", manifest_path, exc)
+    roots: list[Path] = []
+    personalities_root = _resolve_personalities_root()
+    if personalities_root is not None:
+        roots.append(personalities_root)
+    roots.append(_resolve_default_personality_root())
+    roots.append(_resolve_helpers_root())
+    for root in roots:
+        for manifest_path in root.glob("*/action-manifest.yaml"):
+            try:
+                data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data.get("id"):
+                    label = data.get("label", data["id"])
+                    if assistant_name:
+                        label = label.replace("{assistant_name}", assistant_name)
+                    out.append({
+                        "id": data["id"],
+                        "label": label,
+                        "description": data.get("description", ""),
+                        "category": data.get("category", "primary"),
+                        "requires_prompt": data.get("requires_prompt", True),
+                        "allows_empty_prompt": data.get("allows-empty-prompt", False),
+                        "position_in_chat": data.get("position-in-chat", ["start", "continue"]),
+                        "follow_ups": data.get("follow_ups", []),
+                    })
+            except Exception as exc:
+                logger.warning("Failed to load manifest %s: %s", manifest_path, exc)
     return sorted(out, key=lambda a: a["id"])
 
 
@@ -391,9 +453,9 @@ async def _lemma_lookup_multi_typology(
 def _resolve_refs_for_hits(hits: list[RetrievedSnippet]) -> list[str]:
     """Return chunk_ids to use as potential references for the given hits.
 
-    For essay/talk chunks: use the chunk_ids listed in their `references` metadata field
-    (these point to the primary sources the essay drew from) rather than the essay chunk
-    itself.  For all other chunk types: use the direct chunk_id as usual.
+    For talk chunks: use the chunk_ids listed in their `references` metadata field
+    (primary sources) rather than the talk chunk itself. For all other chunk types: use
+    the direct chunk_id as usual.
     """
     ref_ids: list[str] = []
     seen: set[str] = set()
@@ -405,7 +467,7 @@ def _resolve_refs_for_hits(hits: list[RetrievedSnippet]) -> list[str]:
             continue
 
         chunk_type = inner.get("chunk_type", "")
-        if chunk_type in ("essay", "talk"):
+        if chunk_type == "talk":
             refs = inner.get("references") or []
             # Fallback: references may be nested under a "metadata" key
             if not refs and isinstance(inner.get("metadata"), dict):
@@ -494,9 +556,11 @@ async def run_queries_and_fill_prompt(
 ) -> tuple[str, str, dict[str, Any], list[dict[str, Any]], list[str], list[dict[str, Any]], str | None, list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Run queries per action-manifest, fill prompt template. Returns:
-    (full_system_prompt, action_prompt_filled, query_results, citations_metadata,
+    (system_prompt, action_prompt_filled, query_results, citations_metadata,
      context_refs, retrieved_snippets_serialized, direct_response, chunk_index_map,
      context_ref_snippets_serialized).
+    system_prompt = identity (instruction.prompt) + personality mode (system.prompt).
+    action_prompt_filled = filled user.prompt with sources — becomes the HumanMessage.
     """
     manifest = load_action_manifest(action_id)
 
@@ -521,8 +585,12 @@ async def run_queries_and_fill_prompt(
             slot_values[key] = "(kein Retrieval)"
         filled = prompt_template.format(**slot_values)
         instruction = load_assistant_instruction(assistant_slug)
-        full_system = f"{instruction}\n\n{filled}"
-        return full_system, filled, {}, [], [], [], None, [], []
+        personality_system = _load_personality_system(action_id)
+        if personality_system:
+            system_prompt = f"{instruction}\n\n---\n{personality_system}\n---"
+        else:
+            system_prompt = instruction
+        return system_prompt, filled, {}, [], [], [], None, [], []
 
     prompt_template = load_action_prompt(action_id)
     queries: list[dict[str, Any]] = manifest.get("queries") or []
@@ -683,7 +751,11 @@ async def run_queries_and_fill_prompt(
 
     filled = prompt_template.format(**slot_values)
     instruction = load_assistant_instruction(assistant_slug)
-    full_system = f"{instruction}\n\n{filled}"
+    personality_system = _load_personality_system(action_id)
+    if personality_system:
+        system_prompt = f"{instruction}\n\n---\n{personality_system}\n---"
+    else:
+        system_prompt = instruction
 
     # Build citations metadata (from chunk payloads)
     citations_metadata: list[dict[str, Any]] = []
@@ -694,6 +766,7 @@ async def run_queries_and_fill_prompt(
             meta = {}
         citations_metadata.append({
             "chunk_id": meta.get("chunk_id"),
+            "chunk_type": meta.get("chunk_type", ""),
             "source_title": meta.get("source_title", ""),
             "segment_title": meta.get("segment_title", ""),
             "segment_index": meta.get("segment_index"),
@@ -715,8 +788,8 @@ async def run_queries_and_fill_prompt(
         else:
             direct_response = "Den Begriff habe ich nicht gefunden."
 
-    # Deduplicate all_refs while preserving order (essay reference expansion can produce
-    # the same primary-source chunk_id from multiple essay/talk hits)
+    # Deduplicate all_refs while preserving order (talk reference expansion can produce
+    # the same primary-source chunk_id from multiple talk hits)
     seen_refs: set[str] = set()
     deduped_refs: list[str] = []
     for cid in all_refs:
@@ -732,7 +805,7 @@ async def run_queries_and_fill_prompt(
     ]
 
     return (
-        full_system,
+        system_prompt,
         filled,
         query_results,
         citations_metadata,

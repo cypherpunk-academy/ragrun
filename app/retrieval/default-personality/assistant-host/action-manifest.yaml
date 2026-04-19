@@ -1,6 +1,7 @@
-id: general-question
-label: Allgemeine Frage
+id: assistant-host
+label: "{assistant_name}"
 description: Breite Erklärung, Vergleich, Vertiefung zu einem Thema.
+category: primary
 
 requires_retrieval: true
 requires_prompt: true
@@ -14,7 +15,7 @@ queries:
     method: hybrid
 
   - name: secondary-books
-    chunk_types: [secondary_book, chapter_summary, essay, talk]
+    chunk_types: [secondary_book, chapter_summary, talk]
     k: 8
     method: dense
 
@@ -28,12 +29,7 @@ queries:
     method: hybrid
 
 follow_ups:
-  - action_id: socratic-dialog
-  - action_id: find-quote
-    allows-empty-prompt: true
-  - action_id: find-in-works
-    allows-empty-prompt: true
-  - action_id: clarify-concept
+  - action_id: socrates
   - action_id: summarize
     condition: "turn_count >= 3"
   - action_id: give-feedback

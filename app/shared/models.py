@@ -14,8 +14,6 @@ CHUNK_TYPE_ENUM = (
     "begriff",
     "talk",
     "talk_summary",
-    "essay",
-    "essay_summary",
     "quote",
     "explanation",
     "explanation_summary",
@@ -67,7 +65,7 @@ class ChunkMetadata(BaseModel):
     updated_at: datetime = Field(..., description="ISO timestamp when metadata was last modified.")
     source_type: Optional[str] = Field(
         None,
-        description="Optional container type (book, begriff, essay, etc.).",
+        description="Optional container type (book, begriff, etc.).",
     )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")

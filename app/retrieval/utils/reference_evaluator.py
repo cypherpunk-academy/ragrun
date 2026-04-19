@@ -1,4 +1,4 @@
-"""Reusable chunk reference evaluator for essay retrieval graphs."""
+"""Reusable chunk reference evaluator for retrieval graphs."""
 from __future__ import annotations
 
 import json

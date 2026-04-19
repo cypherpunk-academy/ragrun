@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Keep this configurable to support alternative layouts / Docker packaging.
     assistants_root: str = "ragkeep/assistants"
 
+    # External chat-personalities directory (outside the repo, configured via .env).
+    # When empty, only the built-in assistant-host personality is available.
+    personalities_root: str = ""
+
     # "Standard chunk" sizing (used by authentic_concept_explain prompts)
     ace_chunk_min_words: int = 220
     ace_chunk_target_words: int = 260
