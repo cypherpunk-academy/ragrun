@@ -51,6 +51,7 @@ async def chat_stream(
     """
     graph = request.app.state.chat_graph
     thread_id = body.thread_id or str(uuid.uuid4())
+    account_id = request.headers.get("X-Account-Id", "anonymous")
     # Collection name = assistant_slug (wie concept_explain_worldviews)
     # Quelle: ragkeep/assistants/{slug}/assistant-manifest.yaml → rag-collection
     collection_name = assistant_slug
@@ -70,6 +71,7 @@ async def chat_stream(
         "citations":        [],
         "final_response":   "",
         "confidence_score": 0.0,
+        "account_id":       account_id,
     }
     config = {"configurable": {"thread_id": thread_id}}
 

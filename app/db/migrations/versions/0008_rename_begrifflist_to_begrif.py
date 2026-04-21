@@ -1,12 +1,12 @@
 """rename begrifflist to begriff
 
-Revision ID: 0008
+Revision ID: 0008b
 Revises: 0007
 Create Date: 2026-03-30
 """
 from alembic import op
 
-revision = "0008"
+revision = "0008b"
 down_revision = "0007"
 branch_labels = None
 depends_on = None

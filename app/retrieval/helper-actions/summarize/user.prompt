@@ -1,23 +1,27 @@
-Verdichte das bisherige Gespräch in zwei Fließtexte und drei Essay-Titelvorschläge.
+Verdichte das bisherige Gespräch in vier klar getrennte Abschnitte und drei allgemeine Titelvorschläge.
 
 Konversationskontext:
 {conversation_context}
 
 ---
 
-Schreibe drei klar voneinander getrennte Abschnitte.
+Schreibe genau diese vier Abschnitte mit diesen Überschriften (Markdown mit **…**):
 
-**TEXT 1 – Konsens (Essay-Grundlage)**
-Formuliere einen kohärenten Abschnitt über die Gedanken, Einsichten und Thesen, bei denen im Gespräch Übereinstimmung herrschte oder die sich als tragfähig erwiesen haben. Der Text soll das zentrale Thema entfalten und als „background" für einen Essay dienen – ein Einstieg, der den Leser in das Thema einführt, ohne es zu erschöpfen. Den philosophischen Ton des Gesprächs bewahren. 200–300 Tokens, kein Aufzählungszeichen.
+**Konsens**
+Fließtext (200–300 Tokens, keine Aufzählungszeichen): Was sehen alle Gesprächspartner ähnlich oder übereinstimmend? Welche Einsichten oder Thesen sind tragfähig und geteilt?
 
-**TEXT 2 – Offene Probleme (Research-Grundlage)**
-Formuliere einen kohärenten Abschnitt über die Fragen, Widersprüche und Spannungen, die im Gespräch ungelöst blieben. Die Probleme sollen klar benannt und in ihrem Zusammenhang dargestellt werden – als Ausgangsmaterial für einen Rechercheprozess, der sich in mehreren Schritten der Lösung annähert. 200–300 Tokens, kein Aufzählungszeichen.
+**Lernkurve**
+Fließtext (200–300 Tokens, keine Aufzählungszeichen): Was hat mindestens ein Gesprächspartner gelernt, neu eingeordnet oder präzisiert – im Unterschied zu vorher?
 
-**TITEL – Drei Vorschläge für das Essay-Topic**
-Schlage drei mögliche Titel im Format „Allgemeiner Gedankenfehler: …" vor – prägnant, als These formuliert, die der Leser zunächst für plausibel hält, die aber durch den Essay in Frage gestellt wird. Jeder Titel in einer eigenen Zeile, nummeriert 1–3.
+**Offene Fragen**
+Fließtext (200–300 Tokens, keine Aufzählungszeichen): Was bleibt offen? Welche nächsten Schritte, Prüfungen oder Klärungen würden sich anbieten?
+
+**Titelvorschläge**
+Genau drei Zeilen, nummeriert 1–3. Jede Zeile beginnt mit „1. “, „2. “, „3. “ (Ziffer, Punkt, Leerzeichen) gefolgt von einem prägnanten, allgemeinen Titel. Keine Unterüberschriften in diesem Block.
 
 ---
 
-Wichtig: TEXT 1 und TEXT 2 stehen selbständig. Kein Bezug auf das Gespräch, den Dialog oder die Unterhaltung – keine Formulierungen wie „In diesem Gespräch" oder ähnliches. Die Texte werden so formuliert, als wären sie eigenständige Gedankentexte, nicht Protokolle.
-
-Kein neues Retrieval. Nur die destillierten Inhalte selbst.
+Regeln:
+- Keine Erwähnung von Essays, Essay-Themen, Research-Grundlagen oder ähnlichen Metaphern.
+- Kein neues Retrieval. Nur aus dem Konversationskontext destillieren.
+- Kein Bezug auf „dieses Gespräch“, „im Chat“, „die Unterhaltung“ – keine Dialogmeta-Sätze; Inhalte sollen eigenständig lesbar sein.

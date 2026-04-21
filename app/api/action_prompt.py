@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -14,6 +14,8 @@ from langchain_openai import ChatOpenAI
 
 from app.config import settings
 from app.retrieval.services.event_recorder import EventRecorder, enqueue_record_metadata_only
+from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_usage
+from app.services.pricing_service import calculate_cost
 from app.retrieval.services.action_prompt_service import (
     generate_prompt_id,
     get_prompt_state,
@@ -26,11 +28,23 @@ from app.retrieval.services.action_prompt_service import (
 )
 from app.retrieval.services.providers import get_embedding_client, get_qdrant_client, get_deepseek_chat
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
+from app.retrieval.utils.retrievers import snippet_author
 from app.retrieval.models import RetrievedSnippet
 
 logger = logging.getLogger(__name__)
 
 CITATION_THRESHOLD = 0.3
+
+
+def _author_for_reference(meta: dict, c: dict) -> str:
+    thin = {k: v for k, v in meta.items() if k != "text"}
+    au = snippet_author({"payload": thin}) if thin else None
+    if isinstance(au, str) and au.strip():
+        return au.strip()
+    ac = c.get("author")
+    if isinstance(ac, str) and ac.strip():
+        return ac.strip()
+    return ""
 
 _CITATION_INDEX_RE = re.compile(r"\[(\d+)\]")
 
@@ -246,6 +260,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
                 "chunk_type": c.get("chunk_type", ""),
                 "source_title": c.get("source_title", ""),
                 "segment_title": c.get("segment_title", ""),
+                "author": c.get("author", ""),
                 "text": text_by_id.get(r["chunk_id"], ""),
             })
         out["references"] = refs_enriched
@@ -261,7 +276,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
 
 
 @router.post("/agent/{assistant_slug}/execute-prompt")
-async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> EventSourceResponse:
+async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest, request: Request) -> EventSourceResponse:
     """
     Execute the cached prompt: call LLM with filled prompt, stream response, attach citations.
     Uses modified_prompt if provided (full replacement).
@@ -277,12 +292,15 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
     chunk_index_map = state.get("chunk_index_map") or []
     collection_name = state.get("collection_name", assistant_slug)
 
+    account_id = request.headers.get("X-Account-Id", "anonymous")
     llm = _make_llm(streaming=body.stream)
     chat_client = get_deepseek_chat()
+    _model_name = settings.deepseek_chat_model or "deepseek-chat"
 
     async def event_generator():
         yield {"data": json.dumps({"type": "start"})}
         response_text = ""
+        usage_meta: dict = {}
         try:
             messages = [
                 SystemMessage(content=system_prompt),
@@ -293,9 +311,12 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                     if chunk.content:
                         response_text += chunk.content
                         yield {"data": json.dumps({"type": "token", "content": chunk.content})}
+                    if chunk.usage_metadata:
+                        usage_meta = chunk.usage_metadata
             else:
                 resp = await llm.ainvoke(messages)
                 response_text = (resp.content or "").strip()
+                usage_meta = resp.usage_metadata or {}
                 yield {"data": json.dumps({"type": "token", "content": response_text})}
 
             # 1. Resolve bracket citations ([n]) to primary-source chunk_ids
@@ -366,6 +387,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                     "chunk_type": meta.get("chunk_type") or c.get("chunk_type", ""),
                     "source_title": meta.get("source_title") or c.get("source_title", ""),
                     "segment_title": meta.get("segment_title") or c.get("segment_title", ""),
+                    "author": _author_for_reference(meta, c),
                     "text": (meta.get("text") or "")[:REFERENCE_TEXT_MAX_CHARS],
                     "cited": cid in bracket_primary_cids,
                 })
@@ -376,6 +398,26 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest) -> Eve
                 collection=collection_name,
                 metadata={"references": references_enriched},
             )
+
+            if usage_meta:
+                _pt = usage_meta.get("input_tokens")
+                _ct = usage_meta.get("output_tokens")
+                _tt = usage_meta.get("total_tokens")
+                _cost = calculate_cost(_model_name, _pt, _ct)
+                enqueue_record_usage(
+                    UsageRecorder(),
+                    account_id=account_id,
+                    endpoint="execute_prompt",
+                    model=_model_name,
+                    provider="deepseek",
+                    prompt_tokens=_pt,
+                    completion_tokens=_ct,
+                    total_tokens=_tt,
+                    extra=_cost if (_cost["cost_usd"] > 0) else None,
+                )
+                response_text += (
+                    f'\n<!-- usage {json.dumps({"prompt_tokens": _pt, "completion_tokens": _ct, "total_tokens": _tt, "model": _model_name, "cost_usd": _cost["cost_usd"], "cost_eur": _cost["cost_eur"]})} -->'
+                )
 
             yield {
                 "data": json.dumps({

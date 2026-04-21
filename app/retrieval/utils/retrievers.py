@@ -616,13 +616,13 @@ def build_context_numbered(
     start_index: int = 1,
     max_chars: int = 12000,
     include_score: bool = False,
-) -> Tuple[str, List[str], List[Tuple[int, str, str, Mapping[str, object]]]]:
+) -> Tuple[str, List[str], List[Tuple[int, str, str, Mapping[str, object], float]]]:
     """Like build_context but prefixes each chunk with [N]. Returns (context, refs, index_map).
-    index_map: list of (index, chunk_id, text, payload_meta) for citation linking.
+    index_map: list of (index, chunk_id, text, payload_meta, retrieval_score) for citation linking.
     If include_score, each chunk is prefixed with (r: X.X) for retrieval relevance."""
     parts: list[str] = []
     refs: list[str] = []
-    index_map: list[Tuple[int, str, str, Mapping[str, object]]] = []
+    index_map: list[Tuple[int, str, str, Mapping[str, object], float]] = []
     total = 0
     for idx, snip in enumerate(snippets):
         text = snip.text.strip()
@@ -636,7 +636,7 @@ def build_context_numbered(
         cid = _extract_chunk_id(snip.payload) or ""
         if cid:
             refs.append(cid)
-        index_map.append((num, cid, text, meta))
+        index_map.append((num, cid, text, meta, float(snip.score)))
         if include_score:
             chunk_type = snippet_chunk_type_value(payload) or ""
             # Plain text only — rp ragChat colors (r: …) and chunk_type in the CLI; embedded

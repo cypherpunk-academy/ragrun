@@ -1,9 +1,18 @@
 """Minimal DeepSeek chat client for server-side calls."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Iterable, List, Mapping, Optional
 
 import httpx
+
+
+@dataclass
+class ChatResult:
+    """Return value of DeepSeekClient.chat() — content + raw usage dict."""
+
+    content: str
+    usage: dict = field(default_factory=dict)
 
 
 class DeepSeekClient:
@@ -30,8 +39,8 @@ class DeepSeekClient:
         *,
         temperature: float = 0.2,
         max_tokens: int = 300,
-    ) -> str:
-        """Call DeepSeek chat completions."""
+    ) -> ChatResult:
+        """Call DeepSeek chat completions. Returns content + token usage."""
 
         payload: dict[str, object] = {
             "model": self.model,
@@ -59,7 +68,8 @@ class DeepSeekClient:
             content = message.get("content") if isinstance(message, dict) else None
             if not content or not isinstance(content, str):
                 raise RuntimeError("DeepSeek returned empty content")
-            return content.strip()
+            usage: dict = data.get("usage") or {}
+            return ChatResult(content=content.strip(), usage=usage)
 
     async def list_models(self) -> list[str]:
         """Best-effort probe for available models (if endpoint is exposed)."""

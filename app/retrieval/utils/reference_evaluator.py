@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
+from app.infra.deepseek_client import ChatResult
 from app.retrieval.models import RetrievedSnippet
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class ChatModel(Protocol):
         *,
         temperature: float = 0.2,
         max_tokens: int = 300,
-    ) -> str: ...
+    ) -> ChatResult: ...
 
 
 def _resolve_template_path() -> Path:
@@ -257,12 +258,12 @@ async def evaluate_chunk_relevance(
     ]
 
     try:
-        raw_response = await llm.chat(messages, temperature=0.0, max_tokens=1200)
+        result = await llm.chat(messages, temperature=0.0, max_tokens=1200)
     except Exception:
         logger.exception("Reference evaluation LLM call failed; using fallback references")
         return _fallback_references(ranked_for_fallback)
 
-    parsed = _parse_json_content(raw_response)
+    parsed = _parse_json_content(result.content)
     normalized = _normalize_references(parsed, allowed_chunk_ids=allowed_chunk_ids)
     if normalized:
         return normalized

@@ -21,6 +21,7 @@ from .core.providers import (
     get_deepseek_reasoner_client,
 )
 from .services.cleanup_service import run_cleanup_loop
+from .services.pricing_service import update_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     #   app.state.chat_graph = build_chat_graph(checkpointer=checkpointer)
     app.state.chat_graph = build_chat_graph()
     logger.info("Chat graph initialized (MemorySaver)")
+
+    await update_pricing()
 
     cleanup_task = asyncio.create_task(run_cleanup_loop())
     try:

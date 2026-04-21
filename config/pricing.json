@@ -1,0 +1,17 @@
+{
+  "_comment": "LLM API pricing. Preise in USD pro 1M Tokens. Quelle: https://api-docs.deepseek.com/quick_start/pricing",
+  "models": {
+    "deepseek-chat": {
+      "input_per_1m": 0.27,
+      "output_per_1m": 1.10,
+      "note": "DeepSeek-V3, cache miss. Cache hit: $0.07/1M input."
+    },
+    "deepseek-reasoner": {
+      "input_per_1m": 0.55,
+      "output_per_1m": 2.19,
+      "note": "DeepSeek-R1, cache miss. Cache hit: $0.14/1M input."
+    }
+  },
+  "eur_per_usd": 0.92,
+  "eur_per_usd_updated_at": null
+}

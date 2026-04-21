@@ -25,6 +25,7 @@ from app.retrieval.utils.retrievers import (
     dense_retrieve,
     hybrid_retrieve,
     hybrid_retrieve_quote_parallel,
+    snippet_author,
     sparse_retrieve,
 )
 
@@ -176,6 +177,27 @@ def load_assistant_instruction(assistant_slug: str) -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
+# Primary chat personas shown in the menu (order = display order). Not listed = hidden.
+_PRIMARY_CHAT_MENU_ORDER: tuple[str, ...] = (
+    "assistant-host",
+    "socrates",
+    "der-cypherpunk",
+    "der-open-source-handwerker",
+    "der-free-software-aktivist",
+    "die-menschheitsaktivistin",
+)
+
+# Mark these primary labels with a (beta) suffix in the API list (menu).
+_PRIMARY_CHAT_BETA_IDS: frozenset[str] = frozenset(
+    {
+        "der-cypherpunk",
+        "der-open-source-handwerker",
+        "der-free-software-aktivist",
+        "die-menschheitsaktivistin",
+    },
+)
+
+
 def list_actions(assistant_name: str = "") -> list[dict[str, Any]]:
     """List all available actions (from action-manifest files in personalities + helpers)."""
     out: list[dict[str, Any]] = []
@@ -205,7 +227,18 @@ def list_actions(assistant_name: str = "") -> list[dict[str, Any]]:
                     })
             except Exception as exc:
                 logger.warning("Failed to load manifest %s: %s", manifest_path, exc)
-    return sorted(out, key=lambda a: a["id"])
+
+    order_index = {aid: i for i, aid in enumerate(_PRIMARY_CHAT_MENU_ORDER)}
+    primaries = [a for a in out if a.get("category") == "primary"]
+    others = [a for a in out if a.get("category") != "primary"]
+    filtered_primaries = [a for a in primaries if a["id"] in order_index]
+    for a in filtered_primaries:
+        if a["id"] in _PRIMARY_CHAT_BETA_IDS:
+            lab = (a.get("label") or "").strip()
+            if lab and "(beta)" not in lab.lower():
+                a["label"] = f"{lab} (beta)"
+    filtered_primaries.sort(key=lambda a: order_index[a["id"]])
+    return filtered_primaries + sorted(others, key=lambda x: x["id"])
 
 
 async def _lemma_lookup_begrif(
@@ -590,7 +623,11 @@ async def run_queries_and_fill_prompt(
             system_prompt = f"{instruction}\n\n---\n{personality_system}\n---"
         else:
             system_prompt = instruction
-        return system_prompt, filled, {}, [], [], [], None, [], []
+        # save-quote: return text directly — no execute-prompt / LLM (CLI handles locally too)
+        direct_no_retrieval: str | None = None
+        if action_id == "save-quote" and user_prompt.strip():
+            direct_no_retrieval = user_prompt.strip()
+        return system_prompt, filled, {}, [], [], [], direct_no_retrieval, [], []
 
     prompt_template = load_action_prompt(action_id)
     queries: list[dict[str, Any]] = manifest.get("queries") or []
@@ -634,7 +671,7 @@ async def run_queries_and_fill_prompt(
             hits, start_index=_next_index[0], include_score=True
         )
         _next_index[0] += len(imap)
-        for num, cid, text, meta in imap:
+        for num, cid, text, meta, score in imap:
             chunk_index_map.append({
                 "index": num,
                 "chunk_id": cid,
@@ -642,6 +679,7 @@ async def run_queries_and_fill_prompt(
                 "source_title": meta.get("source_title", ""),
                 "segment_title": meta.get("segment_title", ""),
                 "slot": name,
+                "score": score,
             })
         preview = ctx[:500] + "..." if len(ctx) > 500 else ctx
         query_results[name] = {
@@ -695,7 +733,7 @@ async def run_queries_and_fill_prompt(
             ctx, refs, imap = build_context_numbered(
                 fused, start_index=_next_index[0], include_score=True
             )
-            for num, cid, text, meta in imap:
+            for num, cid, text, meta, score in imap:
                 ct = meta.get("chunk_type") if isinstance(meta, dict) else None
                 slot = "quotes" if ct == "quote" else "primary-books"
                 chunk_index_map.append({
@@ -705,6 +743,7 @@ async def run_queries_and_fill_prompt(
                     "source_title": meta.get("source_title", ""),
                     "segment_title": meta.get("segment_title", ""),
                     "slot": slot,
+                    "score": score,
                 })
             _next_index[0] += len(imap)
             preview = ctx[:500] + "..." if len(ctx) > 500 else ctx
@@ -764,6 +803,7 @@ async def run_queries_and_fill_prompt(
         meta = payload.get("payload", payload) if isinstance(payload.get("payload"), dict) else payload
         if not isinstance(meta, dict):
             meta = {}
+        auth = snippet_author(payload) or ""
         citations_metadata.append({
             "chunk_id": meta.get("chunk_id"),
             "chunk_type": meta.get("chunk_type", ""),
@@ -771,6 +811,7 @@ async def run_queries_and_fill_prompt(
             "segment_title": meta.get("segment_title", ""),
             "segment_index": meta.get("segment_index"),
             "lecture_date": meta.get("lecture_date", ""),
+            "author": auth,
         })
 
     # Serialize snippets for cache (execute-prompt needs them for citation evaluation)

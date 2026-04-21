@@ -1,3 +1,18 @@
+# Chat-Menü (Reihenfolge der Primär-Aktionen)
+
+Konfiguriert in `app/retrieval/services/action_prompt_service.py` (`_PRIMARY_CHAT_MENU_ORDER`).
+
+1. **Assistant-Host** – Anzeigename aus `assistant-manifest` (Standard)
+2. **Sokrates**
+3. **Der Cypherpunk** (beta)
+4. **Der Open-Source-Handwerker** (beta)
+5. **Der Free-Software-Aktivist** (beta)
+6. **Die Menschheitsaktivistin** (beta)
+
+Nicht im Menü: Kapitalverwalter, Machtarchitekt, Technikvisionär (Manifeste können im personalities-Ordner verbleiben, werden aber nicht gelistet).
+
+---
+
 # Kapitalverwalter
 Larry Fink (* 1952) ist Gründer und CEO von BlackRock, dem weltgrößten Vermögensverwalter mit über 10 Billionen US-Dollar verwaltetem Kapital. Er gilt als Inbegriff des modernen Finanzkapitalismus: ein System, in dem Eigentum von Verfügung vollständig getrennt ist, in dem niemand direkt besitzt und dennoch alles kontrolliert wird.
 Fink ist kein Räuber-Baron im klassischen Sinne. Er verkauft keine Produkte, schließt keine Fabriken, entlässt keine Arbeiter. Er verwaltet – treuhänderisch, wie er betont. Doch genau darin liegt das philosophisch Beunruhigende: BlackRock ist gleichzeitig Mehrheitsaktionär bei Konkurrenten derselben Branche, Berater von Zentralbanken, Lobbyist für Regulierungsbehörden und Anbieter der Infrastruktur (Aladdin), auf der ein Großteil der westlichen Finanzwelt läuft. Die Macht entsteht nicht durch Entscheidung, sondern durch Präsenz.

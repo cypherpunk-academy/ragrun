@@ -21,6 +21,7 @@ Graph-Fluss (via graph.get_graph().draw_mermaid()):
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
@@ -48,6 +49,8 @@ from app.retrieval.prompts.philo_von_freisinn import load_system_prompt
 from app.retrieval.models import RetrievedSnippet
 from app.retrieval.chains.authentic_concept_explain import run_authentic_concept_explain_chain
 from app.retrieval.services.graph_event_recorder import GraphEventRecorder
+from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_usage
+from app.services.pricing_service import calculate_cost
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, hybrid_retrieve, hybrid_retrieve_quote_parallel
 
@@ -155,6 +158,9 @@ class ChatState(_ChatStateRequired, total=False):
     final_response: str
     confidence_score: float
 
+    # Billing
+    account_id: str
+
 
 # ---------------------------------------------------------------------------
 # Pydantic schema for structured LLM output
@@ -208,14 +214,31 @@ async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
     prompt = prompt_template.format(conversation_context=conversation_context)
 
     llm = _make_llm(streaming=False).with_structured_output(
-        IntentResult, method="json_mode"
+        IntentResult, method="json_mode", include_raw=True
     )
-    result: IntentResult = await llm.ainvoke(
+    raw_result = await llm.ainvoke(
         [
             SystemMessage(content=prompt),
             HumanMessage(content=state["user_message"]),
         ],
         config,
+    )
+    result: IntentResult = raw_result["parsed"]
+    _usage_meta = (raw_result.get("raw") or object())
+    _usage_meta = getattr(_usage_meta, "usage_metadata", None) or {}
+    _ci_model = settings.deepseek_chat_model or "deepseek-chat"
+    _ci_cost = calculate_cost(_ci_model, _usage_meta.get("input_tokens"), _usage_meta.get("output_tokens"))
+    enqueue_record_usage(
+        UsageRecorder(),
+        account_id=state.get("account_id") or "anonymous",
+        thread_id=(config.get("configurable") or {}).get("thread_id"),
+        endpoint="graphs/assistant_chat/classify_intent",
+        model=_ci_model,
+        provider="deepseek",
+        prompt_tokens=_usage_meta.get("input_tokens"),
+        completion_tokens=_usage_meta.get("output_tokens"),
+        total_tokens=_usage_meta.get("total_tokens"),
+        extra=_ci_cost if (_ci_cost["cost_usd"] > 0) else None,
     )
     logger.info(
         "Intent: %s (confidence=%.2f, lemma=%r)",
@@ -575,10 +598,37 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
     messages_in.append(HumanMessage(content=state["user_message"]))
 
     response = ""
+    usage_meta: dict = {}
     async for chunk in llm.astream(messages_in, config):
         response += chunk.content
+        if chunk.usage_metadata:
+            usage_meta = chunk.usage_metadata
 
-    return {"messages": [AIMessage(content=response)]}
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    usage_comment = ""
+    if usage_meta:
+        _model = settings.deepseek_chat_model or "deepseek-chat"
+        _pt = usage_meta.get("input_tokens")
+        _ct = usage_meta.get("output_tokens")
+        _tt = usage_meta.get("total_tokens")
+        _cost = calculate_cost(_model, _pt, _ct)
+        usage_comment = (
+            f'\n<!-- usage {json.dumps({"prompt_tokens": _pt, "completion_tokens": _ct, "total_tokens": _tt, "model": _model, "cost_usd": _cost["cost_usd"], "cost_eur": _cost["cost_eur"]})} -->'
+        )
+        enqueue_record_usage(
+            UsageRecorder(),
+            account_id=state.get("account_id") or "anonymous",
+            thread_id=thread_id,
+            endpoint="graphs/assistant_chat/compose_answer",
+            model=_model,
+            provider="deepseek",
+            prompt_tokens=_pt,
+            completion_tokens=_ct,
+            total_tokens=_tt,
+            extra=_cost if (_cost["cost_usd"] > 0) else None,
+        )
+
+    return {"messages": [AIMessage(content=response + usage_comment)]}
 
 
 # ---------------------------------------------------------------------------
@@ -683,6 +733,26 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
             config,
         )
         response = msg.content
+        _skip_usage = msg.usage_metadata or {}
+        if _skip_usage:
+            _thread_id = (config.get("configurable") or {}).get("thread_id")
+            _sk_model = settings.deepseek_chat_model or "deepseek-chat"
+            _sk_cost = calculate_cost(_sk_model, _skip_usage.get("input_tokens"), _skip_usage.get("output_tokens"))
+            response += (
+                f'\n<!-- usage {json.dumps({"prompt_tokens": _skip_usage.get("input_tokens"), "completion_tokens": _skip_usage.get("output_tokens"), "total_tokens": _skip_usage.get("total_tokens"), "model": _sk_model, "cost_usd": _sk_cost["cost_usd"], "cost_eur": _sk_cost["cost_eur"]})} -->'
+            )
+            enqueue_record_usage(
+                UsageRecorder(),
+                account_id=state.get("account_id") or "anonymous",
+                thread_id=_thread_id,
+                endpoint="graphs/assistant_chat/finalize_skip",
+                model=_sk_model,
+                provider="deepseek",
+                prompt_tokens=_skip_usage.get("input_tokens"),
+                completion_tokens=_skip_usage.get("output_tokens"),
+                total_tokens=_skip_usage.get("total_tokens"),
+                extra=_sk_cost if (_sk_cost["cost_usd"] > 0) else None,
+            )
     else:
         response = last_ai.content
         if state.get("sufficiency") == "insufficient":

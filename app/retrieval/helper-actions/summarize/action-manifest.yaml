@@ -1,6 +1,6 @@
 id: summarize
 label: Zusammenfassung speichern
-description: Fasst das bisherige Gespräch strukturiert zusammen.
+description: Fasst das Gespräch zusammen (Konsens, Lernkurve, offene Fragen, Titelvorschläge).
 category: helper
 
 requires_retrieval: false

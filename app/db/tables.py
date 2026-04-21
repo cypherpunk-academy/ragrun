@@ -92,3 +92,23 @@ Index("idx_ec_event_metadata_id", event_content_table.c.event_metadata_id)
 Index("idx_ec_thread_id", event_content_table.c.thread_id)
 Index("idx_ec_created_at", event_content_table.c.created_at)
 
+# --- rag_usage: Abrechnungsdaten pro LLM-Aufruf ---
+rag_usage_table = Table(
+    "rag_usage",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("account_id", String(128), nullable=False, server_default="anonymous"),
+    Column("thread_id", String(64), nullable=True),
+    Column("endpoint", String(256), nullable=True),
+    Column("model", String(128), nullable=True),
+    Column("provider", String(64), nullable=False, server_default="deepseek"),
+    Column("prompt_tokens", Integer, nullable=True),
+    Column("completion_tokens", Integer, nullable=True),
+    Column("total_tokens", Integer, nullable=True),
+    Column("extra", JSONType, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+Index("idx_ru_account_id", rag_usage_table.c.account_id)
+Index("idx_ru_created_at", rag_usage_table.c.created_at)
+
