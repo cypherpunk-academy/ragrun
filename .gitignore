@@ -2,3 +2,6 @@
 __pycache__/
 .DS_Store
 .env
+data/vector_db/
+data/backups/
+*.sqlite3
