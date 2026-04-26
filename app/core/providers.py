@@ -14,6 +14,7 @@ from app.db.async_session import get_async_sessionmaker
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
 from app.infra.deepseek_client import DeepSeekClient
+from app.infra.sparse_embedder import SparseEmbedder
 
 
 @lru_cache(maxsize=1)
@@ -55,6 +56,11 @@ def get_deepseek_reasoner_client() -> DeepSeekClient:
 
 def get_deepseek_chat_client() -> DeepSeekClient:
     return get_deepseek_client(model=settings.deepseek_chat_model)
+
+
+@lru_cache(maxsize=1)
+def get_sparse_embedder() -> SparseEmbedder:
+    return SparseEmbedder()
 
 
 @lru_cache(maxsize=1)

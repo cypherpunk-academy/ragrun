@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -23,6 +24,7 @@ from app.retrieval.services.action_prompt_service import (
     load_action_manifest,
     load_assistant_instruction,
     load_assistant_name,
+    load_assistant_rag_collection,
     run_queries_and_fill_prompt,
     store_prompt_state,
 )
@@ -125,6 +127,10 @@ class GeneratePromptRequest(BaseModel):
         description="Previous Q&A for follow-up context (built from turns by client)",
     )
     language: str = Field("de-DE", description="BCP 47 locale")
+    context_chunk_ids: list[str] | None = Field(
+        None,
+        description="Pre-selected chunk IDs for mit-kontext mode — injected as {kontext} slot alongside normal retrieval",
+    )
 
 
 class ExecutePromptRequest(BaseModel):
@@ -149,8 +155,34 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
     """
     effective_slug = body.assistant_slug or assistant_slug
 
-    # Match assistant_chat: collection = assistant_slug (or use assistant-manifest rag-collection)
-    collection_name = effective_slug
+    collection_name = load_assistant_rag_collection(effective_slug)
+    # #region agent log
+    try:
+        with open(
+            "/Users/michael/Reniets/Ai/ragkeep/.cursor/debug-b2cd2e.log",
+            "a",
+            encoding="utf-8",
+        ) as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "b2cd2e",
+                        "timestamp": int(time.time() * 1000),
+                        "hypothesisId": "H1",
+                        "location": "action_prompt.py:generate_prompt",
+                        "message": "resolved rag collection",
+                        "data": {
+                            "assistant_slug": effective_slug,
+                            "collection_name": collection_name,
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
     conversation_context = (body.conversation_context or "").strip()
 
     if not body.user_prompt.strip():
@@ -187,6 +219,7 @@ async def generate_prompt(assistant_slug: str, body: GeneratePromptRequest) -> d
         conversation_context=conversation_context,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        context_chunk_ids=body.context_chunk_ids or [],
     )
 
     prompt_id = generate_prompt_id()

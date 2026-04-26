@@ -5,6 +5,7 @@ from sqlalchemy import (
     ARRAY,
     JSON,
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -15,8 +16,9 @@ from sqlalchemy import (
     Table,
     Text,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData()
 
@@ -111,4 +113,60 @@ rag_usage_table = Table(
 
 Index("idx_ru_account_id", rag_usage_table.c.account_id)
 Index("idx_ru_created_at", rag_usage_table.c.created_at)
+
+
+# --- rag_talks: Single Source of Truth für Gespräche ---
+rag_talks_table = Table(
+    "rag_talks",
+    metadata,
+    Column("talk_id", UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("collection", String(128), nullable=False),
+    Column("mensch_id", String(128), nullable=False, server_default=""),
+    Column("mensch_name", String(256), nullable=False, server_default=""),
+    Column("slug", String(256), nullable=False),
+    Column("title", Text, nullable=False),
+    Column("action_id", String(128), nullable=True),
+    Column("summary", Text, nullable=True),
+    Column("usage", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
+    Column("kontext_meta", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
+    Column("publishing_status", String(16), nullable=False, server_default="draft"),
+    Column("bug_description", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+Index("idx_rt_collection", rag_talks_table.c.collection)
+Index("idx_rt_collection_slug", rag_talks_table.c.collection, rag_talks_table.c.slug, unique=True)
+Index("idx_rt_created_at", rag_talks_table.c.created_at)
+
+
+# --- rag_turns: Einzelne Gesprächsrunden ---
+rag_turns_table = Table(
+    "rag_turns",
+    metadata,
+    Column("turn_id", UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")),
+    Column(
+        "talk_id",
+        UUID(as_uuid=False),
+        ForeignKey("rag_talks.talk_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("turn_index", Integer, nullable=False),
+    Column("action_id", String(128), nullable=True),
+    Column("assistant_personality", String(128), nullable=True),
+    Column("user_message", Text, nullable=False),
+    Column("assistant_message", Text, nullable=False),
+    Column("usage", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
+    Column("references", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
+    Column("collection", String(128), nullable=True),
+    Column("is_relay", Boolean, nullable=False, server_default="false"),
+    Column("chunk_index_map", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
+    Column("kontext_meta", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+Index("idx_rtu_talk_id", rag_turns_table.c.talk_id)
+Index("idx_rtu_talk_id_index", rag_turns_table.c.talk_id, rag_turns_table.c.turn_index, unique=True)
+Index("idx_rtu_created_at", rag_turns_table.c.created_at)
 

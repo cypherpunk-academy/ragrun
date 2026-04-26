@@ -1,9 +1,12 @@
 """Thin async wrapper for Qdrant's HTTP API."""
 from __future__ import annotations
 
+import logging
 from typing import Iterable, List, Mapping, Sequence, Tuple
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class QdrantClient:
@@ -40,6 +43,7 @@ class QdrantClient:
         *,
         vector_size: int,
         distance: str = "Cosine",
+        sparse_vector_name: str | None = None,
     ) -> None:
         """Create the collection if it does not exist."""
 
@@ -48,6 +52,10 @@ class QdrantClient:
             "hnsw_config": {"m": 64, "ef_construct": 512},
             "optimizers_config": {"default_segment_number": 2},
         }
+        if sparse_vector_name:
+            payload["sparse_vectors"] = {
+                sparse_vector_name: {"index": {"on_disk": False}}
+            }
 
         async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
             response = await client.put(f"{self.base_url}/collections/{name}", json=payload)
@@ -274,17 +282,25 @@ class QdrantClient:
         offset: object | None = None,
         with_payload: bool = True,
         with_vectors: bool = False,
+        with_vector_names: Sequence[str] | None = None,
     ) -> Tuple[List[Mapping[str, object]], object | None]:
         """Scroll one page of points, returning (points, next_page_offset).
 
         Qdrant returns `result.next_page_offset` which must be provided as `offset`
         to retrieve the next page. When it is absent/None, the scan is complete.
+
+        If ``with_vector_names`` is set, it is sent as Qdrant's ``with_vector`` (list
+        of named vectors) and overrides ``with_vectors``.
         """
 
+        if with_vector_names is not None:
+            wv: object = list(with_vector_names)
+        else:
+            wv = with_vectors
         payload: dict[str, object] = {
             "limit": limit,
             "with_payload": with_payload,
-            "with_vector": with_vectors,
+            "with_vector": wv,
         }
         if filter_ is not None:
             payload["filter"] = filter_
@@ -367,48 +383,96 @@ class QdrantClient:
             data = response.json()
             return data.get("result", []) or []
 
+    async def ensure_sparse_config(self, collection: str, *, vector_name: str = "text-sparse") -> bool:
+        """Ensure sparse slot exists, without trying unsupported in-place schema mutation.
+
+        Qdrant 1.11 does not support adding new named vectors to an existing collection
+        via PATCH. We therefore only check whether the slot already exists.
+        """
+
+        info = await self.get_collection_info(collection)
+        if info is None:
+            return False
+        params = info.get("config", {}).get("params", {}) if isinstance(info, Mapping) else {}
+        sparse_cfg = params.get("sparse_vectors", {}) if isinstance(params, Mapping) else {}
+        has_sparse = isinstance(sparse_cfg, Mapping) and vector_name in sparse_cfg
+        if not has_sparse:
+            logger.warning(
+                "Collection '%s' has no sparse vector slot '%s'; sparse search/backfill disabled "
+                "(Qdrant 1.11 cannot add this to an existing collection).",
+                collection,
+                vector_name,
+            )
+        return has_sparse
+
+    async def update_vectors(
+        self,
+        collection: str,
+        points: Sequence[Mapping[str, object]],
+        *,
+        wait: bool = True,
+    ) -> None:
+        """Update named vectors for existing points without touching payload.
+
+        Each entry in `points` must have: {"id": str, "vector": {name: value}}.
+        Used by the migration script to backfill sparse vectors.
+        """
+
+        if not points:
+            return
+
+        payload = {"points": list(points)}
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            response = await client.put(
+                f"{self.base_url}/collections/{collection}/points/vectors"
+                f"?wait={'true' if wait else 'false'}",
+                json=payload,
+            )
+            if response.status_code >= 400:
+                try:
+                    details = response.text
+                except Exception:
+                    details = "<no response body>"
+                raise RuntimeError(
+                    f"Qdrant update_vectors failed ({response.status_code}): {details}"
+                )
+
     async def search_sparse_points(
         self,
         *,
         collection: str,
-        text: str,
+        indices: List[int],
+        values: List[float],
         limit: int = 10,
         filter_: Mapping[str, object] | None = None,
         with_payload: bool = True,
     ) -> List[Mapping[str, object]]:
-        """
-        Sparse/BM25-style search against a text index.
+        """BM25 sparse vector search using Qdrant's native sparse vector index.
 
-        Qdrant supports text queries via the search endpoint using the `query`
-        field with a `text` payload. This requires the collection to be
-        configured with a text index on the target payload field.
+        Requires the collection to have a 'text-sparse' named sparse vector slot
+        (created via ensure_sparse_config) and points with pre-computed BM25 vectors.
         """
 
-        if not text or not text.strip():
+        if not indices:
             return []
 
-        text_clause = {"key": "text", "match": {"text": text}}
-        merged_filter: dict[str, object]
-        if filter_ is None:
-            merged_filter = {"must": [text_clause]}
-        else:
-            merged_filter = dict(filter_)
-            must = list(merged_filter.get("must") or [])
-            must.append(text_clause)
-            merged_filter["must"] = must
+        body: dict[str, object] = {
+            "vector": {
+                "name": "text-sparse",
+                "vector": {"indices": indices, "values": values},
+            },
+            "limit": limit,
+            "with_payload": with_payload,
+            "with_vector": False,
+        }
+        if filter_ is not None:
+            body["filter"] = filter_
 
         async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
-            body: dict[str, object] = {
-                "limit": limit,
-                "with_payload": with_payload,
-                "with_vector": False,
-                "filter": merged_filter,
-            }
             response = await client.post(
-                f"{self.base_url}/collections/{collection}/points/scroll",
+                f"{self.base_url}/collections/{collection}/points/search",
                 json=body,
             )
             response.raise_for_status()
             data = response.json()
-            result = data.get("result", {}) or {}
-            return result.get("points", []) or []
+            return data.get("result", []) or []

@@ -4,42 +4,54 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Iterable, List, Mapping, Sequence, Tuple, cast
 
 from app.config import settings
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
+from app.infra.sparse_embedder import SparseEmbedder
 from app.retrieval.models import RetrievedSnippet
 
 logger = logging.getLogger(__name__)
 
-# region agent log
-_AGENT_DEBUG_LOG_PATH = "/Users/michael/Reniets/Ai/ragkeep/.cursor/debug-d085a7.log"
 
+def redact_lexical_phrases(text: str, phrases: Sequence[str]) -> str:
+    """Remove configured phrases from *text* for sparse/hybrid lexical query only.
 
-def _agent_debug_ndjson(hypothesis_id: str, location: str, data: dict) -> None:
-    try:
-        with open(_AGENT_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "d085a7",
-                        "timestamp": int(time.time() * 1000),
-                        "hypothesisId": hypothesis_id,
-                        "location": location,
-                        "message": "typology_retrieval_debug",
-                        "data": data,
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-
-
-# endregion
+    Phrases are applied in descending length order so longer matches win first.
+    Single-token phrases use word boundaries; multi-token phrases are matched as
+    substrings with case-insensitive ``re.IGNORECASE``. If nothing meaningful remains,
+    returns *text* unchanged.
+    """
+    if not (text and phrases):
+        return text
+    ordered: list[str] = []
+    seen_lower: set[str] = set()
+    for raw in phrases:
+        if not isinstance(raw, str):
+            continue
+        p = raw.strip()
+        if not p or p.lower() in seen_lower:
+            continue
+        seen_lower.add(p.lower())
+        ordered.append(p)
+    if not ordered:
+        return text
+    ordered.sort(key=len, reverse=True)
+    out = text
+    for p in ordered:
+        escaped = re.escape(p)
+        if re.search(r"\s", p):
+            pat = re.compile(escaped, re.IGNORECASE)
+        else:
+            pat = re.compile(rf"\b{escaped}\b", re.IGNORECASE)
+        out = pat.sub(" ", out)
+    collapsed = re.sub(r"\s+", " ", out).strip()
+    if not collapsed:
+        return text
+    return collapsed
 
 
 def _filter_and_cap_hits(raw_items: list, k: int, *, score_key: str = "score") -> list[RetrievedSnippet]:
@@ -83,7 +95,8 @@ def payload_filter(
     Build a Qdrant payload filter for worldview-, book-type- and author-scoped retrieval.
 
     - If worldview is set: only chunks where worldviews contains that value.
-    - If worldview is None: only chunks where worldviews is null (general, non-worldview-specific).
+    - If worldview is None: no filter on worldviews (chunks may be untagged or tagged,
+      e.g. Individualismus after text annotation — all are eligible for retrieval).
     - If author is set: only chunks where author matches (e.g. "Rudolf Steiner").
 
     Note: older ingestions stored the type under `chunk_type` (book/secondary_book)
@@ -94,14 +107,6 @@ def payload_filter(
 
     if worldview:
         must.append({"key": "worldviews", "match": {"value": worldview}})
-    else:
-        # Match both null and empty array (ingestion may store either)
-        must.append({
-            "should": [
-                {"is_null": {"key": "worldviews"}},
-                {"is_empty": {"key": "worldviews"}},
-            ]
-        })
 
     if author:
         must.append({"key": "author", "match": {"value": author}})
@@ -138,7 +143,6 @@ async def dense_retrieve(
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     author: str | None = None,
-    diagnostic_tag: str | None = None,
 ) -> list[RetrievedSnippet]:
     mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
     limit = max(k * mult, k + 30)
@@ -153,24 +157,6 @@ async def dense_retrieve(
     )
     items = list(hits) if hits else []
     capped = _filter_and_cap_hits(items, k)
-    # region agent log
-    if diagnostic_tag:
-        try:
-            _agent_debug_ndjson(
-                "H_dense_cap",
-                "retrievers.py:dense_retrieve",
-                {
-                    "tag": diagnostic_tag,
-                    "collection": collection,
-                    "qdrant_hits": len(items),
-                    "after_min_chars_cap": len(capped),
-                    "min_chunk_chars": getattr(settings, "min_chunk_chars", 80),
-                    "payload_filter": pf,
-                },
-            )
-        except Exception:
-            pass
-    # endregion
     return capped
 
 
@@ -182,19 +168,25 @@ async def sparse_retrieve(
     book_types: Iterable[str],
     collection: str,
     qdrant_client: QdrantClient,
+    sparse_embedder: SparseEmbedder | None = None,
     author: str | None = None,
+    sparse_query: str | None = None,
 ) -> list[RetrievedSnippet]:
-    """Sparse-only BM25 retrieval with payload filtering."""
+    """Sparse-only BM25 retrieval using fastembed sparse vectors."""
 
-    if not hasattr(qdrant_client, "search_sparse_points"):
-        raise RuntimeError("Sparse retrieval not supported by qdrant client")
+    if sparse_embedder is None:
+        from app.core.providers import get_sparse_embedder
+        sparse_embedder = get_sparse_embedder()
 
     mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
     limit = max(k * mult, k + 30)
+    lex = sparse_query if sparse_query is not None else query
+    sv = sparse_embedder.embed_query(lex)
     try:
-        sparse_raw = await qdrant_client.search_sparse_points(  # type: ignore[attr-defined]
+        sparse_raw = await qdrant_client.search_sparse_points(
             collection=collection,
-            text=query,
+            indices=sv["indices"],
+            values=sv["values"],
             limit=limit,
             filter_=payload_filter(worldview, book_types, author=author),
         )
@@ -217,8 +209,10 @@ async def hybrid_retrieve(
     collection: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    sparse_embedder: SparseEmbedder | None = None,
     force_sparse: bool = False,
     author: str | None = None,
+    sparse_query: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Hybrid dense+BM25 with RRF; falls back to dense-only if sparse unavailable."""
 
@@ -236,23 +230,31 @@ async def hybrid_retrieve(
     if (not settings.use_hybrid_retrieval and not force_sparse) or k_sparse <= 0:
         return dense_hits
 
+    if sparse_embedder is None:
+        # Lazy-load the singleton so callers don't need to thread it through
+        try:
+            from app.core.providers import get_sparse_embedder
+            sparse_embedder = get_sparse_embedder()
+        except Exception:
+            logger.info("Hybrid enabled but sparse_embedder unavailable; using dense-only")
+            return dense_hits
+
     sparse_hits: list[RetrievedSnippet] = []
-    if hasattr(qdrant_client, "search_sparse_points"):
+    try:
+        lex = sparse_query if sparse_query is not None else query
+        sv = sparse_embedder.embed_query(lex)
         mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
         limit_sparse = max(k_sparse * mult, k_sparse + 30)
-        try:
-            sparse = await qdrant_client.search_sparse_points(  # type: ignore[attr-defined]
-                collection=collection,
-                text=query,
-                limit=limit_sparse,
-                filter_=payload_filter(worldview, book_types, author=author),
-            )
-            sparse_hits = _filter_and_cap_hits(list(sparse or []), k_sparse)
-        except Exception:
-            logger.warning("Hybrid enabled but sparse search failed; falling back to dense-only", exc_info=True)
-            return dense_hits
-    else:
-        logger.info("Hybrid enabled but no sparse retriever available; using dense-only")
+        sparse = await qdrant_client.search_sparse_points(
+            collection=collection,
+            indices=sv["indices"],
+            values=sv["values"],
+            limit=limit_sparse,
+            filter_=payload_filter(worldview, book_types, author=author),
+        )
+        sparse_hits = _filter_and_cap_hits(list(sparse or []), k_sparse)
+    except Exception:
+        logger.warning("Hybrid enabled but sparse search failed; falling back to dense-only", exc_info=True)
         return dense_hits
 
     fused = _rrf_fuse(dense_hits, sparse_hits, k_fused=k_fused)
@@ -267,6 +269,7 @@ async def hybrid_retrieve_quote_parallel(
     collection: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    sparse_query: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Zwei parallele Suchen: quote + book/secondary_book (author=Rudolf Steiner)."""
 
@@ -281,6 +284,7 @@ async def hybrid_retrieve_quote_parallel(
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            sparse_query=sparse_query,
         )
 
     async def search_steiner_books() -> list[RetrievedSnippet]:
@@ -295,6 +299,7 @@ async def hybrid_retrieve_quote_parallel(
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            sparse_query=sparse_query,
         )
 
     quote_hits, book_hits = await asyncio.gather(search_quote(), search_steiner_books())
@@ -577,7 +582,6 @@ async def typology_dense_retrieve(
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
-            diagnostic_tag=f"typology_dense_mult{mult}",
         )
         filtered = filter_snippets_by_typology_source(
             raw,
@@ -619,35 +623,92 @@ def build_context_numbered(
 ) -> Tuple[str, List[str], List[Tuple[int, str, str, Mapping[str, object], float]]]:
     """Like build_context but prefixes each chunk with [N]. Returns (context, refs, index_map).
     index_map: list of (index, chunk_id, text, payload_meta, retrieval_score) for citation linking.
-    If include_score, each chunk is prefixed with (r: X.X) for retrieval relevance."""
-    parts: list[str] = []
-    refs: list[str] = []
-    index_map: list[Tuple[int, str, str, Mapping[str, object], float]] = []
+    If include_score, each chunk is prefixed with (r: X.X) for retrieval relevance.
+
+    Raw scores may mix dense (often 0–1) with sparse/BM25 (unbounded). For display and index_map
+    we map the *shown* batch to 0..1 when max(raw) > 1 so (r:) stays comparable."""
+    material = list(snippets)
+    rows: list[Tuple[RetrievedSnippet, int, str, str, Mapping[str, object]]] = []
     total = 0
-    for idx, snip in enumerate(snippets):
+    for snip in material:
         text = snip.text.strip()
         if not text:
             continue
-        num = start_index + len(parts)
+        num = start_index + len(rows)
         payload = snip.payload if isinstance(snip.payload, Mapping) else {}
         meta = payload.get("payload", payload) if isinstance(payload.get("payload"), Mapping) else payload
         if not isinstance(meta, dict):
             meta = {}
         cid = _extract_chunk_id(snip.payload) or ""
-        if cid:
-            refs.append(cid)
-        index_map.append((num, cid, text, meta, float(snip.score)))
         if include_score:
             chunk_type = snippet_chunk_type_value(payload) or ""
-            # Plain text only — rp ragChat colors (r: …) and chunk_type in the CLI; embedded
-            # ANSI resets here would turn the rest of the line white after the orange label.
             ct_str = f", {chunk_type}" if chunk_type else ""
-            score_str = f" (r: {snip.score:.1f}{ct_str})"
+            # Width budget: final line may use .2f after normalization; .2f on raw is conservative.
+            score_str = f" (r: {float(snip.score):.2f}{ct_str})"
         else:
             score_str = ""
         prefixed = f"[{num}]{score_str} {text}"
         if total + len(prefixed) > max_chars:
             break
-        parts.append(prefixed)
+        rows.append((snip, num, cid, text, meta))
         total += len(prefixed)
+
+    raw_scores = [float(s.score) for s, *_ in rows]
+    smax = max(raw_scores) if raw_scores else 1.0
+    if smax <= 0:
+        smax = 1.0
+    normalize = smax > 1.001
+
+    def _disp_score(raw: float) -> float:
+        v = float(raw)
+        if normalize:
+            return min(1.0, max(0.0, v / smax))
+        return min(1.0, max(0.0, v))
+
+    disp_scores = [_disp_score(s.score) for s, *_ in rows]
+
+    # #region agent log
+    if include_score and raw_scores:
+        try:
+            _p = "/Users/michael/Reniets/Ai/ragkeep/.cursor/debug-b2cd2e.log"
+            with open(_p, "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "b2cd2e",
+                            "hypothesisId": "H1",
+                            "location": "retrievers.py:build_context_numbered",
+                            "message": "retrieval_score_display",
+                            "data": {
+                                "raw_scores": raw_scores[:12],
+                                "disp_scores": disp_scores[:12],
+                                "smax": smax,
+                                "normalize": normalize,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+    # #endregion
+
+    parts: list[str] = []
+    refs: list[str] = []
+    index_map: list[Tuple[int, str, str, Mapping[str, object], float]] = []
+    for (snip, num, cid, text, meta), dscore in zip(rows, disp_scores):
+        if cid:
+            refs.append(cid)
+        index_map.append((num, cid, text, meta, dscore))
+        if include_score:
+            payload = snip.payload if isinstance(snip.payload, Mapping) else {}
+            chunk_type = snippet_chunk_type_value(payload) or ""
+            ct_str = f", {chunk_type}" if chunk_type else ""
+            # When batch mixes scales, dscore can be small; .1f would show 0.0 for e.g. 0.04.
+            r_fmt = ".2f" if normalize else ".1f"
+            score_str = f" (r: {dscore:{r_fmt}}{ct_str})"
+        else:
+            score_str = ""
+        parts.append(f"[{num}]{score_str} {text}")
     return "\n\n".join(parts), refs, index_map

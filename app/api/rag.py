@@ -5,8 +5,8 @@ import json
 import uuid
 from dataclasses import asdict
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any, Dict, List, Mapping, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
@@ -15,13 +15,14 @@ from ..shared.models import ChunkRecord, CHUNK_TYPE_ENUM
 from ..config import settings
 from ..db.session import get_engine
 from ..db.tables import chunks_table, event_metadata_table
-from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine
+from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine, get_sparse_embedder
 from ..retrieval.services.providers import get_deepseek_chat, get_embedding_client as get_retrieval_embedding
 from ..retrieval.services.quote_explain_service import explain_quote
 from ..retrieval.services.event_recorder import EventRecorder, enqueue_record_event, enqueue_record_metadata_only
 from ..core.telemetry import telemetry_client as ingestion_telemetry
 from ..ingestion.repositories import ChunkMirrorRepository
 from ..ingestion.services import IngestionService
+from ..infra.sparse_embedder import SparseEmbedder
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -141,6 +142,7 @@ def _get_ingestion_service() -> IngestionService:
         qdrant_client=qdrant_client,
         mirror_repository=mirror_repository,
         telemetry_client=ingestion_telemetry,
+        sparse_embedder=get_sparse_embedder() if settings.use_hybrid_retrieval else None,
         default_batch_size=64,
     )
 
@@ -578,21 +580,23 @@ async def list_book_titles(
         if not types_filter:
             types_filter = None
 
-    # Query for distinct book_title with counts
+    # Query for distinct book_title with counts (includes source_id and lecture_date for context selection)
     if include_author:
         # Prefer explicit book_title; fall back to source_title for older ingestions
         query = text(
             """
-            SELECT 
+            SELECT
                 metadata->>'chunk_type' as chunk_type,
                 metadata->>'author' as author,
                 COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
+                source_id,
+                MIN(metadata->>'lecture_date') as lecture_date,
                 COUNT(*) as count
             FROM rag_chunks
             WHERE collection = :collection
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
               {chunk_filter}
-            GROUP BY metadata->>'chunk_type', metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title')
+            GROUP BY metadata->>'chunk_type', metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title'), source_id
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
@@ -601,15 +605,17 @@ async def list_book_titles(
     else:
         query = text(
             """
-            SELECT 
+            SELECT
                 metadata->>'chunk_type' as chunk_type,
                 COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
+                source_id,
+                MIN(metadata->>'lecture_date') as lecture_date,
                 COUNT(*) as count
             FROM rag_chunks
             WHERE collection = :collection
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
               {chunk_filter}
-            GROUP BY metadata->>'chunk_type', COALESCE(metadata->>'book_title', metadata->>'source_title')
+            GROUP BY metadata->>'chunk_type', COALESCE(metadata->>'book_title', metadata->>'source_title'), source_id
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
@@ -633,19 +639,156 @@ async def list_book_titles(
                 "chunk_type": row[0],
                 "author": row[1],
                 "book_title": row[2],
-                "count": row[3],
+                "source_id": row[3],
+                "lecture_date": row[4],
+                "count": row[5],
             }
             for row in rows
         ]
     else:
         titles = [
-            {"chunk_type": row[0], "book_title": row[1], "count": row[2]} for row in rows
+            {
+                "chunk_type": row[0],
+                "book_title": row[1],
+                "source_id": row[2],
+                "lecture_date": row[3],
+                "count": row[4],
+            }
+            for row in rows
         ]
 
     return {
         "collection": collection,
         "total_distinct_titles": len(titles),
         "titles": titles,
+    }
+
+
+@router.get("/books/chapters")
+async def list_book_chapters(
+    collection_name: Optional[str] = None,
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """List distinct chapters (segments) for a book/talk source, ordered by reading position."""
+
+    collection = collection_name or "default"
+    source_id = (source_id or "").strip()
+    if not source_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="source_id must not be empty"
+        )
+
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT
+                    metadata->>'segment_id'    AS segment_id,
+                    metadata->>'segment_title' AS segment_title,
+                    COUNT(*)                   AS chunk_count,
+                    MIN((metadata->>'source_index')::int) AS min_source_index
+                FROM rag_chunks
+                WHERE collection = :collection
+                  AND source_id = :source_id
+                  AND metadata->>'segment_id' IS NOT NULL
+                  AND metadata->>'segment_id' != ''
+                GROUP BY metadata->>'segment_id', metadata->>'segment_title'
+                ORDER BY min_source_index NULLS LAST
+                """
+            ),
+            {"collection": collection, "source_id": source_id},
+        ).fetchall()
+
+    chapters = [
+        {
+            "segment_id": row[0],
+            "segment_title": row[1],
+            "chunk_count": row[2],
+        }
+        for row in rows
+    ]
+    return {"collection": collection, "source_id": source_id, "chapters": chapters}
+
+
+@router.get("/books/context-chunks")
+async def get_context_chunks(
+    collection_name: Optional[str] = None,
+    source_id: Optional[str] = None,
+    segment_id: Optional[str] = None,
+    paragraph: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Fetch chunk texts for a selected book/chapter/paragraph context."""
+
+    collection = collection_name or "default"
+    source_id = (source_id or "").strip()
+    if not source_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="source_id must not be empty"
+        )
+
+    engine = get_engine()
+
+    def _fetch(seg_id: Optional[str], para: Optional[int]) -> list:
+        conditions = [
+            "collection = :collection",
+            "source_id = :source_id",
+        ]
+        params: Dict[str, Any] = {"collection": collection, "source_id": source_id}
+        if seg_id:
+            conditions.append("metadata->>'segment_id' = :segment_id")
+            params["segment_id"] = seg_id
+        if para is not None:
+            # paragraph_numbers is not stored in metadata; paragraph markers are embedded in
+            # the chunk text as "NN| ..." at the start or after "\n\n" between paragraphs.
+            params["para_regex"] = f"(^|\\n\\n){para}\\|"
+            conditions.append("text ~ :para_regex")
+        where = " AND ".join(conditions)
+        with engine.connect() as conn:
+            return conn.execute(
+                text(
+                    f"""
+                    SELECT
+                        chunk_id,
+                        text,
+                        metadata->>'segment_id'    AS segment_id,
+                        metadata->>'segment_title' AS segment_title,
+                        '[]'::jsonb AS paragraph_numbers,
+                        (metadata->>'source_index')::int AS source_index
+                    FROM rag_chunks
+                    WHERE {where}
+                    ORDER BY source_index NULLS LAST
+                    """
+                ),
+                params,
+            ).fetchall()
+
+    rows = _fetch(segment_id, paragraph)
+    fallback_used = False
+
+    # Fallback: paragraph not found → entire chapter/source
+    if not rows and paragraph is not None:
+        rows = _fetch(segment_id, None)
+        fallback_used = True
+
+    chunks = [
+        {
+            "chunk_id": row[0],
+            "text": row[1],
+            "segment_id": row[2],
+            "segment_title": row[3],
+            "paragraph_numbers": row[4] if row[4] is not None else [],
+            "source_index": row[5],
+        }
+        for row in rows
+    ]
+    return {
+        "collection": collection,
+        "source_id": source_id,
+        "segment_id": segment_id,
+        "paragraph": paragraph,
+        "chunks": chunks,
+        "fallback_used": fallback_used,
     }
 
 
@@ -839,6 +982,115 @@ async def monitoring_events(
             }
             for r in log_rows
         ],
+    }
+
+
+def _qdrant_sparse_non_empty(vec: object) -> bool:
+    """True if Qdrant sparse payload has at least one index or value."""
+    if vec is None:
+        return False
+    if isinstance(vec, dict):
+        idx = vec.get("indices")
+        if isinstance(idx, list) and len(idx) > 0:
+            return True
+        vals = vec.get("values")
+        if isinstance(vals, list) and len(vals) > 0:
+            return True
+    return False
+
+
+def _qdrant_point_sparse_vector(point_vector: object, name: str) -> object | None:
+    """Resolve named sparse vector from a point ``vector`` field (multi-vector map)."""
+    if not isinstance(point_vector, dict):
+        return None
+    if name in point_vector:
+        return point_vector.get(name)
+    # Single-vector response: indices/values at top level
+    if "indices" in point_vector or "values" in point_vector:
+        return point_vector
+    return None
+
+
+@router.get("/collections/{collection_name}/verify-sparse")
+async def verify_collection_sparse(
+    collection_name: str,
+    sample_limit: int = Query(20, ge=1, le=256, description="Max points to scroll for sampling"),
+) -> Dict[str, Any]:
+    """Check collection config for sparse slot and sample points for non-empty BM25 vectors.
+
+    Used by migration / ``rag:upload --verify-qdrant`` to confirm data in Qdrant matches
+    Postgres monitoring counts and that ``text-sparse`` is populated.
+    """
+
+    qdrant_client = get_qdrant_client()
+    sparse_name = SparseEmbedder.VECTOR_NAME
+    info = await qdrant_client.get_collection_info(collection_name)
+    if info is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Qdrant collection not found: {collection_name}",
+        )
+
+    params = info.get("config", {}) if isinstance(info, Mapping) else {}
+    if isinstance(params, dict):
+        inner = params.get("params", {})
+        params = inner if isinstance(inner, dict) else {}
+    sparse_cfg: dict[str, object] = {}
+    if isinstance(params, dict):
+        raw_sv = params.get("sparse_vectors")
+        if isinstance(raw_sv, dict):
+            sparse_cfg = raw_sv
+    sparse_slot_configured = sparse_name in sparse_cfg
+    points_count = int(info.get("points_count", 0) or 0)
+
+    sample_size = 0
+    sample_with_non_empty_sparse = 0
+    issues: list[str] = []
+
+    if points_count == 0:
+        issues.append("collection_is_empty")
+    elif not sparse_slot_configured:
+        issues.append("sparse_slot_missing_in_schema")
+    else:
+        take = min(sample_limit, points_count, 256)
+        points, _ = await qdrant_client.scroll_points_page(
+            collection_name,
+            limit=take,
+            with_payload=False,
+            with_vector_names=[sparse_name],
+        )
+        sample_size = len(points)
+        for p in points:
+            raw_v = p.get("vector") if isinstance(p, Mapping) else None
+            sp = _qdrant_point_sparse_vector(raw_v, sparse_name)
+            if _qdrant_sparse_non_empty(sp):
+                sample_with_non_empty_sparse += 1
+        if sample_size > 0 and sample_with_non_empty_sparse < sample_size:
+            issues.append(
+                f"sparse_incomplete:{sample_with_non_empty_sparse}/{sample_size}",
+            )
+
+    hybrid = bool(getattr(settings, "use_hybrid_retrieval", False))
+    ok = (
+        sparse_slot_configured
+        and points_count > 0
+        and sample_size > 0
+        and sample_with_non_empty_sparse == sample_size
+        and hybrid
+    )
+    if not hybrid:
+        issues.append("RAGRUN_USE_HYBRID_RETRIEVAL_not_enabled_ingestion_may_skip_sparse")
+
+    return {
+        "collection": collection_name,
+        "points_count": points_count,
+        "sparse_vector_name": sparse_name,
+        "sparse_slot_configured": sparse_slot_configured,
+        "hybrid_retrieval_enabled": hybrid,
+        "sample_size": sample_size,
+        "sample_with_non_empty_sparse": sample_with_non_empty_sparse,
+        "issues": issues,
+        "ok": ok,
     }
 
 

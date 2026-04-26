@@ -375,6 +375,10 @@ The system implements hybrid search combining both dense and sparse vector repre
 -   Implement BM25 algorithm optimized for German philosophical texts
 -   Address variations in number formats (e.g., "12" vs "zwölf")
 
+#### Lexical strip for hybrid sparse (assistant-manifest)
+
+For `generate-prompt` / `execute-prompt`, each assistant can define optional `lexical-strip-hybrid` in **ragkeep** `assistants/<slug>/assistant-manifest.yaml`: a YAML list of phrases removed from the **user prompt only for the sparse (BM25) branch** of hybrid retrieval. Dense embeddings still use the full user prompt. Phrases are applied longest-first; single words use word-boundary matching. Omit the key or use an empty list to disable. If redaction would leave nothing meaningful, the original prompt is kept for sparse.
+
 #### Configurable Hybrid Search
 
 ```bash

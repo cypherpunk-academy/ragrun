@@ -10,6 +10,7 @@ from uuid import UUID, uuid4, uuid5, NAMESPACE_DNS
 from app.shared.models import ChunkRecord
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
+from app.infra.sparse_embedder import SparseEmbedder
 from app.ingestion.repositories import ChunkMirrorRepository
 from app.core.telemetry import IngestionTelemetryClient
 
@@ -63,12 +64,14 @@ class IngestionService:
         qdrant_client: QdrantClient,
         mirror_repository: ChunkMirrorRepository,
         telemetry_client: Optional[IngestionTelemetryClient] = None,
+        sparse_embedder: Optional[SparseEmbedder] = None,
         default_batch_size: int = 64,
     ) -> None:
         self.embedding_client = embedding_client
         self.qdrant_client = qdrant_client
         self.mirror_repository = mirror_repository
         self.telemetry_client = telemetry_client
+        self.sparse_embedder = sparse_embedder
         self.default_batch_size = default_batch_size
 
     async def upload_chunks(
@@ -124,10 +127,20 @@ class IngestionService:
             await self.qdrant_client.ensure_collection(
                 collection,
                 vector_size=vector_size,
+                sparse_vector_name=(
+                    SparseEmbedder.VECTOR_NAME if self.sparse_embedder is not None else None
+                ),
             )
             await self.qdrant_client.ensure_text_index(collection, field_name="text")
+            sparse_enabled = False
+            if self.sparse_embedder is not None:
+                sparse_enabled = await self.qdrant_client.ensure_sparse_config(collection)
 
-            points = self._build_qdrant_points(to_embed, embeddings)
+            sparse_vectors = None
+            if self.sparse_embedder is not None and sparse_enabled:
+                sparse_vectors = self.sparse_embedder.embed_batch(texts)
+
+            points = self._build_qdrant_points(to_embed, embeddings, sparse_vectors=sparse_vectors)
             await self.qdrant_client.upsert_points(collection, points)
 
         # For unchanged chunks, update payload without re-embedding
@@ -288,25 +301,35 @@ class IngestionService:
         self,
         chunks: Sequence[ChunkRecord],
         embeddings: Sequence[Sequence[float]],
+        *,
+        sparse_vectors: list | None = None,
     ) -> Iterable[dict[str, object]]:
         """Convert chunk records into Qdrant point payloads."""
 
-        for chunk, vector in zip(chunks, embeddings):
+        for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
             payload = chunk.metadata.model_dump(mode="json")
             payload["text"] = chunk.text
             payload["chunk_id"] = chunk.metadata.chunk_id
             payload["source_id"] = chunk.metadata.source_id
             payload["content_hash"] = chunk.metadata.content_hash
-            
-            # Qdrant requires UUID or unsigned int for point IDs
-            # Use UUID v5 (deterministic) based on chunk_id
+
             point_uuid = uuid5(NAMESPACE_DNS, chunk.metadata.chunk_id)
-            
-            yield {
+
+            point: dict[str, object] = {
                 "id": str(point_uuid),
-                "vector": list(vector),
                 "payload": payload,
             }
+
+            if sparse_vectors is not None and i < len(sparse_vectors):
+                sv = sparse_vectors[i]
+                point["vector"] = {
+                    "": list(vector),
+                    SparseEmbedder.VECTOR_NAME: sv,
+                }
+            else:
+                point["vector"] = list(vector)
+
+            yield point
 
     async def _cleanup_stale(
         self,

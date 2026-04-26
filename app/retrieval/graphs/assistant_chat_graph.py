@@ -339,8 +339,6 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
             "retrieval_plan": ["book", "talk", "chapter_summary"],
         }
 
-    # When no worldview is specified: only begriff chunks with worldviews null or empty
-    # (Postgres stores both as possible; empty array displays as {})
     # Try lemma variants (exact, then singular) since DB stores concepts in singular
     async_session = get_async_sessionmaker()
     rec = None
@@ -353,7 +351,6 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
                     "WHERE collection = :col "
                     "  AND chunk_type = 'begriff' "
                     "  AND metadata->>'segment_title' = :lemma "
-                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 1"
                 ),
                 {"col": state["collection_name"], "lemma": variant},

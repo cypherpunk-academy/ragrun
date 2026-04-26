@@ -19,6 +19,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from app.retrieval.services.action_prompt_service import load_assistant_rag_collection
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
@@ -52,9 +54,7 @@ async def chat_stream(
     graph = request.app.state.chat_graph
     thread_id = body.thread_id or str(uuid.uuid4())
     account_id = request.headers.get("X-Account-Id", "anonymous")
-    # Collection name = assistant_slug (wie concept_explain_worldviews)
-    # Quelle: ragkeep/assistants/{slug}/assistant-manifest.yaml → rag-collection
-    collection_name = assistant_slug
+    collection_name = load_assistant_rag_collection(assistant_slug)
 
     initial_state = {
         "assistant_slug":   assistant_slug,

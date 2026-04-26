@@ -206,7 +206,8 @@ async def _chat_with_retry(
 
     async def _run_once() -> tuple[str, list[Mapping[str, str]]]:
         _log_prompt(outbound_messages)
-        result = await client.chat(outbound_messages, temperature=temperature, max_tokens=max_tokens)
+        result_obj = await client.chat(outbound_messages, temperature=temperature, max_tokens=max_tokens)
+        result = result_obj.content
 
         if require_sentence_end and not SENTENCE_END_RE.search(result.strip()):
             completion_nonce = datetime.now(timezone.utc).isoformat()
@@ -217,9 +218,10 @@ async def _chat_with_retry(
                 {"role": "user", "content": completion_instruction},
             ]
             _log_prompt(completion_messages)
-            completion = await client.chat(
+            completion_obj = await client.chat(
                 completion_messages, temperature=temperature, max_tokens=max_tokens
             )
+            completion = completion_obj.content
             combined = f"{result.rstrip()} {completion.lstrip()}".strip()
             if _is_incomplete(combined):
                 raise RetryableCompletionError("Completion produced an incomplete response")

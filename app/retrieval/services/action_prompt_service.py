@@ -25,6 +25,7 @@ from app.retrieval.utils.retrievers import (
     dense_retrieve,
     hybrid_retrieve,
     hybrid_retrieve_quote_parallel,
+    redact_lexical_phrases,
     snippet_author,
     sparse_retrieve,
 )
@@ -164,6 +165,50 @@ def load_assistant_name(assistant_slug: str) -> str:
     return assistant_slug
 
 
+def load_assistant_rag_collection(assistant_slug: str) -> str:
+    """Qdrant collection name from assistant-manifest ``rag-collection``, else ``assistant_slug``."""
+    manifest_path = _resolve_assistants_root() / assistant_slug / "assistant-manifest.yaml"
+    if not manifest_path.is_file():
+        return assistant_slug
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            raw = data.get("rag-collection")
+            if isinstance(raw, str):
+                c = raw.strip()
+                if c:
+                    return c
+    except Exception:
+        logger.warning("Could not read rag-collection from %s", manifest_path, exc_info=True)
+    return assistant_slug
+
+
+def load_assistant_lexical_strip_hybrid(assistant_slug: str) -> list[str]:
+    """Phrases to remove from the user prompt for the sparse branch of hybrid retrieval only."""
+    manifest_path = _resolve_assistants_root() / assistant_slug / "assistant-manifest.yaml"
+    if not manifest_path.is_file():
+        return []
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return []
+        raw = data.get("lexical-strip-hybrid")
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            return []
+        out: list[str] = []
+        for x in raw:
+            if isinstance(x, str) and x.strip():
+                out.append(x.strip())
+        return out
+    except Exception:
+        logger.warning(
+            "Could not read lexical-strip-hybrid from %s", manifest_path, exc_info=True
+        )
+        return []
+
+
 def load_assistant_instruction(assistant_slug: str) -> str:
     """Load instruction.prompt for the assistant from ragkeep."""
     prompt_path = (
@@ -179,6 +224,7 @@ def load_assistant_instruction(assistant_slug: str) -> str:
 
 # Primary chat personas shown in the menu (order = display order). Not listed = hidden.
 _PRIMARY_CHAT_MENU_ORDER: tuple[str, ...] = (
+    "mit-kontext",
     "assistant-host",
     "socrates",
     "der-cypherpunk",
@@ -260,7 +306,6 @@ async def _lemma_lookup_begrif(
                     "WHERE collection = :col "
                     "  AND chunk_type = 'begriff' "
                     "  AND LOWER(metadata->>'segment_title') = :lemma "
-                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 5"
                 ),
                 {"col": collection_name, "lemma": variant},
@@ -302,7 +347,6 @@ async def _lemma_lookup_multi_begrif(
                 "  AND chunk_type = 'begriff' "
                 "  AND metadata->>'segment_title' IS NOT NULL "
                 "  AND metadata->>'segment_title' != '' "
-                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
             ),
             {"col": collection_name},
         )
@@ -337,7 +381,6 @@ async def _lemma_lookup_multi_begrif(
                     "WHERE collection = :col "
                     "  AND chunk_type = 'begriff' "
                     "  AND LOWER(metadata->>'segment_title') = :lemma "
-                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 1"
                 ),
                 {"col": collection_name, "lemma": lemma},
@@ -408,7 +451,6 @@ async def _lemma_lookup_multi_typology(
                 "  AND chunk_type = 'typology' "
                 "  AND metadata->>'segment_title' IS NOT NULL "
                 "  AND metadata->>'segment_title' != '' "
-                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
             ),
             {"col": collection_name},
         )
@@ -422,7 +464,6 @@ async def _lemma_lookup_multi_typology(
                 "WHERE collection = :col "
                 "  AND chunk_type = 'typology' "
                 "  AND jsonb_typeof(metadata->'aliases') = 'array' "
-                "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL)"
             ),
             {"col": collection_name},
         )
@@ -462,7 +503,6 @@ async def _lemma_lookup_multi_typology(
                     "WHERE collection = :col "
                     "  AND chunk_type = 'typology' "
                     "  AND LOWER(metadata->>'segment_title') = :seg "
-                    "  AND (worldviews IS NULL OR array_length(worldviews, 1) IS NULL) "
                     "LIMIT 1"
                 ),
                 {"col": collection_name, "seg": segment},
@@ -527,6 +567,7 @@ async def _run_query(
     collection: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    sparse_query: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Execute a single query against Qdrant based on manifest spec."""
     chunk_types: list[str] = query_spec.get("chunk_types") or []
@@ -552,6 +593,7 @@ async def _run_query(
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
             author=author,
+            sparse_query=sparse_query,
         )
     elif method == "sparse":
         hits = await sparse_retrieve(
@@ -562,6 +604,7 @@ async def _run_query(
             collection=collection,
             qdrant_client=qdrant_client,
             author=author,
+            sparse_query=sparse_query,
         )
     else:
         hits = await dense_retrieve(
@@ -586,6 +629,7 @@ async def run_queries_and_fill_prompt(
     conversation_context: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    context_chunk_ids: list[str] | None = None,
 ) -> tuple[str, str, dict[str, Any], list[dict[str, Any]], list[str], list[dict[str, Any]], str | None, list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Run queries per action-manifest, fill prompt template. Returns:
@@ -631,6 +675,13 @@ async def run_queries_and_fill_prompt(
 
     prompt_template = load_action_prompt(action_id)
     queries: list[dict[str, Any]] = manifest.get("queries") or []
+
+    lexical_strip = load_assistant_lexical_strip_hybrid(assistant_slug)
+    hybrid_sparse_query: str | None = None
+    if lexical_strip:
+        redacted = redact_lexical_phrases(user_prompt, lexical_strip)
+        if redacted != user_prompt:
+            hybrid_sparse_query = redacted
 
     # Group parallel queries (parallel_with): run in parallel, fill each slot separately
     parallel_names: set[str] = set()
@@ -712,6 +763,7 @@ async def run_queries_and_fill_prompt(
                 collection=collection_name,
                 embedding_client=embedding_client,
                 qdrant_client=qdrant_client,
+                sparse_query=hybrid_sparse_query,
             )
         _build_and_store(name, hits)
         all_refs.extend(_resolve_refs_for_hits(hits))
@@ -729,6 +781,7 @@ async def run_queries_and_fill_prompt(
                 collection=collection_name,
                 embedding_client=embedding_client,
                 qdrant_client=qdrant_client,
+                sparse_query=hybrid_sparse_query,
             )
             ctx, refs, imap = build_context_numbered(
                 fused, start_index=_next_index[0], include_score=True
@@ -764,6 +817,7 @@ async def run_queries_and_fill_prompt(
                     collection=collection_name,
                     embedding_client=embedding_client,
                     qdrant_client=qdrant_client,
+                    sparse_query=hybrid_sparse_query,
                 )
                 for _, spec in parallel_specs
             ]
@@ -777,6 +831,7 @@ async def run_queries_and_fill_prompt(
     all_placeholder_names = {
         "primary-books", "secondary-books", "primary", "secondary",
         "concepts", "lemma-lookup", "fallback-books", "quotes", "steiner-books", "works",
+        "kontext",
     }
     slot_values: dict[str, str] = {
         "conversation_context": conversation_context or "(keine)",
@@ -787,6 +842,17 @@ async def run_queries_and_fill_prompt(
         slot_values[name] = "(nicht abgerufen)"
     for name, res in query_results.items():
         slot_values[name] = res.get("full_context", res.get("preview", ""))
+
+    # Inject pre-selected context chunks ({kontext} slot) when provided
+    if context_chunk_ids:
+        context_snippets = await fetch_snippets_for_chunk_ids(context_chunk_ids, collection_name)
+        if context_snippets:
+            ctx, _, _ = build_context_numbered(context_snippets, start_index=1, include_score=False)
+            slot_values["kontext"] = ctx
+        else:
+            slot_values["kontext"] = "(Abschnitt nicht gefunden)"
+    else:
+        slot_values["kontext"] = "(kein Abschnitt gewählt)"
 
     filled = prompt_template.format(**slot_values)
     instruction = load_assistant_instruction(assistant_slug)
