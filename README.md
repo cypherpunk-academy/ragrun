@@ -700,7 +700,8 @@ python -m scripts.phase2.TODO_phase2_hybrid_test --vectorizer bm25_vectorizer.pk
 | `/api/v1/rag/retrieve`       | POST   | Retrieve top-k chunks for a prompt           |
 | `/api/v1/rag/collections`    | GET    | List vector collections                       |
 | `/api/v1/rag/books/titles`   | GET    | List distinct book titles (optionally author) |
-| `/api/v1/rag/upload-chunks`  | POST   | Bulk upload JSONL chunks                      |
+| `/api/v1/rag/store-chunks`   | POST   | Persist JSONL to `rag_chunks` (`collection_name` = `rag_partition`: assistant collection or `__shared__`) |
+| `/api/v1/rag/embed-chunks`   | POST   | Embed union of assistant `rag_partition` + whitelisted `__shared__` (`shared_source_ids`) → Qdrant + `vector_chunks` |
 | `/api/v1/rag/delete-chunks`  | POST   | Delete chunks by filter or all                |
 
 #### Auth and System

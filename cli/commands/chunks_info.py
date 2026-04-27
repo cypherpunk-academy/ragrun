@@ -142,7 +142,7 @@ async def _fetch_qdrant(collection: str) -> dict[str, Any]:
 
 
 def _fetch_postgres(collection: str) -> dict[str, Any]:
-    """Fetch Postgres rag_chunks stats for collection."""
+    """Fetch Postgres vector_chunks stats for collection."""
     engine = get_engine()
     with engine.connect() as conn:
         version_row = conn.execute(text("SELECT version()")).fetchone()
@@ -150,7 +150,7 @@ def _fetch_postgres(collection: str) -> dict[str, Any]:
 
         count_row = conn.execute(
             text(
-                "SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM rag_chunks WHERE collection = :coll"
+                "SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM vector_chunks WHERE collection = :coll"
             ),
             {"coll": collection},
         ).fetchone()
@@ -160,7 +160,7 @@ def _fetch_postgres(collection: str) -> dict[str, Any]:
 
         type_rows = conn.execute(
             text(
-                "SELECT chunk_type, COUNT(*) FROM rag_chunks WHERE collection = :coll GROUP BY chunk_type"
+                "SELECT chunk_type, COUNT(*) FROM vector_chunks WHERE collection = :coll GROUP BY chunk_type"
             ),
             {"coll": collection},
         ).fetchall()
@@ -209,7 +209,7 @@ def run_chunks_info(assistant: str) -> None:
     )
     _print_section(
         console,
-        "Postgres (rag_chunks)",
+        "Postgres (vector_chunks)",
         pg_data["version"],
         pg_data["total"],
         pg_data["oldest"],

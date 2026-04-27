@@ -7,8 +7,8 @@ from uuid import uuid5, NAMESPACE_DNS
 
 import pytest
 
-from app.services.embedding_client import EmbeddingBatchResult
-from app.services.ingestion_service import IngestionService
+from app.infra.embedding_client import EmbeddingBatchResult
+from app.ingestion.services.ingestion_service import IngestionService
 from app.services.mirror_repository import ChunkMirrorRepository
 from app.shared.models import ChunkRecord
 
@@ -78,8 +78,20 @@ class FakeQdrantClient:
         self.payload_updates: list[dict[str, object]] = []
         self.scrolls: list[dict[str, object]] = []
 
-    async def ensure_collection(self, name: str, *, vector_size: int) -> None:
+    async def ensure_collection(
+        self,
+        name: str,
+        *,
+        vector_size: int,
+        sparse_vector_name: str | None = None,
+    ) -> None:
         self.ensure_calls.append({"name": name, "vector_size": vector_size})
+
+    async def ensure_text_index(self, collection: str, *, field_name: str = "text") -> None:
+        return None
+
+    async def ensure_sparse_config(self, collection: str) -> bool:
+        return False
 
     async def upsert_points(
         self,
@@ -181,7 +193,7 @@ def _service(
     service = IngestionService(
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
-        mirror_repository=mirror,
+        vector_chunks_repository=mirror,
         telemetry_client=telemetry,
         default_batch_size=2,
     )

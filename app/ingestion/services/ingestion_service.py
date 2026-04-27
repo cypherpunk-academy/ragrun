@@ -11,7 +11,7 @@ from app.shared.models import ChunkRecord
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
 from app.infra.sparse_embedder import SparseEmbedder
-from app.ingestion.repositories import ChunkMirrorRepository
+from app.ingestion.repositories import VectorChunksRepository
 from app.core.telemetry import IngestionTelemetryClient
 
 
@@ -62,14 +62,14 @@ class IngestionService:
         *,
         embedding_client: EmbeddingClient,
         qdrant_client: QdrantClient,
-        mirror_repository: ChunkMirrorRepository,
+        vector_chunks_repository: VectorChunksRepository,
         telemetry_client: Optional[IngestionTelemetryClient] = None,
         sparse_embedder: Optional[SparseEmbedder] = None,
         default_batch_size: int = 64,
     ) -> None:
         self.embedding_client = embedding_client
         self.qdrant_client = qdrant_client
-        self.mirror_repository = mirror_repository
+        self.vector_chunks_repository = vector_chunks_repository
         self.telemetry_client = telemetry_client
         self.sparse_embedder = sparse_embedder
         self.default_batch_size = default_batch_size
@@ -161,7 +161,7 @@ class IngestionService:
             await self.qdrant_client.set_payload(collection, payload_updates)
 
         # Mirror: write all unique_chunks (so metadata/text stay aligned)
-        await self.mirror_repository.upsert_chunks(collection, unique_chunks)
+        await self.vector_chunks_repository.upsert_chunks(collection, unique_chunks)
 
         # Cleanup stale chunk_ids for involved source_ids (sync-style), unless disabled
         stale_deleted = 0
@@ -220,7 +220,7 @@ class IngestionService:
         await self.qdrant_client.delete_points(collection, point_uuids)
         # Best-effort: mirror cleanup should not block Qdrant deletion.
         try:
-            await self.mirror_repository.delete_chunks(collection, chunk_ids)
+            await self.vector_chunks_repository.delete_chunks(collection, chunk_ids)
         except Exception:
             pass
 
@@ -374,7 +374,7 @@ class IngestionService:
             await self.qdrant_client.delete_points(collection, point_uuids)
             # Best-effort: mirror cleanup should not block sync.
             try:
-                await self.mirror_repository.delete_chunks(collection, stale_ids)
+                await self.vector_chunks_repository.delete_chunks(collection, stale_ids)
             except Exception:
                 pass
 

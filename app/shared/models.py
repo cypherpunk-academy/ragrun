@@ -15,10 +15,7 @@ CHUNK_TYPE_ENUM = (
     "talk",
     "talk_summary",
     "quote",
-    "explanation",
-    "explanation_summary",
     "typology",
-    "topology",
 )
 
 

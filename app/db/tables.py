@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -25,8 +26,9 @@ metadata = MetaData()
 # Prefer JSONB when available (Postgres) but gracefully fall back to generic JSON.
 JSONType = JSONB().with_variant(JSON(), "sqlite")
 
-chunks_table = Table(
-    "rag_chunks",
+# Mirror of Qdrant chunk payloads (formerly rag_chunks).
+vector_chunks_table = Table(
+    "vector_chunks",
     metadata,
     Column("collection", String(128), primary_key=True),
     Column("chunk_id", String(256), primary_key=True),
@@ -41,6 +43,35 @@ chunks_table = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("metadata", JSONType, nullable=False),
     Column("references", JSONType),
+)
+
+# Primary chunk store (DB-first); embedded_at set after successful Qdrant/vector_chunks sync.
+rag_chunks_table = Table(
+    "rag_chunks",
+    metadata,
+    Column("rag_partition", String(128), primary_key=True),
+    Column("chunk_id", String(256), primary_key=True),
+    Column("source_id", String(256), nullable=False),
+    Column("chunk_type", String(64), nullable=False),
+    Column("language", String(8), nullable=False),
+    Column("worldviews", ARRAY(String)),
+    Column("importance", Integer),
+    Column("content_hash", String(128), nullable=False),
+    Column("text", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("metadata", JSONType, nullable=False),
+    Column("references", JSONType),
+    Column("scope", String(64)),
+    Column("embedded_at", DateTime(timezone=True)),
+    Column("deprecated_at", DateTime(timezone=True)),
+)
+
+Index("idx_rag_chunks_source_id", rag_chunks_table.c.source_id)
+Index(
+    "idx_rag_chunks_rag_partition_embedded_at",
+    rag_chunks_table.c.rag_partition,
+    rag_chunks_table.c.embedded_at,
 )
 
 
@@ -107,12 +138,28 @@ rag_usage_table = Table(
     Column("prompt_tokens", Integer, nullable=True),
     Column("completion_tokens", Integer, nullable=True),
     Column("total_tokens", Integer, nullable=True),
-    Column("extra", JSONType, nullable=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("turn_id", UUID(as_uuid=False), ForeignKey("rag_turns.turn_id", ondelete="SET NULL"), nullable=True),
+    Column("talk_id", UUID(as_uuid=False), ForeignKey("rag_talks.talk_id", ondelete="SET NULL"), nullable=True),
 )
 
 Index("idx_ru_account_id", rag_usage_table.c.account_id)
 Index("idx_ru_created_at", rag_usage_table.c.created_at)
+Index("idx_ru_turn_id", rag_usage_table.c.turn_id)
+Index("idx_ru_talk_id", rag_usage_table.c.talk_id)
+
+
+# --- llm_pricing: Modellpreise für on-demand Kostenkalkulation ---
+llm_pricing_table = Table(
+    "llm_pricing",
+    metadata,
+    Column("model", String(128), primary_key=True),
+    Column("provider", String(64), nullable=False, server_default="deepseek"),
+    Column("prompt_per_1m_usd", Float, nullable=False),
+    Column("completion_per_1m_usd", Float, nullable=False),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("note", Text, nullable=True),
+)
 
 
 # --- rag_talks: Single Source of Truth für Gespräche ---
@@ -157,7 +204,6 @@ rag_turns_table = Table(
     Column("user_message", Text, nullable=False),
     Column("assistant_message", Text, nullable=False),
     Column("usage", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
-    Column("references", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
     Column("collection", String(128), nullable=True),
     Column("is_relay", Boolean, nullable=False, server_default="false"),
     Column("chunk_index_map", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
@@ -169,4 +215,27 @@ rag_turns_table = Table(
 Index("idx_rtu_talk_id", rag_turns_table.c.talk_id)
 Index("idx_rtu_talk_id_index", rag_turns_table.c.talk_id, rag_turns_table.c.turn_index, unique=True)
 Index("idx_rtu_created_at", rag_turns_table.c.created_at)
+
+
+# --- rag_references: Normalisierte Referenzen pro Turn ---
+rag_references_table = Table(
+    "rag_references",
+    metadata,
+    Column("ref_id", UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")),
+    Column(
+        "turn_id",
+        UUID(as_uuid=False),
+        ForeignKey("rag_turns.turn_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("ref_index", Integer, nullable=False),
+    Column("chunk_id", String(64), nullable=True),
+    Column("relevance", Float, nullable=True),
+    Column("source_title", Text, nullable=True),
+    Column("segment_title", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+Index("idx_rref_turn_id", rag_references_table.c.turn_id)
+Index("idx_rref_chunk_id", rag_references_table.c.chunk_id)
 

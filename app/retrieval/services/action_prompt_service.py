@@ -292,7 +292,7 @@ async def _lemma_lookup_begrif(
     user_prompt: str,
     collection_name: str,
 ) -> list[RetrievedSnippet]:
-    """Exact lemma lookup in Postgres rag_chunks for begriff. Returns matching chunks."""
+    """Exact lemma lookup in Postgres vector_chunks for begriff. Returns matching chunks."""
     lemma = _normalize_lemma(user_prompt)
     if not lemma:
         return []
@@ -302,7 +302,7 @@ async def _lemma_lookup_begrif(
         async with async_session() as session:
             row = await session.execute(
                 text(
-                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "SELECT chunk_id, text, metadata FROM vector_chunks "
                     "WHERE collection = :col "
                     "  AND chunk_type = 'begriff' "
                     "  AND LOWER(metadata->>'segment_title') = :lemma "
@@ -342,7 +342,7 @@ async def _lemma_lookup_multi_begrif(
     async with async_session() as session:
         row = await session.execute(
             text(
-                "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM rag_chunks "
+                "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM vector_chunks "
                 "WHERE collection = :col "
                 "  AND chunk_type = 'begriff' "
                 "  AND metadata->>'segment_title' IS NOT NULL "
@@ -377,7 +377,7 @@ async def _lemma_lookup_multi_begrif(
         async with async_session() as session:
             row = await session.execute(
                 text(
-                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "SELECT chunk_id, text, metadata FROM vector_chunks "
                     "WHERE collection = :col "
                     "  AND chunk_type = 'begriff' "
                     "  AND LOWER(metadata->>'segment_title') = :lemma "
@@ -405,14 +405,14 @@ async def fetch_snippets_for_chunk_ids(
     chunk_ids: list[str],
     collection_name: str,
 ) -> list[RetrievedSnippet]:
-    """Fetch primary-source snippets from rag_chunks for a list of chunk_ids."""
+    """Fetch primary-source snippets from vector_chunks for a list of chunk_ids."""
     if not chunk_ids:
         return []
     async_session = get_async_sessionmaker()
     async with async_session() as session:
         row = await session.execute(
             text(
-                "SELECT chunk_id, text, metadata FROM rag_chunks "
+                "SELECT chunk_id, text, metadata FROM vector_chunks "
                 "WHERE collection = :col AND chunk_id = ANY(:ids)"
             ),
             {"col": collection_name, "ids": chunk_ids},
@@ -446,7 +446,7 @@ async def _lemma_lookup_multi_typology(
     async with async_session() as session:
         seg_row = await session.execute(
             text(
-                "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM rag_chunks "
+                "SELECT DISTINCT LOWER(metadata->>'segment_title') FROM vector_chunks "
                 "WHERE collection = :col "
                 "  AND chunk_type = 'typology' "
                 "  AND metadata->>'segment_title' IS NOT NULL "
@@ -459,7 +459,7 @@ async def _lemma_lookup_multi_typology(
         alias_row = await session.execute(
             text(
                 "SELECT LOWER(metadata->>'segment_title'), LOWER(alias_val) "
-                "FROM rag_chunks, "
+                "FROM vector_chunks, "
                 "     jsonb_array_elements_text(metadata->'aliases') AS alias_val "
                 "WHERE collection = :col "
                 "  AND chunk_type = 'typology' "
@@ -499,7 +499,7 @@ async def _lemma_lookup_multi_typology(
         async with async_session() as session:
             row = await session.execute(
                 text(
-                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "SELECT chunk_id, text, metadata FROM vector_chunks "
                     "WHERE collection = :col "
                     "  AND chunk_type = 'typology' "
                     "  AND LOWER(metadata->>'segment_title') = :seg "

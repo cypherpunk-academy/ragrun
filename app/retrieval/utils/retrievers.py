@@ -404,7 +404,7 @@ def snippet_chunk_type_value(payload: Mapping[str, object]) -> str | None:
 
 
 def snippet_source_id(payload: Mapping[str, object]) -> str:
-    """Resolve `source_id` from a Qdrant hit payload (aligned with rag_chunks.source_id)."""
+    """Resolve `source_id` from a Qdrant hit payload (aligned with vector_chunks.source_id)."""
 
     p = _snippet_flat_payload(payload)
     md = p.get("metadata")

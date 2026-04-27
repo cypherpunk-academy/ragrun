@@ -347,7 +347,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
         async with async_session() as session:
             row = await session.execute(
                 text(
-                    "SELECT chunk_id, text, metadata FROM rag_chunks "
+                    "SELECT chunk_id, text, metadata FROM vector_chunks "
                     "WHERE collection = :col "
                     "  AND chunk_type = 'begriff' "
                     "  AND metadata->>'segment_title' = :lemma "
@@ -388,7 +388,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
                 "text": rec.text,
                 "metadata": dict(meta) if hasattr(meta, "items") else meta,
             },
-            "retrieval_plan": ["begriff", "explanation"],
+            "retrieval_plan": ["begriff"],
         }
 
     logger.info("Lemma lookup: '%s' not found, using authentic_concept_explain", lemma)
@@ -485,7 +485,7 @@ async def run_authentic_concept_explain(state: ChatState, config: RunnableConfig
         async with async_session() as session:
             rows = await session.execute(
                 text(
-                    "SELECT chunk_id, metadata FROM rag_chunks "
+                    "SELECT chunk_id, metadata FROM vector_chunks "
                     "WHERE chunk_id = ANY(:ids)"
                 ),
                 {"ids": chunk_ids},
@@ -690,7 +690,7 @@ async def attach_citations(state: ChatState, config: RunnableConfig) -> dict:
     async with async_session() as session:
         rows = await session.execute(
             text(
-                "SELECT chunk_id, metadata FROM rag_chunks "
+                "SELECT chunk_id, metadata FROM vector_chunks "
                 "WHERE chunk_id = ANY(:ids)"
             ),
             {"ids": chunk_ids_to_cite},

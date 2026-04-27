@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
+from app.shared.models import ChunkRecord
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -65,11 +67,44 @@ class StubIngestionService:
         )
 
 
+class StubRagChunksRepository:
+    def __init__(self) -> None:
+        self.upsert_calls: list[dict] = []
+        self.list_records: list[ChunkRecord] = []
+        self.mark_embedded_calls: list[tuple[str, list[str]]] = []
+        self.last_embed_query: tuple[str, object] | None = None
+        self.deprecate_orphans_calls: list[tuple[str, dict[str, list[str]]]] = []
+
+    async def upsert_chunks(self, rag_partition: str, chunks, *, default_scope=None):
+        self.upsert_calls.append(
+            {"rag_partition": rag_partition, "chunks": chunks, "default_scope": default_scope}
+        )
+
+    async def deprecate_orphans_for_sources(
+        self, rag_partition: str, active_by_source: dict[str, list[str]]
+    ) -> dict[str, int]:
+        self.deprecate_orphans_calls.append((rag_partition, dict(active_by_source)))
+        return {sid: 0 for sid in active_by_source}
+
+    async def list_chunk_records_for_embed(
+        self, assistant_rag_collection: str, *, shared_source_ids=None
+    ):
+        self.last_embed_query = (assistant_rag_collection, shared_source_ids)
+        return list(self.list_records)
+
+    async def mark_embedded_for_embed_run(self, assistant_rag_collection: str, chunk_ids):
+        self.mark_embedded_calls.append((assistant_rag_collection, list(chunk_ids)))
+
+    async def delete_chunks(self, collection: str, chunk_ids):
+        return None
+
+
 @pytest.fixture
 def client_with_stub(monkeypatch):
     """Test client with overridden ingestion service."""
     stub = StubIngestionService()
-    
+    rag_stub = StubRagChunksRepository()
+
     # Mock get_engine to avoid DB connections
     mock_engine = MagicMock()
     mock_conn = MagicMock()
@@ -80,27 +115,27 @@ def client_with_stub(monkeypatch):
     mock_result.scalar = MagicMock(return_value=0)
     mock_conn.execute = MagicMock(return_value=mock_result)
     mock_engine.connect = MagicMock(return_value=mock_conn)
-    
+
     def mock_get_engine():
         return mock_engine
-    
+
     # Patch at the module level where it's imported
     monkeypatch.setattr("app.api.rag.get_engine", mock_get_engine)
-    
+    monkeypatch.setattr("app.api.rag.get_rag_chunks_repository", lambda: rag_stub)
+
     app.dependency_overrides[rag_router.get_ingestion_service] = lambda: stub
     client = TestClient(app)
-    
-    yield client, stub
-    
+
+    yield client, stub, rag_stub
+
     # Cleanup
     app.dependency_overrides.pop(rag_router.get_ingestion_service, None)
 
 
-def test_upload_endpoint_returns_stats(client_with_stub):
-    """Verify upload-chunks endpoint accepts JSONL and returns ingestion stats."""
-    client, stub = client_with_stub
-    
-    # Build JSONL content with 2 chunks
+def test_store_endpoint_persists_chunks(client_with_stub):
+    """Verify store-chunks accepts JSONL and upserts rag_chunks."""
+    client, _stub, rag_stub = client_with_stub
+
     lines = [
         _sample_chunk_jsonl("test-001", "hash1"),
         _sample_chunk_jsonl("test-002", "hash2"),
@@ -112,46 +147,78 @@ def test_upload_endpoint_returns_stats(client_with_stub):
         "collection_name": "test-collection",
     }
 
-    response = client.post("/api/v1/rag/upload-chunks", json=payload)
-    
+    response = client.post("/api/v1/rag/store-chunks", json=payload)
+
     assert response.status_code == 202
     body = response.json()
     assert body["collection"] == "test-collection"
-    assert body["ingested"] == 2
-    assert stub.upload_calls[0]["collection"] == "test-collection"
+    assert body["stored"] == 2
+    assert body["deprecated"] == 0
+    assert body["deprecated_by_source"] == {"test-source": 0}
+    assert rag_stub.upsert_calls[0]["rag_partition"] == "test-collection"
+    assert len(rag_stub.upsert_calls[0]["chunks"]) == 2
+    assert rag_stub.deprecate_orphans_calls[0][0] == "test-collection"
+    assert rag_stub.deprecate_orphans_calls[0][1] == {
+        "test-source": ["test-001", "test-002"],
+    }
 
-def test_upload_endpoint_passes_skip_cleanup(client_with_stub):
-    """Verify upload-chunks forwards skip_cleanup to the ingestion service."""
-    client, stub = client_with_stub
+
+def test_embed_endpoint_runs_ingestion(client_with_stub):
+    """Verify embed-chunks loads rag_chunks and calls ingestion + mark_embedded."""
+    client, stub, rag_stub = client_with_stub
+    rag_stub.list_records = [
+        ChunkRecord.from_dict(json.loads(_sample_chunk_jsonl("test-001", "hash1"))),
+    ]
 
     payload = {
-        "chunks_jsonl_content": _sample_chunk_jsonl("test-001", "hash1"),
         "collection_name": "test-collection",
         "skip_cleanup": True,
     }
 
-    response = client.post("/api/v1/rag/upload-chunks", json=payload)
+    response = client.post("/api/v1/rag/embed-chunks", json=payload)
     assert response.status_code == 202
+    assert stub.upload_calls[0]["collection"] == "test-collection"
     assert stub.upload_calls[0].get("skip_cleanup") is True
+    assert rag_stub.mark_embedded_calls[0][0] == "test-collection"
+    assert rag_stub.mark_embedded_calls[0][1] == ["test-001"]
+    assert rag_stub.last_embed_query == ("test-collection", None)
 
 
-def test_upload_endpoint_validates_jsonl(client_with_stub):
-    """Verify upload-chunks rejects malformed JSONL."""
-    client, _ = client_with_stub
-    
+def test_embed_endpoint_passes_shared_source_ids_whitelist(client_with_stub):
+    """embed-chunks forwards shared_source_ids to the repository."""
+    client, stub, rag_stub = client_with_stub
+    rag_stub.list_records = [
+        ChunkRecord.from_dict(json.loads(_sample_chunk_jsonl("test-001", "hash1"))),
+    ]
+
+    payload = {
+        "collection_name": "test-collection",
+        "skip_cleanup": True,
+        "shared_source_ids": ["book-a", "lecture:xyz"],
+    }
+
+    response = client.post("/api/v1/rag/embed-chunks", json=payload)
+    assert response.status_code == 202
+    assert rag_stub.last_embed_query == ("test-collection", ["book-a", "lecture:xyz"])
+
+
+def test_store_endpoint_validates_jsonl(client_with_stub):
+    """Verify store-chunks rejects malformed JSONL."""
+    client, _, _ = client_with_stub
+
     payload = {
         "chunks_jsonl_content": "not valid json\n{also bad",
         "collection_name": "test-collection",
     }
 
-    response = client.post("/api/v1/rag/upload-chunks", json=payload)
+    response = client.post("/api/v1/rag/store-chunks", json=payload)
     assert response.status_code == 400
     assert "Invalid JSONL" in response.json()["detail"]
 
 
 def test_delete_endpoint_requires_filter_or_all(client_with_stub):
     """Verify delete-chunks requires either filter or all=true."""
-    client, _ = client_with_stub
+    client, _, _ = client_with_stub
     
     payload = {
         "collection_name": "test-collection",
@@ -165,7 +232,7 @@ def test_delete_endpoint_requires_filter_or_all(client_with_stub):
 
 def test_delete_endpoint_dry_run(client_with_stub):
     """Verify delete-chunks dry_run returns matched count."""
-    client, _ = client_with_stub
+    client, _, _ = client_with_stub
     
     payload = {
         "collection_name": "test-collection",
@@ -238,7 +305,7 @@ def test_list_chunks_returns_inventory(monkeypatch):
 
 def test_delete_chunk_ids_dry_run_and_limit(client_with_stub):
     """Verify delete-chunk-ids enforces limit and supports dry_run."""
-    client, stub = client_with_stub
+    client, stub, _ = client_with_stub
 
     # limit enforcement happens even on dry_run
     res = client.post(

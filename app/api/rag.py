@@ -14,26 +14,63 @@ from ..shared.models import ChunkRecord, CHUNK_TYPE_ENUM
 
 from ..config import settings
 from ..db.session import get_engine
-from ..db.tables import chunks_table, event_metadata_table
+from ..db.tables import event_metadata_table, vector_chunks_table, rag_talks_table, rag_turns_table
 from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine, get_sparse_embedder
 from ..retrieval.services.providers import get_deepseek_chat, get_embedding_client as get_retrieval_embedding
 from ..retrieval.services.quote_explain_service import explain_quote
 from ..retrieval.services.event_recorder import EventRecorder, enqueue_record_event, enqueue_record_metadata_only
 from ..core.telemetry import telemetry_client as ingestion_telemetry
-from ..ingestion.repositories import ChunkMirrorRepository
+from ..ingestion.repositories import RagChunksRepository, VectorChunksRepository
 from ..ingestion.services import IngestionService
 from ..infra.sparse_embedder import SparseEmbedder
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
 
-class UploadChunksRequest(BaseModel):
-    """Request to upload chunks from JSONL content."""
+class StoreChunksRequest(BaseModel):
+    """Persist chunks into rag_chunks (primary store) from JSONL."""
 
     chunks_jsonl_content: str = Field(
         ..., description="JSONL-formatted chunks (one JSON object per line)"
     )
-    collection_name: str = Field(..., description="Target collection name")
+    collection_name: str = Field(
+        ...,
+        description=(
+            "rag_partition for this batch: assistant rag-collection, or "
+            "reserved __shared__ for book/secondary_book corpus rows."
+        ),
+    )
+    default_scope: Optional[str] = Field(
+        None,
+        description="Optional scope when chunk metadata has no source_type (e.g. book, assistant).",
+    )
+
+
+class StoreChunksResponse(BaseModel):
+    """Response from store-chunks."""
+
+    collection: str
+    stored: int
+    deprecated: int = Field(
+        0,
+        description="Number of rag_chunks rows marked deprecated (orphans not in this batch).",
+    )
+    deprecated_by_source: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Per source_id: rows marked deprecated for that source in this request.",
+    )
+
+
+class EmbedChunksRequest(BaseModel):
+    """Embed chunks for a Qdrant collection from rag_chunks into Qdrant and vector_chunks."""
+
+    collection_name: str = Field(
+        ...,
+        description=(
+            "Target Qdrant collection name (= assistant rag-collection). "
+            "Loads assistant rag_partition rows in full plus a whitelist of __shared__ rows."
+        ),
+    )
     batch_size: Optional[int] = Field(
         None, ge=1, le=512, description="Embedding batch size"
     )
@@ -43,14 +80,31 @@ class UploadChunksRequest(BaseModel):
     skip_cleanup: bool = Field(
         False,
         description=(
-            "If true, do not delete stale chunks during this upload. "
+            "If true, do not delete stale chunks during this embed run. "
             "Used by sync workflows that delete stale chunk_ids explicitly."
+        ),
+    )
+    shared_source_ids: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Whitelist of source_id values for rows in rag_partition __shared__. "
+            "Omit or null to include all shared rows (legacy). "
+            "Pass an empty list to embed only the assistant partition."
+        ),
+    )
+    source_ids: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Optional filter: only embed rows whose source_id is in this list. "
+            "Applies to BOTH the assistant partition and __shared__. "
+            "Omit or null to embed all rows (default behaviour). "
+            "Use in combination with shared_source_ids for fine-grained per-source iteration."
         ),
     )
 
 
 class UploadChunksResponse(BaseModel):
-    """Response from upload-chunks endpoint."""
+    """Response from embed-chunks endpoint (ingestion stats)."""
 
     ingestion_id: str
     collection: str
@@ -136,30 +190,28 @@ def get_ingestion_service() -> IngestionService:
 def _get_ingestion_service() -> IngestionService:
     embedding_client = get_embedding_client(batch_size=64)
     qdrant_client = get_qdrant_client()
-    mirror_repository = ChunkMirrorRepository(get_sync_engine())
+    vector_chunks_repository = VectorChunksRepository(get_sync_engine())
     return IngestionService(
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
-        mirror_repository=mirror_repository,
+        vector_chunks_repository=vector_chunks_repository,
         telemetry_client=ingestion_telemetry,
         sparse_embedder=get_sparse_embedder() if settings.use_hybrid_retrieval else None,
         default_batch_size=64,
     )
 
 
-@router.post(
-    "/upload-chunks",
-    response_model=UploadChunksResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def upload_chunks(
-    request: UploadChunksRequest,
-    service: IngestionService = Depends(get_ingestion_service),
-) -> UploadChunksResponse:
-    """Upload chunks from JSONL content (ragprep-compatible endpoint)."""
+@lru_cache(maxsize=1)
+def _get_rag_chunks_repository() -> RagChunksRepository:
+    return RagChunksRepository(get_sync_engine())
 
-    # Parse JSONL content into ChunkRecord objects
-    lines = request.chunks_jsonl_content.strip().split("\n")
+
+def get_rag_chunks_repository() -> RagChunksRepository:
+    return _get_rag_chunks_repository()
+
+
+def _parse_jsonl_chunks(content: str) -> List[ChunkRecord]:
+    lines = content.strip().split("\n")
     chunks: List[ChunkRecord] = []
 
     for line_no, line in enumerate(lines, start=1):
@@ -175,11 +227,77 @@ async def upload_chunks(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid JSONL at line {line_no}: {exc}",
             ) from exc
+    return chunks
 
+
+@router.post(
+    "/store-chunks",
+    response_model=StoreChunksResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
+    """Store chunks in rag_chunks (primary DB). Does not embed."""
+
+    chunks = _parse_jsonl_chunks(request.chunks_jsonl_content)
     if not chunks:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid chunks found in JSONL content",
+        )
+
+    rag_repo = get_rag_chunks_repository()
+    await rag_repo.upsert_chunks(
+        request.collection_name,
+        chunks,
+        default_scope=request.default_scope,
+    )
+    active_by_source: Dict[str, List[str]] = {}
+    for c in chunks:
+        sid = c.metadata.source_id
+        active_by_source.setdefault(sid, []).append(c.metadata.chunk_id)
+    deprecated_by_source = await rag_repo.deprecate_orphans_for_sources(
+        request.collection_name, active_by_source
+    )
+    deprecated = sum(deprecated_by_source.values())
+    return StoreChunksResponse(
+        collection=request.collection_name,
+        stored=len(chunks),
+        deprecated=deprecated,
+        deprecated_by_source=deprecated_by_source,
+    )
+
+
+@router.post(
+    "/embed-chunks",
+    response_model=UploadChunksResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def embed_chunks(
+    request: EmbedChunksRequest,
+    service: IngestionService = Depends(get_ingestion_service),
+) -> UploadChunksResponse:
+    """Read all chunks for a collection from rag_chunks, embed into Qdrant, mirror vector_chunks."""
+
+    rag_repo = get_rag_chunks_repository()
+    chunks = await rag_repo.list_chunk_records_for_embed(
+        request.collection_name,
+        shared_source_ids=request.shared_source_ids,
+        source_ids=request.source_ids,
+    )
+
+    if not chunks:
+        return UploadChunksResponse(
+            ingestion_id=str(uuid.uuid4()),
+            collection=request.collection_name,
+            requested=0,
+            ingested=0,
+            duplicates=0,
+            embedding_model=request.embedding_model or "skipped",
+            vector_size=0,
+            unchanged=0,
+            changed=0,
+            new=0,
+            stale_deleted=0,
         )
 
     try:
@@ -199,10 +317,15 @@ async def upload_chunks(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
 
+    await rag_repo.mark_embedded_for_embed_run(
+        request.collection_name,
+        [c.metadata.chunk_id for c in chunks],
+    )
+
     chunk_ids = [c.id for c in chunks] if chunks else None
     enqueue_record_metadata_only(
         EventRecorder(),
-        endpoint="rag/upload-chunks",
+        endpoint="rag/embed-chunks",
         collection=request.collection_name,
         metadata={
             "requested": result.requested,
@@ -375,6 +498,11 @@ async def delete_chunk_ids(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
+    try:
+        await get_rag_chunks_repository().delete_chunks(collection, chunk_ids)
+    except Exception:
+        pass
+
     return DeleteChunkIdsResponse(
         collection=collection,
         matched=len(chunk_ids),
@@ -395,8 +523,8 @@ async def delete_chunks(
     if request.dry_run:
         # Preview deletion by counting matching chunks
         engine = get_engine()
-        query = select(func.count()).select_from(chunks_table).where(
-            chunks_table.c.collection == collection
+        query = select(func.count()).select_from(vector_chunks_table).where(
+            vector_chunks_table.c.collection == collection
         )
 
         if not request.all and request.filter:
@@ -404,7 +532,7 @@ async def delete_chunks(
             for key, value in request.filter.items():
                 # Use JSONB containment for metadata fields
                 query = query.where(
-                    chunks_table.c.metadata[key].as_string() == str(value)
+                    vector_chunks_table.c.metadata[key].as_string() == str(value)
                 )
         elif not request.all:
             raise HTTPException(
@@ -465,13 +593,13 @@ async def delete_chunks(
 
     # Actual deletion: query Postgres for matching chunk_ids
     engine = get_engine()
-    query = select(chunks_table.c.chunk_id).where(
-        chunks_table.c.collection == collection
+    query = select(vector_chunks_table.c.chunk_id).where(
+        vector_chunks_table.c.collection == collection
     )
 
     if not request.all and request.filter:
         for key, value in request.filter.items():
-            query = query.where(chunks_table.c.metadata[key].as_string() == str(value))
+            query = query.where(vector_chunks_table.c.metadata[key].as_string() == str(value))
     elif not request.all:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -545,6 +673,11 @@ async def delete_chunks(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
+    try:
+        await get_rag_chunks_repository().delete_chunks(collection, chunk_ids)
+    except Exception:
+        pass
+
     enqueue_record_metadata_only(
         EventRecorder(),
         endpoint="rag/delete-chunks",
@@ -592,7 +725,7 @@ async def list_book_titles(
                 source_id,
                 MIN(metadata->>'lecture_date') as lecture_date,
                 COUNT(*) as count
-            FROM rag_chunks
+            FROM vector_chunks
             WHERE collection = :collection
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
               {chunk_filter}
@@ -611,7 +744,7 @@ async def list_book_titles(
                 source_id,
                 MIN(metadata->>'lecture_date') as lecture_date,
                 COUNT(*) as count
-            FROM rag_chunks
+            FROM vector_chunks
             WHERE collection = :collection
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
               {chunk_filter}
@@ -688,7 +821,7 @@ async def list_book_chapters(
                     metadata->>'segment_title' AS segment_title,
                     COUNT(*)                   AS chunk_count,
                     MIN((metadata->>'source_index')::int) AS min_source_index
-                FROM rag_chunks
+                FROM vector_chunks
                 WHERE collection = :collection
                   AND source_id = :source_id
                   AND metadata->>'segment_id' IS NOT NULL
@@ -755,7 +888,7 @@ async def get_context_chunks(
                         metadata->>'segment_title' AS segment_title,
                         '[]'::jsonb AS paragraph_numbers,
                         (metadata->>'source_index')::int AS source_index
-                    FROM rag_chunks
+                    FROM vector_chunks
                     WHERE {where}
                     ORDER BY source_index NULLS LAST
                     """
@@ -809,7 +942,7 @@ async def monitoring_chunks(
                     ROUND(SUM(octet_length(COALESCE(text, ''))) / 1048576.0, 2) AS text_mb,
                     MIN(updated_at) AS oldest,
                     MAX(updated_at) AS newest
-                FROM rag_chunks
+                FROM vector_chunks
                 WHERE collection = :c
                 GROUP BY chunk_type
                 """
@@ -872,7 +1005,7 @@ async def monitoring_chunks(
                         COUNT(*) AS chunk_count,
                         COALESCE(SUM(u.cnt), 0)::bigint AS usage_count,
                         COALESCE(SUM(lnk.cnt), 0)::bigint AS links_count
-                    FROM rag_chunks rc
+                    FROM vector_chunks rc
                     LEFT JOIN usage u ON u.chunk_id = rc.chunk_id
                     LEFT JOIN links lnk ON lnk.chunk_id = rc.chunk_id
                     WHERE rc.collection = :c
@@ -1018,7 +1151,7 @@ async def verify_collection_sparse(
 ) -> Dict[str, Any]:
     """Check collection config for sparse slot and sample points for non-empty BM25 vectors.
 
-    Used by migration / ``rag:upload --verify-qdrant`` to confirm data in Qdrant matches
+    Used by migration / ``rag:embed --verify-qdrant`` to confirm data in Qdrant matches
     Postgres monitoring counts and that ``text-sparse`` is populated.
     """
 
@@ -1179,3 +1312,101 @@ async def quote_explain(request: QuoteExplainRequest) -> QuoteExplainResponse:
     )
 
     return QuoteExplainResponse(text=result["text"], metadata=result["metadata"])
+
+
+# ---------------------------------------------------------------------------
+# Published Talks – für assistant:chunk in ragprep
+# ---------------------------------------------------------------------------
+
+class PublishedTurn(BaseModel):
+    turn_index: int
+    user_message: str
+    assistant_message: str
+
+
+class PublishedTalk(BaseModel):
+    talk_id: str
+    slug: str
+    title: str
+    summary: Optional[str] = None
+    mensch_name: str
+    turns: List[PublishedTurn]
+
+
+class PublishedTalksResponse(BaseModel):
+    collection: str
+    count: int
+    talks: List[PublishedTalk]
+
+
+@router.get(
+    "/talks/published",
+    response_model=PublishedTalksResponse,
+    summary="Published talks with turns for RAG chunking",
+)
+async def get_published_talks(
+    collection: str = Query(..., description="Qdrant collection / rag-collection name"),
+) -> PublishedTalksResponse:
+    """Return all talks with publishing_status='published' for the given collection,
+    including their turns ordered by turn_index. Used by ragprep assistant:chunk."""
+
+    engine = get_sync_engine()
+
+    def _fetch() -> List[PublishedTalk]:
+        with engine.begin() as conn:
+            talks_rows = conn.execute(
+                select(
+                    rag_talks_table.c.talk_id,
+                    rag_talks_table.c.slug,
+                    rag_talks_table.c.title,
+                    rag_talks_table.c.summary,
+                    rag_talks_table.c.mensch_name,
+                )
+                .where(
+                    rag_talks_table.c.collection == collection,
+                    rag_talks_table.c.publishing_status == "published",
+                )
+                .order_by(rag_talks_table.c.created_at)
+            ).mappings().all()
+
+            if not talks_rows:
+                return []
+
+            talk_ids = [str(r["talk_id"]) for r in talks_rows]
+            turns_rows = conn.execute(
+                select(
+                    rag_turns_table.c.talk_id,
+                    rag_turns_table.c.turn_index,
+                    rag_turns_table.c.user_message,
+                    rag_turns_table.c.assistant_message,
+                )
+                .where(rag_turns_table.c.talk_id.in_(talk_ids))
+                .order_by(rag_turns_table.c.talk_id, rag_turns_table.c.turn_index)
+            ).mappings().all()
+
+            turns_by_talk: Dict[str, List[PublishedTurn]] = {}
+            for tr in turns_rows:
+                tid = str(tr["talk_id"])
+                turns_by_talk.setdefault(tid, []).append(
+                    PublishedTurn(
+                        turn_index=int(tr["turn_index"]),
+                        user_message=str(tr["user_message"]),
+                        assistant_message=str(tr["assistant_message"]),
+                    )
+                )
+
+            return [
+                PublishedTalk(
+                    talk_id=str(r["talk_id"]),
+                    slug=str(r["slug"]),
+                    title=str(r["title"]),
+                    summary=str(r["summary"]) if r["summary"] else None,
+                    mensch_name=str(r["mensch_name"]),
+                    turns=turns_by_talk.get(str(r["talk_id"]), []),
+                )
+                for r in talks_rows
+            ]
+
+    import asyncio
+    talks = await asyncio.to_thread(_fetch)
+    return PublishedTalksResponse(collection=collection, count=len(talks), talks=talks)

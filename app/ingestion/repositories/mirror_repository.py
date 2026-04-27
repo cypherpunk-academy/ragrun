@@ -1,4 +1,4 @@
-"""Postgres mirror for chunk metadata."""
+"""Postgres mirror for Qdrant chunk payloads (vector_chunks table)."""
 from __future__ import annotations
 
 import asyncio
@@ -9,11 +9,11 @@ from sqlalchemy.engine import Engine
 
 from app.shared.models import ChunkRecord
 
-from app.db.tables import chunks_table
+from app.db.tables import vector_chunks_table
 
 
-class ChunkMirrorRepository:
-    """Persists chunk metadata into the relational mirror (Postgres by default)."""
+class VectorChunksRepository:
+    """Persists chunk metadata into vector_chunks (relational mirror of Qdrant)."""
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
@@ -42,12 +42,11 @@ class ChunkMirrorRepository:
                     "created_at": metadata.created_at,
                     "updated_at": metadata.updated_at,
                     "metadata": metadata.model_dump(mode="json"),
+                    "references": metadata.references,
                 }
             )
 
         # Deduplicate by (collection, chunk_id), keeping the row with latest updated_at.
-        # concepts.jsonl can contain multiple versions of the same concept (same chunk_id,
-        # different content); only one row per chunk_id is allowed in rag_chunks.
         seen: dict[str, dict] = {}
         for row in rows:
             cid = row["chunk_id"]
@@ -66,12 +65,12 @@ class ChunkMirrorRepository:
         def _write() -> None:
             with self.engine.begin() as connection:
                 connection.execute(
-                    delete(chunks_table).where(
-                        chunks_table.c.collection == collection,
-                        chunks_table.c.chunk_id.in_(chunk_ids),
+                    delete(vector_chunks_table).where(
+                        vector_chunks_table.c.collection == collection,
+                        vector_chunks_table.c.chunk_id.in_(chunk_ids),
                     )
                 )
-                connection.execute(insert(chunks_table), rows)
+                connection.execute(insert(vector_chunks_table), rows)
 
         await asyncio.to_thread(_write)
 
@@ -85,9 +84,9 @@ class ChunkMirrorRepository:
         def _delete() -> None:
             with self.engine.begin() as connection:
                 connection.execute(
-                    delete(chunks_table).where(
-                        chunks_table.c.collection == collection,
-                        chunks_table.c.chunk_id.in_(ids),
+                    delete(vector_chunks_table).where(
+                        vector_chunks_table.c.collection == collection,
+                        vector_chunks_table.c.chunk_id.in_(ids),
                     )
                 )
 
@@ -102,9 +101,9 @@ class ChunkMirrorRepository:
         def _select() -> List[str]:
             with self.engine.begin() as connection:
                 rows = connection.execute(
-                    select(chunks_table.c.chunk_id).where(
-                        chunks_table.c.collection == collection,
-                        chunks_table.c.source_id == source_id,
+                    select(vector_chunks_table.c.chunk_id).where(
+                        vector_chunks_table.c.collection == collection,
+                        vector_chunks_table.c.source_id == source_id,
                     )
                 ).fetchall()
                 return [r[0] for r in rows]
@@ -112,3 +111,5 @@ class ChunkMirrorRepository:
         return await asyncio.to_thread(_select)
 
 
+# Backward-compatible alias
+ChunkMirrorRepository = VectorChunksRepository
