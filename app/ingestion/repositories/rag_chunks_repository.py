@@ -170,6 +170,9 @@ class RagChunksRepository:
         *,
         shared_source_ids: list[str] | None = None,
         source_ids: list[str] | None = None,
+        chunk_types: list[str] | None = None,
+        only_unembedded: bool = False,
+        max_chunks: int | None = None,
     ) -> List[ChunkRecord]:
         """Chunks to embed into Qdrant collection ``assistant_rag_collection``.
 
@@ -178,10 +181,11 @@ class RagChunksRepository:
         - ``shared_source_ids == []``: no shared rows.
         - otherwise: shared rows whose ``source_id`` is in the whitelist.
 
-        Optional additional filter:
-        - ``source_ids``: when set, only rows whose ``source_id`` is in this list are
-          returned (applies to BOTH partitions). Use for per-source-id iteration from
-          the client to get progress feedback without a full-corpus embed call.
+        Optional additional filters:
+        - ``source_ids``: when non-empty, only rows whose ``source_id`` is in this list
+          (applies to BOTH partitions). Use for per-source-id iteration from the client.
+        - ``chunk_types``: when non-empty, only rows whose ``chunk_type`` is in this list.
+          When ``[]``, returns no rows (caller uses this to mean “no filter” only if omitted).
         """
 
         asst = rag_chunks_table.c.rag_partition == assistant_rag_collection
@@ -205,13 +209,25 @@ class RagChunksRepository:
         else:
             condition = partition_condition
 
+        if chunk_types is not None:
+            if len(chunk_types) == 0:
+                return []
+            condition = and_(condition, rag_chunks_table.c.chunk_type.in_(chunk_types))
+
         active = rag_chunks_table.c.deprecated_at.is_(None)
+        if only_unembedded:
+            condition = and_(condition, rag_chunks_table.c.embedded_at.is_(None))
 
         def _select() -> List[ChunkRecord]:
             with self.engine.begin() as connection:
-                result = connection.execute(
-                    select(rag_chunks_table).where(and_(condition, active))
+                stmt = (
+                    select(rag_chunks_table)
+                    .where(and_(condition, active))
+                    .order_by(rag_chunks_table.c.updated_at.asc(), rag_chunks_table.c.chunk_id.asc())
                 )
+                if max_chunks is not None and max_chunks > 0:
+                    stmt = stmt.limit(max_chunks)
+                result = connection.execute(stmt)
                 out: List[ChunkRecord] = []
                 for row in result.mappings():
                     out.append(_row_to_chunk_record(row))

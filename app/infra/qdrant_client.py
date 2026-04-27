@@ -12,15 +12,17 @@ logger = logging.getLogger(__name__)
 class QdrantClient:
     """Minimal client for the subset of Qdrant endpoints we need right now."""
 
-    def __init__(self, base_url: str, api_key: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str, api_key: str | None = None, timeout: float = 300.0) -> None:
         self.base_url = str(base_url).rstrip("/")
         self.timeout = timeout
+        # Single budget for connect/read/write/pool; avoids httpx.WriteTimeout on big upsert JSON.
+        self._httpx_timeout = httpx.Timeout(timeout)
         self.headers = {"api-key": api_key} if api_key else None
 
     async def get_version(self) -> str:
         """Return Qdrant server version from GET /."""
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.get(f"{self.base_url}/")
             response.raise_for_status()
             data = response.json()
@@ -29,7 +31,7 @@ class QdrantClient:
     async def get_collection_info(self, collection: str) -> dict[str, object] | None:
         """Return collection details (points_count, etc.) or None if not found."""
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.get(f"{self.base_url}/collections/{collection}")
             if response.status_code == 404:
                 return None
@@ -57,7 +59,7 @@ class QdrantClient:
                 sparse_vector_name: {"index": {"on_disk": False}}
             }
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.put(f"{self.base_url}/collections/{name}", json=payload)
             if response.status_code in (200, 201):
                 return
@@ -82,7 +84,7 @@ class QdrantClient:
 
         url = f"{self.base_url}/collections/{collection}/index{suffix}"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+            async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
                 # Qdrant payload index creation uses PUT (POST may yield 405 with empty body).
                 response = await client.put(url, json=payload)
                 if response.status_code in (200, 201):
@@ -115,7 +117,7 @@ class QdrantClient:
             return
 
         payload = {"points": list(points)}
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.put(
                 f"{self.base_url}/collections/{collection}/points?wait={'true' if wait else 'false'}",
                 json=payload,
@@ -144,7 +146,7 @@ class QdrantClient:
             return
 
         payload = {"points": ids, "wait": wait}
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.post(
                 f"{self.base_url}/collections/{collection}/points/delete",
                 json=payload,
@@ -154,7 +156,7 @@ class QdrantClient:
     async def list_collections(self) -> List[Mapping[str, object]]:
         """List all collections in Qdrant."""
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.get(f"{self.base_url}/collections")
             response.raise_for_status()
             data = response.json()
@@ -197,7 +199,7 @@ class QdrantClient:
             "with_vector": with_vectors,
             "with_payload": with_payload,
         }
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.post(
                 f"{self.base_url}/collections/{collection}/points",
                 json=payload,
@@ -225,7 +227,7 @@ class QdrantClient:
         if not updates:
             return
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             for upd in updates:
                 point_id = upd.get("id")
                 payload = upd.get("payload")
@@ -261,7 +263,7 @@ class QdrantClient:
         if filter_ is not None:
             payload["filter"] = filter_
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.post(
                 f"{self.base_url}/collections/{collection}/points/scroll",
                 json=payload,
@@ -307,7 +309,7 @@ class QdrantClient:
         if offset is not None:
             payload["offset"] = offset
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.post(
                 f"{self.base_url}/collections/{collection}/points/scroll",
                 json=payload,
@@ -375,7 +377,7 @@ class QdrantClient:
         if filter_ is not None:
             payload["filter"] = filter_
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.post(
                 f"{self.base_url}/collections/{collection}/points/search", json=payload
             )
@@ -422,7 +424,7 @@ class QdrantClient:
             return
 
         payload = {"points": list(points)}
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.put(
                 f"{self.base_url}/collections/{collection}/points/vectors"
                 f"?wait={'true' if wait else 'false'}",
@@ -468,7 +470,7 @@ class QdrantClient:
         if filter_ is not None:
             body["filter"] = filter_
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
             response = await client.post(
                 f"{self.base_url}/collections/{collection}/points/search",
                 json=body,

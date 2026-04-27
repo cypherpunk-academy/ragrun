@@ -239,3 +239,21 @@ rag_references_table = Table(
 Index("idx_rref_turn_id", rag_references_table.c.turn_id)
 Index("idx_rref_chunk_id", rag_references_table.c.chunk_id)
 
+
+# --- users: Dashboard users authenticated via GitHub OIDC ---
+users_table = Table(
+    "users",
+    metadata,
+    Column("user_id", UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("github_id", String(64), nullable=False, unique=True),
+    Column("github_login", String(128), nullable=False),
+    Column("email", String(256), nullable=True),
+    Column("name", String(256), nullable=True),
+    Column("avatar_url", Text, nullable=True),
+    Column("role", String(32), nullable=False, server_default="viewer"),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+Index("idx_users_github_login", users_table.c.github_login)
+

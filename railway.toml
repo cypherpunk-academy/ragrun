@@ -1,0 +1,26 @@
+[services.api]
+rootDirectory = "."
+
+[services.api.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[services.api.deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[services.ui]
+rootDirectory = "ui"
+
+[services.ui.build]
+builder = "NIXPACKS"
+
+[services.ui.deploy]
+startCommand = "npm run start -- --port $PORT"
+healthcheckPath = "/de/stats"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

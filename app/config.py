@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     qdrant_url: AnyHttpUrl = "http://qdrant:6333"
     qdrant_api_key: Optional[str] = None
+    # httpx connect/read/write/pool; large upsert bodies need a high write budget (default was 30s → WriteTimeout).
+    qdrant_timeout_seconds: float = 300.0
 
     postgres_dsn: str = "postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun"
     embeddings_base_url: AnyHttpUrl = "http://embedding-service:8001"

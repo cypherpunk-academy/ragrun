@@ -25,7 +25,7 @@ The Personal RAG Server is a specialized Retrieval Augmented Generation system d
 -   **LLM Integration**: DeepSeek Reasoner for advanced philosophical reasoning, with fallback support for other models
     (Legacy: previous Pinecone Assistants integration has been removed from the default runtime)
 -   **API Framework**: FastAPI for modern, async Python REST API
--   **Storage**: MongoDB for document metadata and system data
+-   **Storage**: PostgreSQL for application data and metadata
 
 ## System Architecture
 
@@ -46,7 +46,7 @@ The Personal RAG Server follows a modular architecture with clear separation of 
 
 3. **Database Layer**:
 
-    - **MongoDB**: Stores metadata, conversations, and system data
+    - **PostgreSQL**: Stores metadata, conversations, and system data
     - **Pinecone**: Vector database for semantic search with hybrid vector support and assistant integration
 
 4. **CLI Layer**:
@@ -105,7 +105,7 @@ scripts/
 ### Requirements
 
 -   **Python**: 3.9+ (3.11 recommended)
--   **MongoDB**: Running instance (local or remote)
+-   **PostgreSQL**: Running instance (local or remote)
 -   **Pinecone**: Account with API key and Assistant API access
 -   **DeepSeek**: API key for LLM access (Reasoner model recommended)
 -   **Hardware**: Apple Silicon Mac recommended for optimized embedding generation
@@ -138,9 +138,8 @@ scripts/
 Create a `.env` file in the project root with the following settings:
 
 ```
-# MongoDB Settings
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB_NAME=rag_server
+# PostgreSQL Settings
+RAGRUN_POSTGRES_DSN=postgresql+psycopg://ragrun:ragrun@localhost:15432/ragrun
 
 # Vector DB (Local ChromaDB)
 VECTOR_DB_TYPE=local
@@ -185,9 +184,9 @@ uvicorn app.main:app --reload
 
 Use these compose files depending on your environment:
 
--   `docker-compose.yml`: Base stack for the Personal RAG Server, local ChromaDB, embeddings service, and MongoDB. Suitable for general usage. Provides named volumes mapped to the project `data/` directories by default.
--   `docker-compose.override.yml`: Development overrides auto-loaded by Docker Compose. Adds hot-reload, local bind mounts to absolute paths on your machine, development CORS, and optional `mongo-express` under the `dev-tools` profile. Use with:
-    -   `docker-compose up` (auto-includes this override), or enable dev tools with `--profile dev-tools`.
+-   `docker-compose.yml`: Base stack for the Personal RAG Server, PostgreSQL, Qdrant, and embeddings service. Suitable for general usage.
+-   `docker-compose.override.yml`: Development overrides auto-loaded by Docker Compose. Adds hot-reload, local bind mounts to absolute paths on your machine, and development CORS. Use with:
+    -   `docker-compose up` (auto-includes this override).
 -   `docker-compose.prod.yml`: Production overrides for hardened settings (no reload, restricted CORS, resource limits, named volumes). Start with:
     -   `docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
 
@@ -196,9 +195,6 @@ Common commands:
 ```
 # Dev
 docker-compose up --build
-
-# Dev with mongo-express
-docker-compose --profile dev-tools up -d
 
 # Prod
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
@@ -701,7 +697,7 @@ python -m scripts.phase2.TODO_phase2_hybrid_test --vectorizer bm25_vectorizer.pk
 | `/api/v1/rag/collections`    | GET    | List vector collections                       |
 | `/api/v1/rag/books/titles`   | GET    | List distinct book titles (optionally author) |
 | `/api/v1/rag/store-chunks`   | POST   | Persist JSONL to `rag_chunks` (`collection_name` = `rag_partition`: assistant collection or `__shared__`) |
-| `/api/v1/rag/embed-chunks`   | POST   | Embed union of assistant `rag_partition` + whitelisted `__shared__` (`shared_source_ids`) → Qdrant + `vector_chunks` |
+| `/api/v1/rag/embed-chunks`   | POST   | Embed from `rag_chunks` (optional `shared_source_ids`, `source_ids`, **`chunk_types`**) → Qdrant + `vector_chunks` |
 | `/api/v1/rag/delete-chunks`  | POST   | Delete chunks by filter or all                |
 
 #### Auth and System
@@ -740,8 +736,7 @@ python -m scripts.phase2.TODO_phase2_hybrid_test --vectorizer bm25_vectorizer.pk
 
 | Variable                      | Description                     | Default                       |
 | ----------------------------- | ------------------------------- | ----------------------------- |
-| `MONGODB_URL`                 | MongoDB connection string       | `mongodb://localhost:27017`   |
-| `MONGODB_DB_NAME`             | MongoDB database name           | `rag_server`                  |
+| `RAGRUN_POSTGRES_DSN`         | PostgreSQL DSN                  | `postgresql+psycopg://ragrun:ragrun@localhost:15432/ragrun` |
 | `PINECONE_API_KEY`            | Pinecone API key                | -                             |
 | `PINECONE_ENVIRONMENT`        | Pinecone environment            | -                             |
 | `PINECONE_INDEX_NAME`         | Pinecone index name             | `rag-server-hybrid`           |

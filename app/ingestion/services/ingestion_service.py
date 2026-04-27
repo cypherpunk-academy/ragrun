@@ -111,10 +111,11 @@ class IngestionService:
         embeddings: Sequence[Sequence[float]] = []
         vector_size = 0
         if to_embed:
+            embed_batch_size = batch_size or self.default_batch_size
             embedding_batch = await self.embedding_client.embed_texts(
                 texts,
                 model_name=embedding_model,
-                batch_size=batch_size or self.default_batch_size,
+                batch_size=embed_batch_size,
             )
             if len(embedding_batch.embeddings) != len(to_embed):
                 raise RuntimeError(
@@ -140,8 +141,13 @@ class IngestionService:
             if self.sparse_embedder is not None and sparse_enabled:
                 sparse_vectors = self.sparse_embedder.embed_batch(texts)
 
-            points = self._build_qdrant_points(to_embed, embeddings, sparse_vectors=sparse_vectors)
-            await self.qdrant_client.upsert_points(collection, points)
+            points = list(
+                self._build_qdrant_points(to_embed, embeddings, sparse_vectors=sparse_vectors)
+            )
+            for i in range(0, len(points), embed_batch_size):
+                await self.qdrant_client.upsert_points(
+                    collection, points[i : i + embed_batch_size]
+                )
 
         # For unchanged chunks, update payload without re-embedding
         if unchanged:

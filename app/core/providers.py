@@ -30,7 +30,7 @@ def get_qdrant_client(timeout: float | None = None) -> QdrantClient:
     return QdrantClient(
         settings.qdrant_url,
         api_key=settings.qdrant_api_key,
-        timeout=timeout or 30.0,
+        timeout=timeout if timeout is not None else settings.qdrant_timeout_seconds,
     )
 
 

@@ -1,0 +1,18 @@
+{
+  "appTitle": "ragrun Agent Arena",
+  "stats": "Server Stats",
+  "talks": "Talks",
+  "login": "Sign in with GitHub",
+  "logout": "Sign out",
+  "settings": "Settings",
+  "assistantPlaceholder": "Select assistant",
+  "searchTalks": "Search talks",
+  "status": "Status",
+  "save": "Save",
+  "cancel": "Cancel",
+  "references": "References",
+  "usage": "Usage",
+  "agentArena": "Agent Arena",
+  "send": "Send",
+  "messagePlaceholder": "Message to assistant..."
+}

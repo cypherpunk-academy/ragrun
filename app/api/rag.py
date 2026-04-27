@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
-from ..shared.models import ChunkRecord, CHUNK_TYPE_ENUM
+from ..shared.models import CHUNK_TYPE_ENUM, ChunkRecord
 
 from ..config import settings
 from ..db.session import get_engine
@@ -99,6 +99,29 @@ class EmbedChunksRequest(BaseModel):
             "Applies to BOTH the assistant partition and __shared__. "
             "Omit or null to embed all rows (default behaviour). "
             "Use in combination with shared_source_ids for fine-grained per-source iteration."
+        ),
+    )
+    chunk_types: Optional[List[str]] = Field(
+        None,
+        description=(
+            "When set and non-empty, only embed rows whose chunk_type is in this list "
+            "(SQL column chunk_type). Omit for all types. Empty list embeds nothing."
+        ),
+    )
+    only_unembedded: bool = Field(
+        False,
+        description=(
+            "When true, only rows with embedded_at IS NULL are loaded from rag_chunks. "
+            "Useful for bounded incremental embedding loops."
+        ),
+    )
+    max_chunks: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5000,
+        description=(
+            "Optional hard cap for the number of chunks loaded from rag_chunks "
+            "for this request."
         ),
     )
 
@@ -278,11 +301,23 @@ async def embed_chunks(
 ) -> UploadChunksResponse:
     """Read all chunks for a collection from rag_chunks, embed into Qdrant, mirror vector_chunks."""
 
+    if request.chunk_types is not None:
+        allowed = frozenset(CHUNK_TYPE_ENUM)
+        for t in request.chunk_types:
+            if t not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid chunk_type: {t!r}",
+                )
+
     rag_repo = get_rag_chunks_repository()
     chunks = await rag_repo.list_chunk_records_for_embed(
         request.collection_name,
         shared_source_ids=request.shared_source_ids,
         source_ids=request.source_ids,
+        chunk_types=request.chunk_types,
+        only_unembedded=bool(request.only_unembedded),
+        max_chunks=request.max_chunks,
     )
 
     if not chunks:

@@ -72,7 +72,7 @@ class StubRagChunksRepository:
         self.upsert_calls: list[dict] = []
         self.list_records: list[ChunkRecord] = []
         self.mark_embedded_calls: list[tuple[str, list[str]]] = []
-        self.last_embed_query: tuple[str, object] | None = None
+        self.last_embed_kwargs: dict[str, object] | None = None
         self.deprecate_orphans_calls: list[tuple[str, dict[str, list[str]]]] = []
 
     async def upsert_chunks(self, rag_partition: str, chunks, *, default_scope=None):
@@ -87,9 +87,19 @@ class StubRagChunksRepository:
         return {sid: 0 for sid in active_by_source}
 
     async def list_chunk_records_for_embed(
-        self, assistant_rag_collection: str, *, shared_source_ids=None
+        self,
+        assistant_rag_collection: str,
+        *,
+        shared_source_ids=None,
+        source_ids=None,
+        chunk_types=None,
     ):
-        self.last_embed_query = (assistant_rag_collection, shared_source_ids)
+        self.last_embed_kwargs = {
+            "collection": assistant_rag_collection,
+            "shared_source_ids": shared_source_ids,
+            "source_ids": source_ids,
+            "chunk_types": chunk_types,
+        }
         return list(self.list_records)
 
     async def mark_embedded_for_embed_run(self, assistant_rag_collection: str, chunk_ids):
@@ -181,7 +191,12 @@ def test_embed_endpoint_runs_ingestion(client_with_stub):
     assert stub.upload_calls[0].get("skip_cleanup") is True
     assert rag_stub.mark_embedded_calls[0][0] == "test-collection"
     assert rag_stub.mark_embedded_calls[0][1] == ["test-001"]
-    assert rag_stub.last_embed_query == ("test-collection", None)
+    assert rag_stub.last_embed_kwargs == {
+        "collection": "test-collection",
+        "shared_source_ids": None,
+        "source_ids": None,
+        "chunk_types": None,
+    }
 
 
 def test_embed_endpoint_passes_shared_source_ids_whitelist(client_with_stub):
@@ -199,7 +214,25 @@ def test_embed_endpoint_passes_shared_source_ids_whitelist(client_with_stub):
 
     response = client.post("/api/v1/rag/embed-chunks", json=payload)
     assert response.status_code == 202
-    assert rag_stub.last_embed_query == ("test-collection", ["book-a", "lecture:xyz"])
+    assert rag_stub.last_embed_kwargs == {
+        "collection": "test-collection",
+        "shared_source_ids": ["book-a", "lecture:xyz"],
+        "source_ids": None,
+        "chunk_types": None,
+    }
+
+
+def test_embed_endpoint_rejects_invalid_chunk_type(client_with_stub):
+    """embed-chunks validates chunk_types against CHUNK_TYPE_ENUM."""
+    client, _, _ = client_with_stub
+    payload = {
+        "collection_name": "test-collection",
+        "skip_cleanup": True,
+        "chunk_types": ["not_a_real_type"],
+    }
+    response = client.post("/api/v1/rag/embed-chunks", json=payload)
+    assert response.status_code == 400
+    assert "Invalid chunk_type" in response.json()["detail"]
 
 
 def test_store_endpoint_validates_jsonl(client_with_stub):
