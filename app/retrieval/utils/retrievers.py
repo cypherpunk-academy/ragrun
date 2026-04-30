@@ -329,8 +329,15 @@ def _rrf_fuse(
 
     ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     fused: list[RetrievedSnippet] = []
-    for chunk_id, _ in ordered[:k_fused]:
-        fused.append(seen[chunk_id])
+    for chunk_id, fused_score in ordered[:k_fused]:
+        base = seen[chunk_id]
+        fused.append(
+            RetrievedSnippet(
+                text=base.text,
+                score=float(fused_score),
+                payload=base.payload,
+            )
+        )
     return fused
 
 
@@ -643,8 +650,8 @@ def build_context_numbered(
         if include_score:
             chunk_type = snippet_chunk_type_value(payload) or ""
             ct_str = f", {chunk_type}" if chunk_type else ""
-            # Width budget: final line may use .2f after normalization; .2f on raw is conservative.
-            score_str = f" (r: {float(snip.score):.2f}{ct_str})"
+            # Width budget: keep score formatting consistent with the final render.
+            score_str = f" (r: {float(snip.score):.4f}{ct_str})"
         else:
             score_str = ""
         prefixed = f"[{num}]{score_str} {text}"
@@ -653,19 +660,10 @@ def build_context_numbered(
         rows.append((snip, num, cid, text, meta))
         total += len(prefixed)
 
+    # Show *raw* retrieval scores (now that Hybrid stores the fused RRF score
+    # directly on `RetrievedSnippet.score`). No min-max normalization.
     raw_scores = [float(s.score) for s, *_ in rows]
-    smax = max(raw_scores) if raw_scores else 1.0
-    if smax <= 0:
-        smax = 1.0
-    normalize = smax > 1.001
-
-    def _disp_score(raw: float) -> float:
-        v = float(raw)
-        if normalize:
-            return min(1.0, max(0.0, v / smax))
-        return min(1.0, max(0.0, v))
-
-    disp_scores = [_disp_score(s.score) for s, *_ in rows]
+    disp_scores = raw_scores
 
     # #region agent log
     if include_score and raw_scores:
@@ -682,8 +680,6 @@ def build_context_numbered(
                             "data": {
                                 "raw_scores": raw_scores[:12],
                                 "disp_scores": disp_scores[:12],
-                                "smax": smax,
-                                "normalize": normalize,
                             },
                             "timestamp": int(time.time() * 1000),
                         }
@@ -705,9 +701,7 @@ def build_context_numbered(
             payload = snip.payload if isinstance(snip.payload, Mapping) else {}
             chunk_type = snippet_chunk_type_value(payload) or ""
             ct_str = f", {chunk_type}" if chunk_type else ""
-            # When batch mixes scales, dscore can be small; .1f would show 0.0 for e.g. 0.04.
-            r_fmt = ".2f" if normalize else ".1f"
-            score_str = f" (r: {dscore:{r_fmt}}{ct_str})"
+            score_str = f" (r: {dscore:.4f}{ct_str})"
         else:
             score_str = ""
         parts.append(f"[{num}]{score_str} {text}")

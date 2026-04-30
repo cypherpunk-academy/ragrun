@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -31,6 +33,29 @@ from app.retrieval.utils.retrievers import (
 )
 
 logger = logging.getLogger(__name__)
+_DEBUG_LOG_PATH = "/Users/michael/Reniets/Ai/ragkeep/.cursor/debug-6843d9.log"
+
+
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "6843d9",
+                        "runId": "pre-fix",
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
 
 # Max chars per chunk text in chunk_index_map; keep in sync with action_prompt.REFERENCE_TEXT_MAX_CHARS
 CHUNK_TEXT_MAX_CHARS = 2000
@@ -413,7 +438,8 @@ async def fetch_snippets_for_chunk_ids(
         row = await session.execute(
             text(
                 "SELECT chunk_id, text, metadata FROM vector_chunks "
-                "WHERE collection = :col AND chunk_id = ANY(:ids)"
+                "WHERE collection = :col AND chunk_id = ANY(:ids) "
+                "ORDER BY array_position(:ids, chunk_id)"
             ),
             {"col": collection_name, "ids": chunk_ids},
         )
@@ -571,7 +597,12 @@ async def _run_query(
 ) -> list[RetrievedSnippet]:
     """Execute a single query against Qdrant based on manifest spec."""
     chunk_types: list[str] = query_spec.get("chunk_types") or []
-    k = int(query_spec.get("k") or 8)
+    k_prompt = int(query_spec.get("k") or 8)
+    k_retrieve = int(query_spec.get("k_retrieve") or k_prompt)
+    if k_prompt < 1:
+        k_prompt = 1
+    if k_retrieve < k_prompt:
+        k_retrieve = k_prompt
     method = (query_spec.get("method") or "dense").lower()
     author = query_spec.get("author")
 
@@ -579,9 +610,9 @@ async def _run_query(
     book_types = chunk_types
 
     if method == "hybrid":
-        k_dense = k
-        k_sparse = k if settings.use_hybrid_retrieval else 0
-        k_fused = k
+        k_dense = k_retrieve
+        k_sparse = k_retrieve if settings.use_hybrid_retrieval else 0
+        k_fused = k_retrieve
         hits = await hybrid_retrieve(
             query=query,
             k_dense=k_dense,
@@ -598,7 +629,7 @@ async def _run_query(
     elif method == "sparse":
         hits = await sparse_retrieve(
             query=query,
-            k=k,
+            k=k_retrieve,
             worldview=worldview,
             book_types=book_types,
             collection=collection,
@@ -609,7 +640,7 @@ async def _run_query(
     else:
         hits = await dense_retrieve(
             query=query,
-            k=k,
+            k=k_retrieve,
             worldview=worldview,
             book_types=book_types,
             collection=collection,
@@ -617,7 +648,7 @@ async def _run_query(
             qdrant_client=qdrant_client,
             author=author,
         )
-    return hits
+    return hits[:k_prompt]
 
 
 async def run_queries_and_fill_prompt(
@@ -831,7 +862,7 @@ async def run_queries_and_fill_prompt(
     all_placeholder_names = {
         "primary-books", "secondary-books", "primary", "secondary",
         "concepts", "lemma-lookup", "fallback-books", "quotes", "steiner-books", "works",
-        "kontext",
+        "kontext", "talks",
     }
     slot_values: dict[str, str] = {
         "conversation_context": conversation_context or "(keine)",
@@ -874,11 +905,36 @@ async def run_queries_and_fill_prompt(
             "chunk_id": meta.get("chunk_id"),
             "chunk_type": meta.get("chunk_type", ""),
             "source_title": meta.get("source_title", ""),
+            "book_title": meta.get("book_title", ""),
             "segment_title": meta.get("segment_title", ""),
             "segment_index": meta.get("segment_index"),
             "lecture_date": meta.get("lecture_date", ""),
             "author": auth,
         })
+    # region agent log
+    _debug_log(
+        "H2",
+        "action_prompt_service.py:run_queries_and_fill_prompt",
+        "citations metadata title fields",
+        {
+            "total": len(citations_metadata),
+            "with_book_title": sum(
+                1
+                for c in citations_metadata
+                if isinstance(c.get("book_title"), str) and c.get("book_title", "").strip() != ""
+            ),
+            "duplicates_source_segment": sum(
+                1
+                for c in citations_metadata
+                if isinstance(c.get("source_title"), str)
+                and isinstance(c.get("segment_title"), str)
+                and c.get("source_title", "").strip().lower() == c.get("segment_title", "").strip().lower()
+                and c.get("source_title", "").strip() != ""
+            ),
+            "sample": citations_metadata[:3],
+        },
+    )
+    # endregion
 
     # Serialize snippets for cache (execute-prompt needs them for citation evaluation)
     retrieved_serialized: list[dict[str, Any]] = [

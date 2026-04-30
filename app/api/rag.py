@@ -748,23 +748,34 @@ async def list_book_titles(
         if not types_filter:
             types_filter = None
 
-    # Query for distinct book_title with counts (includes source_id and lecture_date for context selection)
+    # Query for distinct book_title with counts (includes source_id and lecture_date for context selection).
+    # After rag_partition migration, shared book corpus lives under collection "__shared__".
+    collection_scope = """
+              AND (
+                collection = :collection
+                OR (
+                  collection = '__shared__'
+                  AND chunk_type IN ('book', 'secondary_book')
+                )
+              )
+    """
     if include_author:
         # Prefer explicit book_title; fall back to source_title for older ingestions
         query = text(
             """
             SELECT
-                metadata->>'chunk_type' as chunk_type,
+                chunk_type,
                 metadata->>'author' as author,
                 COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
                 source_id,
                 MIN(metadata->>'lecture_date') as lecture_date,
                 COUNT(*) as count
             FROM vector_chunks
-            WHERE collection = :collection
+            WHERE 1=1
+              {collection_scope}
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
               {chunk_filter}
-            GROUP BY metadata->>'chunk_type', metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title'), source_id
+            GROUP BY chunk_type, metadata->>'author', COALESCE(metadata->>'book_title', metadata->>'source_title'), source_id
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
@@ -774,16 +785,17 @@ async def list_book_titles(
         query = text(
             """
             SELECT
-                metadata->>'chunk_type' as chunk_type,
+                chunk_type,
                 COALESCE(metadata->>'book_title', metadata->>'source_title') as book_title,
                 source_id,
                 MIN(metadata->>'lecture_date') as lecture_date,
                 COUNT(*) as count
             FROM vector_chunks
-            WHERE collection = :collection
+            WHERE 1=1
+              {collection_scope}
               AND COALESCE(metadata->>'book_title', metadata->>'source_title') IS NOT NULL
               {chunk_filter}
-            GROUP BY metadata->>'chunk_type', COALESCE(metadata->>'book_title', metadata->>'source_title'), source_id
+            GROUP BY chunk_type, COALESCE(metadata->>'book_title', metadata->>'source_title'), source_id
             HAVING COUNT(*) >= :min_count
             ORDER BY count DESC, book_title
             LIMIT :limit
@@ -793,10 +805,14 @@ async def list_book_titles(
     chunk_filter_sql = ""
     params: Dict[str, Any] = {"collection": collection, "min_count": min_count, "limit": limit}
     if types_filter:
-        chunk_filter_sql = "AND metadata->>'chunk_type' = ANY(:chunk_types)"
+        chunk_filter_sql = "AND chunk_type = ANY(:chunk_types)"
         params["chunk_types"] = types_filter
     # Inject the optional filter into the query text
-    query = text(query.text.replace("{chunk_filter}", chunk_filter_sql))
+    query = text(
+        query.text.replace("{chunk_filter}", chunk_filter_sql).replace(
+            "{collection_scope}", collection_scope
+        )
+    )
 
     with engine.connect() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -857,7 +873,13 @@ async def list_book_chapters(
                     COUNT(*)                   AS chunk_count,
                     MIN((metadata->>'source_index')::int) AS min_source_index
                 FROM vector_chunks
-                WHERE collection = :collection
+                WHERE (
+                        collection = :collection
+                        OR (
+                            collection = '__shared__'
+                            AND chunk_type IN ('book', 'secondary_book')
+                        )
+                      )
                   AND source_id = :source_id
                   AND metadata->>'segment_id' IS NOT NULL
                   AND metadata->>'segment_id' != ''
@@ -899,7 +921,10 @@ async def get_context_chunks(
 
     def _fetch(seg_id: Optional[str], para: Optional[int]) -> list:
         conditions = [
-            "collection = :collection",
+            "("
+            "collection = :collection "
+            "OR (collection = '__shared__' AND chunk_type IN ('book', 'secondary_book'))"
+            ")",
             "source_id = :source_id",
         ]
         params: Dict[str, Any] = {"collection": collection, "source_id": source_id}
@@ -931,13 +956,76 @@ async def get_context_chunks(
                 params,
             ).fetchall()
 
-    rows = _fetch(segment_id, paragraph)
+    rows = list(_fetch(segment_id, paragraph))
     fallback_used = False
 
     # Fallback: paragraph not found → entire chapter/source
     if not rows and paragraph is not None:
-        rows = _fetch(segment_id, None)
+        rows = list(_fetch(segment_id, None))
         fallback_used = True
+
+    # Paragraph may continue in following chunks without a new "N|" at chunk start.
+    # Only include chunks whose source_index forms a strict consecutive chain after
+    # the last hit (max_idx). A broad "no paragraph marker at start" filter would also
+    # match second chunks of unrelated later paragraphs (same segment, index gaps).
+    if paragraph is not None and rows and not fallback_used:
+        idx_vals = [r[5] for r in rows if r[5] is not None]
+        if idx_vals:
+            max_idx = max(idx_vals)
+            # Same segment as the hit (whole-book query may omit segment filter)
+            cont_seg: Optional[str] = segment_id if segment_id else (rows[0][2] or None)
+            seg_cond: str
+            cont_params: Dict[str, Any] = {
+                "collection": collection,
+                "source_id": source_id,
+                "max_idx": max_idx,
+                "idx_hi": max_idx + 120,
+            }
+            if cont_seg:
+                seg_cond = "metadata->>'segment_id' = :cont_seg"
+                cont_params["cont_seg"] = cont_seg
+            else:
+                seg_cond = "(metadata->>'segment_id' IS NULL OR metadata->>'segment_id' = '')"
+            cont_sql = f"""
+                SELECT
+                    chunk_id,
+                    text,
+                    metadata->>'segment_id'    AS segment_id,
+                    metadata->>'segment_title' AS segment_title,
+                    '[]'::jsonb AS paragraph_numbers,
+                    (metadata->>'source_index')::int AS source_index
+                FROM vector_chunks
+                WHERE (
+                        collection = :collection
+                        OR (
+                            collection = '__shared__'
+                            AND chunk_type IN ('book', 'secondary_book')
+                        )
+                      )
+                  AND source_id = :source_id
+                  AND {seg_cond}
+                  AND (metadata->>'source_index')::int > :max_idx
+                  AND (metadata->>'source_index')::int <= :idx_hi
+                ORDER BY source_index NULLS LAST
+                """
+            with engine.connect() as conn:
+                candidates = conn.execute(text(cont_sql), cont_params).fetchall()
+            by_idx: dict[int, tuple] = {}
+            for r in candidates:
+                si = r[5]
+                if si is not None:
+                    by_idx[int(si)] = r
+            continuation: list[tuple] = []
+            nxt = max_idx + 1
+            while nxt in by_idx:
+                continuation.append(by_idx[nxt])
+                nxt += 1
+            seen = {r[0] for r in rows}
+            for r in continuation:
+                if r[0] not in seen:
+                    seen.add(r[0])
+                    rows.append(r)
+            rows.sort(key=lambda r: (r[5] is None, r[5] or 0))
 
     chunks = [
         {

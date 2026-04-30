@@ -36,6 +36,29 @@ from app.retrieval.models import RetrievedSnippet
 logger = logging.getLogger(__name__)
 
 CITATION_THRESHOLD = 0.3
+_DEBUG_LOG_PATH = "/Users/michael/Reniets/Ai/ragkeep/.cursor/debug-6843d9.log"
+
+
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "6843d9",
+                        "runId": "pre-fix",
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
 
 
 def _author_for_reference(meta: dict, c: dict) -> str:
@@ -407,23 +430,95 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest, reques
                 meta = crs_meta_by_id.get(cid, {})
                 c = next((m for m in citations_metadata if m.get("chunk_id") == cid), {})
                 eval_entry = eval_by_cid.get(cid)
+                chosen_source_title = meta.get("source_title") or c.get("source_title", "")
+                chosen_segment_title = meta.get("segment_title") or c.get("segment_title", "")
+                chosen_description = (
+                    (eval_entry or {}).get("description")
+                    or c.get("segment_title")
+                    or c.get("source_title", "")
+                )
+                # region agent log
+                _debug_log(
+                    "H1",
+                    "action_prompt.py:references_enriched_loop",
+                    "reference title candidates",
+                    {
+                        "chunk_id": cid,
+                        "chunk_type_meta": meta.get("chunk_type"),
+                        "meta_source_title": meta.get("source_title"),
+                        "meta_segment_title": meta.get("segment_title"),
+                        "meta_book_title": meta.get("book_title"),
+                        "citation_source_title": c.get("source_title"),
+                        "citation_segment_title": c.get("segment_title"),
+                        "chosen_source_title": chosen_source_title,
+                        "chosen_segment_title": chosen_segment_title,
+                        "chosen_description": chosen_description,
+                        "has_eval_description": bool((eval_entry or {}).get("description")),
+                    },
+                )
+                # endregion
+                if (
+                    isinstance(chosen_source_title, str)
+                    and isinstance(chosen_segment_title, str)
+                    and chosen_source_title.strip()
+                    and chosen_segment_title.strip()
+                    and chosen_source_title.strip().lower() == chosen_segment_title.strip().lower()
+                ):
+                    # region agent log
+                    _debug_log(
+                        "H4",
+                        "action_prompt.py:references_enriched_loop",
+                        "detected duplicate source/segment title",
+                        {
+                            "chunk_id": cid,
+                            "chunk_type_meta": meta.get("chunk_type"),
+                            "source_title": chosen_source_title,
+                            "segment_title": chosen_segment_title,
+                            "book_title": meta.get("book_title") or c.get("book_title"),
+                        },
+                    )
+                    # endregion
                 references_enriched.append({
                     "chunk_id": cid,
-                    "description": (
-                        (eval_entry or {}).get("description")
-                        or c.get("segment_title")
-                        or c.get("source_title", "")
-                    ),
+                    "description": chosen_description,
                     "relevance": float(
                         (eval_entry or {}).get("relevance", chunk_score_by_id.get(cid, 0.5))
                     ),
                     "chunk_type": meta.get("chunk_type") or c.get("chunk_type", ""),
-                    "source_title": meta.get("source_title") or c.get("source_title", ""),
-                    "segment_title": meta.get("segment_title") or c.get("segment_title", ""),
+                    "source_title": chosen_source_title,
+                    "segment_title": chosen_segment_title,
                     "author": _author_for_reference(meta, c),
                     "text": (meta.get("text") or "")[:REFERENCE_TEXT_MAX_CHARS],
                     "cited": cid in bracket_primary_cids,
                 })
+            # region agent log
+            _debug_log(
+                "H3",
+                "action_prompt.py:execute_prompt",
+                "references_enriched summary",
+                {
+                    "count": len(references_enriched),
+                    "count_duplicate_titles": sum(
+                        1
+                        for r in references_enriched
+                        if isinstance(r.get("source_title"), str)
+                        and isinstance(r.get("segment_title"), str)
+                        and r.get("source_title", "").strip().lower() == r.get("segment_title", "").strip().lower()
+                        and r.get("source_title", "").strip() != ""
+                    ),
+                    "sample": [
+                        {
+                            "chunk_id": r.get("chunk_id"),
+                            "chunk_type": r.get("chunk_type"),
+                            "source_title": r.get("source_title"),
+                            "segment_title": r.get("segment_title"),
+                            "description": r.get("description"),
+                        }
+                        for r in references_enriched[:3]
+                    ],
+                },
+            )
+            # endregion
 
             enqueue_record_metadata_only(
                 EventRecorder(),
