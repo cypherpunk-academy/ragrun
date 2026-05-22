@@ -5,7 +5,6 @@ from sqlalchemy import (
     ARRAY,
     JSON,
     BigInteger,
-    Boolean,
     Column,
     DateTime,
     Float,
@@ -168,25 +167,22 @@ rag_talks_table = Table(
     metadata,
     Column("talk_id", UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")),
     Column("collection", String(128), nullable=False),
-    Column("mensch_id", String(128), nullable=False, server_default=""),
-    Column("mensch_name", String(256), nullable=False, server_default=""),
-    Column("slug", String(256), nullable=False),
+    Column("user_id", String(128), nullable=False, server_default=""),
+    Column("user_name", String(256), nullable=False, server_default=""),
     Column("title", Text, nullable=False),
-    Column("action_id", String(128), nullable=True),
+    Column("personality", String(128), nullable=True),
     Column("summary", Text, nullable=True),
     Column("usage", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
     Column("kontext_meta", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
     Column("kontext_source_id", Text, nullable=True),
-    Column("kontext_segment_id", Text, nullable=True),
+    Column("kontext_paragraph_id", Text, nullable=True),
     Column("kontext_paragraph", Text, nullable=True),
     Column("publishing_status", String(16), nullable=False, server_default="draft"),
-    Column("bug_description", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )
 
 Index("idx_rt_collection", rag_talks_table.c.collection)
-Index("idx_rt_collection_slug", rag_talks_table.c.collection, rag_talks_table.c.slug, unique=True)
 Index("idx_rt_created_at", rag_talks_table.c.created_at)
 
 
@@ -202,13 +198,11 @@ rag_turns_table = Table(
         nullable=False,
     ),
     Column("turn_index", Integer, nullable=False),
-    Column("action_id", String(128), nullable=True),
-    Column("assistant_personality", String(128), nullable=True),
+    Column("personality", String(128), nullable=True),
     Column("user_message", Text, nullable=False),
     Column("assistant_message", Text, nullable=False),
     Column("usage", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
     Column("collection", String(128), nullable=True),
-    Column("is_relay", Boolean, nullable=False, server_default="false"),
     Column("chunk_index_map", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
     Column("kontext_meta", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),

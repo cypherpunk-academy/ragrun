@@ -1449,10 +1449,9 @@ class PublishedTurn(BaseModel):
 
 class PublishedTalk(BaseModel):
     talk_id: str
-    slug: str
     title: str
     summary: Optional[str] = None
-    mensch_name: str
+    user_name: str
     turns: List[PublishedTurn]
 
 
@@ -1480,10 +1479,9 @@ async def get_published_talks(
             talks_rows = conn.execute(
                 select(
                     rag_talks_table.c.talk_id,
-                    rag_talks_table.c.slug,
                     rag_talks_table.c.title,
                     rag_talks_table.c.summary,
-                    rag_talks_table.c.mensch_name,
+                    rag_talks_table.c.user_name,
                 )
                 .where(
                     rag_talks_table.c.collection == collection,
@@ -1521,10 +1519,9 @@ async def get_published_talks(
             return [
                 PublishedTalk(
                     talk_id=str(r["talk_id"]),
-                    slug=str(r["slug"]),
                     title=str(r["title"]),
                     summary=str(r["summary"]) if r["summary"] else None,
-                    mensch_name=str(r["mensch_name"]),
+                    user_name=str(r["user_name"] or ""),
                     turns=turns_by_talk.get(str(r["talk_id"]), []),
                 )
                 for r in talks_rows

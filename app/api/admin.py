@@ -72,8 +72,7 @@ class TalkSummary(BaseModel):
     talk_id: str
     collection: str
     title: str
-    slug: str
-    mensch_name: str
+    user_name: str
     publishing_status: str
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -118,11 +117,9 @@ class TalkDetails(BaseModel):
     talk_id: str
     collection: str
     title: str
-    slug: str
-    mensch_name: str
+    user_name: str
     publishing_status: str
     summary: Optional[str] = None
-    bug_description: Optional[str] = None
     turns: List[TalkTurn]
 
 
@@ -310,8 +307,7 @@ async def list_talks(
                 needle = f"%{q.strip()}%"
                 filters.append(
                     (rag_talks_table.c.title.ilike(needle))
-                    | (rag_talks_table.c.slug.ilike(needle))
-                    | (rag_talks_table.c.mensch_name.ilike(needle))
+                    | (rag_talks_table.c.user_name.ilike(needle))
                 )
 
             where_clause = and_(*filters) if filters else None
@@ -325,8 +321,7 @@ async def list_talks(
                     rag_talks_table.c.talk_id,
                     rag_talks_table.c.collection,
                     rag_talks_table.c.title,
-                    rag_talks_table.c.slug,
-                    rag_talks_table.c.mensch_name,
+                    rag_talks_table.c.user_name,
                     rag_talks_table.c.publishing_status,
                     rag_talks_table.c.created_at,
                     rag_talks_table.c.updated_at,
@@ -337,8 +332,7 @@ async def list_talks(
                     rag_talks_table.c.talk_id,
                     rag_talks_table.c.collection,
                     rag_talks_table.c.title,
-                    rag_talks_table.c.slug,
-                    rag_talks_table.c.mensch_name,
+                    rag_talks_table.c.user_name,
                     rag_talks_table.c.publishing_status,
                     rag_talks_table.c.created_at,
                     rag_talks_table.c.updated_at,
@@ -358,8 +352,7 @@ async def list_talks(
                         talk_id=str(row.talk_id),
                         collection=str(row.collection),
                         title=str(row.title),
-                        slug=str(row.slug),
-                        mensch_name=str(row.mensch_name),
+                        user_name=str(row.user_name or ""),
                         publishing_status=str(row.publishing_status),
                         created_at=row.created_at.isoformat() if row.created_at else None,
                         updated_at=row.updated_at.isoformat() if row.updated_at else None,
@@ -383,11 +376,9 @@ async def get_talk_details(talk_id: str) -> TalkDetails:
                     rag_talks_table.c.talk_id,
                     rag_talks_table.c.collection,
                     rag_talks_table.c.title,
-                    rag_talks_table.c.slug,
-                    rag_talks_table.c.mensch_name,
+                    rag_talks_table.c.user_name,
                     rag_talks_table.c.publishing_status,
                     rag_talks_table.c.summary,
-                    rag_talks_table.c.bug_description,
                 ).where(rag_talks_table.c.talk_id == talk_id)
             ).first()
             if talk is None:
@@ -466,11 +457,9 @@ async def get_talk_details(talk_id: str) -> TalkDetails:
                 talk_id=str(talk.talk_id),
                 collection=str(talk.collection),
                 title=str(talk.title),
-                slug=str(talk.slug),
-                mensch_name=str(talk.mensch_name),
+                user_name=str(talk.user_name or ""),
                 publishing_status=str(talk.publishing_status),
                 summary=talk.summary,
-                bug_description=talk.bug_description,
                 turns=[
                     TalkTurn(
                         turn_id=str(turn.turn_id),
