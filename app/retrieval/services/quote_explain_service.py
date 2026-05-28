@@ -49,13 +49,40 @@ def _load_quote_explain_prompt(*, language: str = "de-DE") -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
+def _build_system_content(*, writing_style: str, language: str = "de-DE") -> str:
+    """Sprache, Länge und optional writing-style aus dem Assistant-Manifest."""
+    base = (
+        "Du erklärst Zitate aus philosophischen und geisteswissenschaftlichen Texten."
+    )
+    if language.startswith("en"):
+        lang_rule = (
+            "Das Zitat bleibt im Original (Englisch); die Erklärung schreibst du auf Deutsch "
+            "(ca. 200–300 Wörter)."
+        )
+    else:
+        lang_rule = (
+            "Antworte auf Deutsch. Halte die Erklärung prägnant (ca. 200–300 Wörter)."
+        )
+    parts: list[str] = []
+    style = writing_style.strip()
+    if style:
+        parts.append(style)
+    parts.extend([base, lang_rule])
+    return "\n\n".join(parts)
+
+
 def _build_quote_explain_prompt(
-    *, quote: str, context: str, language: str = "de-DE"
+    *,
+    quote: str,
+    context: str,
+    language: str = "de-DE",
+    writing_style: str = "",
 ) -> list[Mapping[str, str]]:
     template = _load_quote_explain_prompt(language=language)
     user_content = template.format(quote=quote.strip(), context=context)
-    # Erklärung immer auf Deutsch; Zitat bleibt in Originalsprache
-    system_content = "Antworte auf Deutsch. Halte die Erklärung prägnant (ca. 200–300 Wörter)."
+    system_content = _build_system_content(
+        writing_style=writing_style, language=language
+    )
     return [
         {"role": "system", "content": system_content},
         {"role": "user", "content": user_content},
@@ -84,6 +111,9 @@ async def explain_quote(
     collection = manifest.get("rag-collection") or assistant
     if not isinstance(collection, str):
         collection = assistant
+    writing_style = manifest.get("writing-style")
+    if not isinstance(writing_style, str):
+        writing_style = ""
 
     # Retrieve: 4 from primary books, 4 from lectures (talk/talk_summary)
     hits_books = await dense_retrieve(
@@ -113,13 +143,18 @@ async def explain_quote(
     if not context_str.strip():
         context_str = "(Kein Kontext verfügbar.)"
 
-    messages = _build_quote_explain_prompt(quote=quote, context=context_str, language=language)
+    messages = _build_quote_explain_prompt(
+        quote=quote,
+        context=context_str,
+        language=language,
+        writing_style=writing_style,
+    )
     explanation = await chat_client.chat(
         messages,
         temperature=0.3,
         max_tokens=MAX_EXPLANATION_TOKENS,
     )
-    explanation = explanation.strip()
+    explanation = explanation.content.strip()
 
     # Combined output: quote (original) + Erklärung (immer Deutsch)
     combined_text = f"{quote}\n\nErklärung:\n\n{explanation}"
