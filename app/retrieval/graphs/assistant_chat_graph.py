@@ -48,7 +48,6 @@ from app.retrieval.graphs.intents import INTENT_CHUNK_TYPE_MAP, SKIP_RETRIEVAL_I
 from app.retrieval.prompts.philo_von_freisinn import load_system_prompt
 from app.retrieval.models import RetrievedSnippet
 from app.retrieval.chains.authentic_concept_explain import run_authentic_concept_explain_chain
-from app.retrieval.services.graph_event_recorder import GraphEventRecorder
 from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_usage
 from app.services.pricing_service import calculate_cost
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
@@ -269,48 +268,6 @@ async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
 # Node 1b: lemma_lookup
 # ---------------------------------------------------------------------------
 
-async def _record_lemma_lookup_event(
-    *,
-    config: RunnableConfig,
-    user_message: str,
-    collection: str,
-    intent: str,
-    intent_confidence: float,
-    extracted_lemma: str,
-    lemma_found: bool,
-    begriff_decision: str,
-) -> None:
-    """Best-effort: write classification + begriff decision to event_metadata/event_content."""
-    try:
-        thread_id = (config.get("configurable") or {}).get("thread_id", "") or str(uuid.uuid4())
-        recorder = GraphEventRecorder()
-        await recorder.record_event(
-            graph_event_id=thread_id,
-            graph_name="assistant_chat",
-            step="lemma_lookup",
-            concept=extracted_lemma or user_message[:200],
-            collection=collection,
-            query_text=user_message,
-            prompt_messages={
-                "classification": {
-                    "intent": intent,
-                    "confidence": intent_confidence,
-                    "extracted_lemma": extracted_lemma,
-                },
-                "begriff_decision": begriff_decision,
-            },
-            metadata={
-                "intent": intent,
-                "intent_confidence": intent_confidence,
-                "extracted_lemma": extracted_lemma,
-                "lemma_found": lemma_found,
-                "begriff_decision": begriff_decision,
-            },
-        )
-    except Exception:
-        logger.warning("lemma_lookup event recording failed (best-effort)", exc_info=True)
-
-
 async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
     raw_lemma = state.get("extracted_lemma", "")
     lemma = _normalize_lemma(raw_lemma)
@@ -323,16 +280,6 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
             "ace_progress",
             {"step": "lemma_lookup", "label": "Begriff nicht gefunden, ich bestimme ihn neu (das kann eine Weile dauern)."},
             config=config,
-        )
-        await _record_lemma_lookup_event(
-            config=config,
-            user_message=state["user_message"],
-            collection=state.get("collection_name", ""),
-            intent=intent,
-            intent_confidence=intent_confidence,
-            extracted_lemma=raw_lemma,
-            lemma_found=False,
-            begriff_decision="retrieve_chunks",
         )
         return {
             "lemma_found": False,
@@ -371,16 +318,6 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
             {"step": "lemma_lookup", "label": "Begriff gefunden, gebe ihn zurück"},
             config=config,
         )
-        await _record_lemma_lookup_event(
-            config=config,
-            user_message=state["user_message"],
-            collection=state.get("collection_name", ""),
-            intent=intent,
-            intent_confidence=intent_confidence,
-            extracted_lemma=lemma,
-            lemma_found=True,
-            begriff_decision="use_begriff_chunk",
-        )
         return {
             "lemma_found": True,
             "begriff_chunk": {
@@ -396,16 +333,6 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
         "ace_progress",
         {"step": "lemma_lookup", "label": "Begriff nicht gefunden, ich bestimme ihn neu (das kann eine Weile dauern)."},
         config=config,
-    )
-    await _record_lemma_lookup_event(
-        config=config,
-        user_message=state["user_message"],
-        collection=state.get("collection_name", ""),
-        intent=intent,
-        intent_confidence=intent_confidence,
-        extracted_lemma=lemma,
-        lemma_found=False,
-        begriff_decision="run_authentic_concept_explain",
     )
     return {
         "lemma_found": False,
@@ -757,31 +684,6 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
                 "Zu diesem Thema finde ich in meinen Quellen keinen ausreichenden Beleg.\n\n"
                 + response
             )
-
-    # Event logging (best-effort, Schritt 7)
-    try:
-        from app.retrieval.services.graph_event_recorder import GraphEventRecorder
-        recorder = GraphEventRecorder()
-        thread_id = (config.get("configurable") or {}).get("thread_id", "")
-        await recorder.record_event(
-            graph_event_id=thread_id or str(uuid.uuid4()),
-            graph_name="assistant_chat",
-            step="finalize",
-            concept=state["user_message"][:200],
-            collection=state.get("collection_name"),
-            query_text=state["user_message"],
-            response_text=response,
-            retrieval_mode=state.get("retrieval_mode"),
-            sufficiency=state.get("sufficiency"),
-            context_refs=list(state.get("context_refs") or []),
-            metadata={
-                "assistant_slug":    state.get("assistant_slug"),
-                "intent":            state.get("intent"),
-                "intent_confidence": state.get("intent_confidence"),
-            },
-        )
-    except Exception:
-        logger.warning("Chat event logging failed (best-effort)", exc_info=True)
 
     return {
         "final_response": response,

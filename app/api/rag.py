@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 import uuid
 from dataclasses import asdict
 from functools import lru_cache
@@ -14,17 +16,17 @@ from ..shared.models import CHUNK_TYPE_ENUM, ChunkRecord
 
 from ..config import settings
 from ..db.session import get_engine
-from ..db.tables import event_metadata_table, vector_chunks_table, rag_talks_table, rag_turns_table
+from ..db.tables import vector_chunks_table, rag_talks_table, rag_turns_table
 from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine, get_sparse_embedder
 from ..retrieval.services.providers import get_deepseek_chat, get_embedding_client as get_retrieval_embedding
 from ..retrieval.services.quote_explain_service import explain_quote
-from ..retrieval.services.event_recorder import EventRecorder, enqueue_record_event, enqueue_record_metadata_only
 from ..core.telemetry import telemetry_client as ingestion_telemetry
 from ..ingestion.repositories import RagChunksRepository, VectorChunksRepository
 from ..ingestion.services import IngestionService
 from ..infra.sparse_embedder import SparseEmbedder
 
 router = APIRouter(prefix="/rag", tags=["rag"])
+logger = logging.getLogger(__name__)
 
 
 class StoreChunksRequest(BaseModel):
@@ -58,6 +60,12 @@ class StoreChunksResponse(BaseModel):
     deprecated_by_source: Dict[str, int] = Field(
         default_factory=dict,
         description="Per source_id: rows marked deprecated for that source in this request.",
+    )
+    upsert_seconds: Optional[float] = Field(
+        None, description="Server time spent in batch upsert (diagnostics)."
+    )
+    deprecate_seconds: Optional[float] = Field(
+        None, description="Server time spent in orphan deprecation (diagnostics)."
     )
 
 
@@ -269,24 +277,48 @@ async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
         )
 
     rag_repo = get_rag_chunks_repository()
+    t0 = time.perf_counter()
     await rag_repo.upsert_chunks(
         request.collection_name,
         chunks,
         default_scope=request.default_scope,
     )
+    upsert_seconds = time.perf_counter() - t0
+
     active_by_source: Dict[str, List[str]] = {}
+    chunk_types_by_source: Dict[str, set[str]] = {}
     for c in chunks:
         sid = c.metadata.source_id
         active_by_source.setdefault(sid, []).append(c.metadata.chunk_id)
+        chunk_types_by_source.setdefault(sid, set()).add(c.metadata.chunk_type)
+
+    t1 = time.perf_counter()
     deprecated_by_source = await rag_repo.deprecate_orphans_for_sources(
-        request.collection_name, active_by_source
+        request.collection_name,
+        active_by_source,
+        chunk_types_by_source={
+            sid: sorted(types) for sid, types in chunk_types_by_source.items()
+        },
     )
+    deprecate_seconds = time.perf_counter() - t1
     deprecated = sum(deprecated_by_source.values())
+
+    logger.info(
+        "store-chunks partition=%s stored=%d deprecated=%d upsert=%.2fs deprecate=%.2fs",
+        request.collection_name,
+        len(chunks),
+        deprecated,
+        upsert_seconds,
+        deprecate_seconds,
+    )
+
     return StoreChunksResponse(
         collection=request.collection_name,
         stored=len(chunks),
         deprecated=deprecated,
         deprecated_by_source=deprecated_by_source,
+        upsert_seconds=round(upsert_seconds, 3),
+        deprecate_seconds=round(deprecate_seconds, 3),
     )
 
 
@@ -355,23 +387,6 @@ async def embed_chunks(
     await rag_repo.mark_embedded_for_embed_run(
         request.collection_name,
         [c.metadata.chunk_id for c in chunks],
-    )
-
-    chunk_ids = [c.id for c in chunks] if chunks else None
-    enqueue_record_metadata_only(
-        EventRecorder(),
-        endpoint="rag/embed-chunks",
-        collection=request.collection_name,
-        metadata={
-            "requested": result.requested,
-            "ingested": result.ingested,
-            "stale_deleted": result.stale_deleted,
-            "duplicates": result.duplicates,
-            "unchanged": result.unchanged,
-            "changed": result.changed,
-            "new": result.new,
-        },
-        chunk_ids=chunk_ids[:500] if chunk_ids and len(chunk_ids) > 500 else chunk_ids,
     )
 
     return UploadChunksResponse(**asdict(result))
@@ -712,13 +727,6 @@ async def delete_chunks(
         await get_rag_chunks_repository().delete_chunks(collection, chunk_ids)
     except Exception:
         pass
-
-    enqueue_record_metadata_only(
-        EventRecorder(),
-        endpoint="rag/delete-chunks",
-        collection=collection,
-        metadata={"matched": len(chunk_ids), "deleted": result.deleted},
-    )
 
     return DeleteChunksResponse(
         collection=collection,
@@ -1097,46 +1105,21 @@ async def monitoring_chunks(
                 })
         chunk_types_result.sort(key=lambda x: -x["count"])
 
-        # Books with chunk count + usage count from event_metadata + links from event_content
+        # Books with chunk count
         books_rows = conn.execute(
             text(
                 """
-                WITH usage AS (
-                    SELECT cid AS chunk_id, COUNT(*) AS cnt
-                    FROM event_metadata em,
-                         jsonb_array_elements_text(em.chunk_ids) AS cid
-                    WHERE (em.collection = :c OR em.collection IS NULL)
-                      AND em.chunk_ids IS NOT NULL
-                      AND jsonb_typeof(em.chunk_ids) = 'array'
-                    GROUP BY cid
-                ),
-                links AS (
-                    SELECT cid AS chunk_id, COUNT(*) AS cnt
-                    FROM event_content ec
-                    JOIN event_metadata em ON em.id = ec.event_metadata_id,
-                         jsonb_array_elements_text(ec.context_refs) AS cid
-                    WHERE (em.collection = :c OR em.collection IS NULL)
-                      AND ec.context_refs IS NOT NULL
-                      AND jsonb_typeof(ec.context_refs) = 'array'
-                    GROUP BY cid
-                ),
-                books_base AS (
-                    SELECT
-                        COALESCE(metadata->>'book_title', metadata->>'source_title') AS book_title,
-                        metadata->>'author' AS author,
-                        chunk_type,
-                        COUNT(*) AS chunk_count,
-                        COALESCE(SUM(u.cnt), 0)::bigint AS usage_count,
-                        COALESCE(SUM(lnk.cnt), 0)::bigint AS links_count
-                    FROM vector_chunks rc
-                    LEFT JOIN usage u ON u.chunk_id = rc.chunk_id
-                    LEFT JOIN links lnk ON lnk.chunk_id = rc.chunk_id
-                    WHERE rc.collection = :c
-                      AND COALESCE(rc.metadata->>'book_title', rc.metadata->>'source_title') IS NOT NULL
-                    GROUP BY 1, 2, 3
-                )
-                SELECT book_title, author, chunk_type, chunk_count, usage_count, links_count
-                FROM books_base
+                SELECT
+                    COALESCE(metadata->>'book_title', metadata->>'source_title') AS book_title,
+                    metadata->>'author' AS author,
+                    chunk_type,
+                    COUNT(*) AS chunk_count,
+                    0::bigint AS usage_count,
+                    0::bigint AS links_count
+                FROM vector_chunks rc
+                WHERE rc.collection = :c
+                  AND COALESCE(rc.metadata->>'book_title', rc.metadata->>'source_title') IS NOT NULL
+                GROUP BY 1, 2, 3
                 ORDER BY chunk_count DESC
                 LIMIT 100
                 """
@@ -1162,82 +1145,6 @@ async def monitoring_chunks(
             for r in books_rows
         ],
         "total_usage": total_usage,
-    }
-
-
-@router.get("/monitoring/events")
-async def monitoring_events(
-    collection: str,
-    limit: int = 50,
-) -> Dict[str, Any]:
-    """Event statistics and log for the monitoring widget."""
-
-    engine = get_engine()
-    with engine.connect() as conn:
-        # Include events where collection matches OR is NULL (untyped events)
-        volume_rows = conn.execute(
-            text(
-                """
-                SELECT endpoint, COUNT(*) AS event_count
-                FROM event_metadata
-                WHERE collection = :c OR collection IS NULL
-                GROUP BY endpoint
-                ORDER BY event_count DESC
-                """
-            ),
-            {"c": collection},
-        ).fetchall()
-
-        # Log: one row per event_metadata AND one row per event_content (unified)
-        log_rows = conn.execute(
-            text(
-                """
-                (
-                    SELECT
-                        em.created_at,
-                        em.endpoint,
-                        CASE
-                            WHEN em.chunk_ids IS NOT NULL AND jsonb_typeof(em.chunk_ids) = 'array'
-                            THEN jsonb_array_length(em.chunk_ids)
-                            ELSE 0
-                        END AS chunk_count,
-                        NULL::text AS concept,
-                        'metadata' AS source
-                    FROM event_metadata em
-                    WHERE (em.collection = :c OR em.collection IS NULL)
-                )
-                UNION ALL
-                (
-                    SELECT
-                        ec.created_at,
-                        em.endpoint,
-                        NULL::bigint AS chunk_count,
-                        ec.concept,
-                        'content' AS source
-                    FROM event_content ec
-                    JOIN event_metadata em ON em.id = ec.event_metadata_id
-                    WHERE (em.collection = :c OR em.collection IS NULL)
-                )
-                ORDER BY created_at DESC
-                LIMIT :lim
-                """
-            ),
-            {"c": collection, "lim": limit},
-        ).fetchall()
-
-    return {
-        "collection": collection,
-        "volume": [{"endpoint": r[0], "event_count": r[1]} for r in volume_rows],
-        "log": [
-            {
-                "endpoint": r[1],
-                "created_at": r[0].isoformat() if r[0] else None,
-                "chunk_count": r[2],
-                "concept": r[3],
-                "source": r[4],
-            }
-            for r in log_rows
-        ],
     }
 
 
@@ -1418,21 +1325,6 @@ async def quote_explain(request: QuoteExplainRequest) -> QuoteExplainResponse:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"quote-explain failed: {exc}",
         ) from exc
-
-    graph_event_id = str(uuid.uuid4())
-    enqueue_record_event(
-        EventRecorder(),
-        endpoint="rag/quote-explain",
-        graph_event_id=graph_event_id,
-        graph_name="quote_explain",
-        step="explain",
-        collection=result.get("collection"),
-        chunk_ids=result.get("chunk_ids"),
-        concept=None,
-        query_text=quote[:512] if quote else None,
-        response_text=result["text"][:2000] if result.get("text") else None,
-        context_refs=[r.get("chunk_id") for r in result.get("metadata", {}).get("references", []) if isinstance(r.get("chunk_id"), str)],
-    )
 
     return QuoteExplainResponse(text=result["text"], metadata=result["metadata"])
 

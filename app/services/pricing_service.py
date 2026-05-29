@@ -1,7 +1,7 @@
 """LLM pricing service: loads config/pricing.json, refreshes EUR/USD at startup,
 calculates cost per LLM call.
 
-Exchange rate source: https://api.frankfurter.app (no API key required).
+Exchange rate source: https://api.frankfurter.dev/v1 (no API key required).
 Model prices are maintained manually in config/pricing.json.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _PRICING_PATH = Path(__file__).parent.parent.parent / "config" / "pricing.json"
-_FRANKFURTER_URL = "https://api.frankfurter.app/latest?from=USD&to=EUR"
+_FRANKFURTER_URL = "https://api.frankfurter.dev/v1/latest?from=USD&to=EUR"
 
 # Module-level singleton – populated once at startup via update_pricing()
 _pricing: dict[str, Any] | None = None

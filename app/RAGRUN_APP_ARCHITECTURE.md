@@ -12,15 +12,15 @@ Aktueller Stand (Dez 2025)
   - Qdrant: `infra/qdrant_client.py` minimaler HTTP-Wrapper für Ensure/Upsert/Delete/Search/Scroll/Retrieve.
   - Embeddings: `infra/embedding_client.py` ruft den personal embedding service batchweise auf.
   - LLM: `infra/deepseek_client.py` (reiner Chat-Call).
-  - Persistenz: `db/tables.py` + `db/session.py` definieren ein relationales Mirror-Table (`rag_chunks`) und einen SQLAlchemy-Engine-Fabrikator.
-  - Mirror: `ingestion/repositories/mirror_repository.py` schreibt/liest Chunk-Metadaten in das Mirror-Table (Upsert/Delete/List per Source).
+  - Persistenz: `db/tables.py` + `db/session.py` definieren `rag_chunks` (Primary Store / Embed-Queue mit `embedded_at`) und `vector_chunks` (SQL-Spiegel der Qdrant-Payloads) sowie den SQLAlchemy-Engine-Fabrikator.
+  - Mirror: `ingestion/repositories/mirror_repository.py` (`VectorChunksRepository`) schreibt/liest Chunk-Metadaten in **`vector_chunks`** (Upsert/Delete/List per Source). `IngestionService` upsertet nur dort und in Qdrant, nicht in `rag_chunks`.
   - Telemetrie: `core/telemetry.py` sendet best-effort Ingestion-Metriken an LangFuse (falls konfiguriert).
 - Ingestion-Pfad (API `POST /api/v1/rag/upload-chunks`):
   - `api/rag.py` parst JSONL zu `ChunkRecord` (aus `ragrun.models`), validiert und ruft `IngestionService`.
-  - `IngestionService` orchestriert: Dedupe → Klassifikation (unchanged/changed/new) via bestehender Payloads (Qdrant-Retrieve) → Embedding der geänderten/neuen Chunks → `ensure_collection` + Upsert in Qdrant → Payload-Update für unveränderte → Mirror-Upsert in Postgres → optionaler Cleanup alter Chunk-IDs pro Source → optional LangFuse-Metrik.
+  - `IngestionService` orchestriert: Dedupe → Klassifikation (unchanged/changed/new) via bestehender Payloads (Qdrant-Retrieve) → Embedding der geänderten/neuen Chunks → `ensure_collection` + Upsert in Qdrant → Payload-Update für unveränderte → Mirror-Upsert in **`vector_chunks`** → optionaler Cleanup alter Chunk-IDs pro Source → optional LangFuse-Metrik.
   - Sparse/BM25: Qdrant benötigt einen Text-Index auf dem Payload-Feld `text`. Die Ingestion stellt den Index nun automatisch sicher. Für bereits vorhandene Collections muss der Index einmalig erzeugt werden (z. B. `POST /collections/{collection}/index` mit `{"field_name":"text","field_schema":{"type":"text"}}`) oder per Re-Ingestion.
-  - Löschpfad `POST /api/v1/rag/delete-chunks` holt Chunk-IDs aus dem Mirror und löscht sie in Qdrant + Mirror.
-  - Listing `GET /api/v1/rag/books/titles` liest ausschließlich aus dem Mirror (SQL).
+  - Löschpfad `POST /api/v1/rag/delete-chunks` holt Chunk-IDs aus **`vector_chunks`** und löscht sie in Qdrant + Mirror.
+  - Listing `GET /api/v1/rag/books/titles` liest ausschließlich aus **`vector_chunks`** (SQL).
 - Retrieval/Concept-Explain (API `POST /api/v1/agent/philo-von-freisinn/retrieval/concept-explain`):
   - `api/concept_explain.py` baut Service-Layer via Lazy-Singletons.
   - `ConceptExplainService`: embed des Begriffs → Vektor-Suche in Qdrant (`k` Treffer) → optionale Summary-Expansion (Scroll nach `source_id`, nur für summary-chunk-types) → Prompt-Bau → Aufruf DeepSeek → Rückgabe mit Primär- und Expanded-Treffern. Kein Standard-RAG-Fallback implementiert; Chat-Endpunkt liefert 501 für generische Prompts.

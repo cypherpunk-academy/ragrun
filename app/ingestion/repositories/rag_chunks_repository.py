@@ -13,6 +13,9 @@ from app.db.tables import rag_chunks_table
 from app.shared.models import ChunkRecord
 from app.shared.rag_partition import RAG_PARTITION_SHARED
 
+# One INSERT … ON CONFLICT per batch (not per row) — critical for remote Postgres/Supabase.
+_UPSERT_BATCH_SIZE = 200
+
 
 def _scope_for_chunk(chunk: ChunkRecord, default_scope: str | None) -> str | None:
     st = chunk.metadata.source_type
@@ -85,41 +88,51 @@ class RagChunksRepository:
                     seen[cid] = row
         rows = list(seen.values())
 
+        def _upsert_batch(connection, batch: List[dict]) -> None:
+            if not batch:
+                return
+            values = [{**row, "embedded_at": None} for row in batch]
+            stmt = pg_insert(rag_chunks_table).values(values)
+            excluded = stmt.excluded
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[
+                    rag_chunks_table.c.rag_partition,
+                    rag_chunks_table.c.chunk_id,
+                ],
+                set_={
+                    "source_id": excluded.source_id,
+                    "chunk_type": excluded.chunk_type,
+                    "language": excluded.language,
+                    "worldviews": excluded.worldviews,
+                    "importance": excluded.importance,
+                    "content_hash": excluded.content_hash,
+                    "text": excluded.text,
+                    "created_at": excluded.created_at,
+                    "updated_at": excluded.updated_at,
+                    "metadata": excluded.metadata,
+                    "references": excluded.references,
+                    "scope": excluded.scope,
+                    "deprecated_at": None,
+                    "embedded_at": case(
+                        (
+                            rag_chunks_table.c.content_hash != excluded.content_hash,
+                            None,
+                        ),
+                        else_=rag_chunks_table.c.embedded_at,
+                    ),
+                },
+                # Re-runs with unchanged summaries: skip row rewrite (major Supabase win).
+                where=or_(
+                    rag_chunks_table.c.content_hash != excluded.content_hash,
+                    rag_chunks_table.c.deprecated_at.is_not(None),
+                ),
+            )
+            connection.execute(stmt)
+
         def _write() -> None:
             with self.engine.begin() as connection:
-                for row in rows:
-                    base = {**row, "embedded_at": None}
-                    stmt = pg_insert(rag_chunks_table).values(base)
-                    stmt = stmt.on_conflict_do_update(
-                        index_elements=[
-                            rag_chunks_table.c.rag_partition,
-                            rag_chunks_table.c.chunk_id,
-                        ],
-                        set_={
-                            "source_id": stmt.excluded.source_id,
-                            "chunk_type": stmt.excluded.chunk_type,
-                            "language": stmt.excluded.language,
-                            "worldviews": stmt.excluded.worldviews,
-                            "importance": stmt.excluded.importance,
-                            "content_hash": stmt.excluded.content_hash,
-                            "text": stmt.excluded.text,
-                            "created_at": stmt.excluded.created_at,
-                            "updated_at": stmt.excluded.updated_at,
-                            "metadata": stmt.excluded.metadata,
-                            "references": stmt.excluded.references,
-                            "scope": stmt.excluded.scope,
-                            "deprecated_at": None,
-                            "embedded_at": case(
-                                (
-                                    rag_chunks_table.c.content_hash
-                                    != stmt.excluded.content_hash,
-                                    None,
-                                ),
-                                else_=rag_chunks_table.c.embedded_at,
-                            ),
-                        },
-                    )
-                    connection.execute(stmt)
+                for offset in range(0, len(rows), _UPSERT_BATCH_SIZE):
+                    _upsert_batch(connection, rows[offset : offset + _UPSERT_BATCH_SIZE])
 
         await asyncio.to_thread(_write)
 
@@ -127,13 +140,15 @@ class RagChunksRepository:
         self,
         rag_partition: str,
         active_by_source: Dict[str, List[str]],
+        *,
+        chunk_types_by_source: Dict[str, List[str]] | None = None,
     ) -> Dict[str, int]:
         """Set deprecated_at=now() for non-active rows per (rag_partition, source_id).
 
-        For each ``source_id`` in ``active_by_source``, all DB rows in ``rag_partition``
-        with that source_id and a ``chunk_id`` not listed in the corresponding
-        active list are marked deprecated. Chunks in the new batch (upserted just
-        before) are left active (``deprecated_at`` reset to NULL by upsert).
+        For each ``source_id`` in ``active_by_source``, rows in ``rag_partition`` with that
+        ``source_id``, optional ``chunk_type`` filter, and ``chunk_id`` not in the active
+        list are marked deprecated. Upserted batch rows stay active (``deprecated_at``
+        cleared on conflict update when needed).
 
         Returns: number of rows marked deprecated per ``source_id`` (0 if none or ``active_ids`` empty).
         """
@@ -149,14 +164,19 @@ class RagChunksRepository:
                     if not active_ids:
                         out[source_id] = 0
                         continue
+                    conditions = [
+                        rag_chunks_table.c.rag_partition == rag_partition,
+                        rag_chunks_table.c.source_id == source_id,
+                        rag_chunks_table.c.chunk_id.not_in(active_ids),
+                        rag_chunks_table.c.deprecated_at.is_(None),
+                    ]
+                    if chunk_types_by_source:
+                        types = chunk_types_by_source.get(source_id)
+                        if types:
+                            conditions.append(rag_chunks_table.c.chunk_type.in_(types))
                     result = connection.execute(
                         update(rag_chunks_table)
-                        .where(
-                            rag_chunks_table.c.rag_partition == rag_partition,
-                            rag_chunks_table.c.source_id == source_id,
-                            rag_chunks_table.c.chunk_id.not_in(active_ids),
-                            rag_chunks_table.c.deprecated_at.is_(None),
-                        )
+                        .where(and_(*conditions))
                         .values(deprecated_at=now)
                     )
                     out[source_id] = int(result.rowcount or 0)

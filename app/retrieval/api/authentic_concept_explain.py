@@ -1,7 +1,6 @@
 """API router for authentic concept explanation (Steiner-first)."""
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,6 +20,7 @@ router = APIRouter(tags=["authentic-concept-explain"])
 
 class AuthenticConceptExplainRequest(BaseModel):
     concept: str = Field(..., min_length=1)
+    collection: Optional[str] = None
     verbose: bool = False
     retries: int = Field(3, ge=0, le=10, description="LLM retries per step (default 3)")
 
@@ -35,16 +35,6 @@ class AuthenticConceptExplainResponse(BaseModel):
     graph_event_id: Optional[str] = None
 
 
-@lru_cache(maxsize=1)
-def get_service() -> AuthenticConceptExplainService:
-    return AuthenticConceptExplainService(
-        embedding_client=get_embedding_client(),
-        qdrant_client=get_qdrant_client(),
-        chat_client=get_deepseek_chat(),
-        collection="philo-von-freisinn",
-    )
-
-
 @router.post(
     "/graphs/authentic-concept-explain",
     response_model=AuthenticConceptExplainResponse,
@@ -52,11 +42,18 @@ def get_service() -> AuthenticConceptExplainService:
 )
 async def authentic_concept_explain(
     request: AuthenticConceptExplainRequest,
-    service: AuthenticConceptExplainService = Depends(get_service),
 ) -> AuthenticConceptExplainResponse:
     concept = (request.concept or "").strip()
     if not concept:
         raise HTTPException(status_code=400, detail="concept is required")
+
+    collection = (request.collection or "").strip() or "philo-von-freisinn"
+    service = AuthenticConceptExplainService(
+        embedding_client=get_embedding_client(),
+        qdrant_client=get_qdrant_client(),
+        chat_client=get_deepseek_chat(),
+        collection=collection,
+    )
 
     try:
         result: AuthenticConceptExplainResult = await service.explain(

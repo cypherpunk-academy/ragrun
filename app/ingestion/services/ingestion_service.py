@@ -166,7 +166,7 @@ class IngestionService:
                 )
             await self.qdrant_client.set_payload(collection, payload_updates)
 
-        # Mirror: write all unique_chunks (so metadata/text stay aligned)
+        # vector_chunks mirror: write all unique_chunks (so metadata/text stay aligned with Qdrant)
         await self.vector_chunks_repository.upsert_chunks(collection, unique_chunks)
 
         # Cleanup stale chunk_ids for involved source_ids (sync-style), unless disabled

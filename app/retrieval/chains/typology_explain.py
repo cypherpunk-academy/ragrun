@@ -69,10 +69,10 @@ async def _chat_json(
                 operation,
                 "\n\n".join(f"[{m.get('role')}] {m.get('content', '')}" for m in messages),
             )
-        result = await chat_client.chat(
+        result_obj = await chat_client.chat(
             list(messages), temperature=temperature, max_tokens=max_tokens
         )
-        return _parse_llm_json_object(result), list(messages)
+        return _parse_llm_json_object(result_obj.content), list(messages)
 
     return await retry_async(
         _once,

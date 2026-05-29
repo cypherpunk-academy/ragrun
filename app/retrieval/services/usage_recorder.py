@@ -48,7 +48,6 @@ class UsageRecorder:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
-            "extra": extra or None,
             "created_at": _now(),
         }
         try:

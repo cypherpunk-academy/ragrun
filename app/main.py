@@ -21,7 +21,6 @@ from .retrieval.graphs.assistant_chat_graph import build_chat_graph
 from .core.providers import (
     get_deepseek_reasoner_client,
 )
-from .services.cleanup_service import run_cleanup_loop
 from .services.pricing_service import update_pricing
 
 logger = logging.getLogger(__name__)
@@ -40,15 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await update_pricing()
 
-    cleanup_task = asyncio.create_task(run_cleanup_loop())
-    try:
-        yield
-    finally:
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            logger.info("event_content cleanup loop stopped")
+    yield
 
 
 app = FastAPI(

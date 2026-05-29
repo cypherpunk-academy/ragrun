@@ -73,57 +73,6 @@ Index(
     rag_chunks_table.c.embedded_at,
 )
 
-
-# --- event_metadata: dauerhaftes Logging (Metadaten, chunk_ids, Timestamps) ---
-event_metadata_table = Table(
-    "event_metadata",
-    metadata,
-    Column("id", BigInteger, primary_key=True, autoincrement=True),
-    Column("endpoint", String(256), nullable=False),
-    Column("graph_event_id", String(64)),
-    Column("graph_name", String(128)),
-    Column("step", String(128)),
-    Column("collection", String(128)),
-    Column("worldview", String(256)),
-    Column("retrieval_mode", String(64)),
-    Column("sufficiency", String(32)),
-    Column("error_count", Integer),
-    Column("metadata", JSONType),
-    Column("chunk_ids", JSONType),
-    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-)
-
-Index("idx_em_endpoint", event_metadata_table.c.endpoint)
-Index("idx_em_created_at", event_metadata_table.c.created_at)
-Index("idx_em_graph_event_id", event_metadata_table.c.graph_event_id)
-
-# --- event_content: 7-Tage-Rotation (Inhalte, Zwischenergebnisse) ---
-event_content_table = Table(
-    "event_content",
-    metadata,
-    Column("id", BigInteger, primary_key=True, autoincrement=True),
-    Column(
-        "event_metadata_id",
-        BigInteger,
-        ForeignKey("event_metadata.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
-    Column("thread_id", String(64), nullable=True),
-    Column("concept", String(512)),
-    Column("query_text", Text),
-    Column("prompt_messages", JSONType),
-    Column("context_refs", JSONType),
-    Column("context_source", JSONType),
-    Column("context_text", Text),
-    Column("response_text", Text),
-    Column("errors", JSONType),
-    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-)
-
-Index("idx_ec_event_metadata_id", event_content_table.c.event_metadata_id)
-Index("idx_ec_thread_id", event_content_table.c.thread_id)
-Index("idx_ec_created_at", event_content_table.c.created_at)
-
 # --- rag_usage: Abrechnungsdaten pro LLM-Aufruf ---
 rag_usage_table = Table(
     "rag_usage",

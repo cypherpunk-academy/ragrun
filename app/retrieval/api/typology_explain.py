@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.retrieval.models import TypologyExplainResult
@@ -47,6 +46,7 @@ class TypologyExplainRequest(BaseModel):
         default_factory=list,
         description="Bekannte Mitglieder der Typologie (aus typologies-to-explain.jsonl `list`). Dienen als Grundlage für die LLM-Erklärung.",
     )
+    collection: Optional[str] = None
     source_chunks: List[str] = Field(default_factory=list)
     source_filter: TypologySourceFilter | None = None
     verbose: bool = False
@@ -63,16 +63,6 @@ class TypologyExplainResponse(BaseModel):
     graph_event_id: Optional[str] = None
 
 
-@lru_cache(maxsize=1)
-def get_service() -> TypologyExplainService:
-    return TypologyExplainService(
-        embedding_client=get_embedding_client(),
-        qdrant_client=get_qdrant_client(),
-        chat_client=get_deepseek_chat(),
-        collection="philo-von-freisinn",
-    )
-
-
 @router.post(
     "/graphs/typology-explain",
     response_model=TypologyExplainResponse,
@@ -80,8 +70,14 @@ def get_service() -> TypologyExplainService:
 )
 async def typology_explain(
     request: TypologyExplainRequest,
-    service: TypologyExplainService = Depends(get_service),
 ) -> TypologyExplainResponse:
+    collection = (request.collection or "").strip() or "philo-von-freisinn"
+    service = TypologyExplainService(
+        embedding_client=get_embedding_client(),
+        qdrant_client=get_qdrant_client(),
+        chat_client=get_deepseek_chat(),
+        collection=collection,
+    )
     name = (request.name or "").strip()
     if not name:
         raise _bad_request(
