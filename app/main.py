@@ -3,8 +3,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict
+
+# Configure root logger early so all app loggers emit at INFO by default.
+# Reads RAGRUN_LOG_LEVEL first (consistent with the RAGRUN_ settings prefix),
+# then falls back to LOG_LEVEL, then defaults to INFO.
+_log_level_str = (
+    os.environ.get("RAGRUN_LOG_LEVEL")
+    or os.environ.get("LOG_LEVEL", "INFO")
+)
+_log_level = getattr(logging, _log_level_str.upper(), logging.INFO)
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
+# httpcore emits very chatty DEBUG lines (connect_tcp, send_request_headers, …)
+# that are rarely useful; keep it at WARNING regardless of the root level.
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 import httpx
 from fastapi import FastAPI

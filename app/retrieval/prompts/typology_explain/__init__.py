@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Mapping
 
+from app.config import settings
 from app.retrieval.prompts.philo_von_freisinn import load_system_prompt
 
 
@@ -48,6 +49,9 @@ def build_typology_extract_messages(
         .replace("{aliases_block}", aliases_block)
         .replace("{known_members_block}", known_members_block)
         .replace("{chunks}", chunks)
+        .replace("{min_words}", str(settings.ace_chunk_min_words))
+        .replace("{target_words}", str(settings.ace_chunk_target_words))
+        .replace("{max_words}", str(settings.ace_chunk_max_words))
     )
     return [
         {"role": "system", "content": system},

@@ -1,6 +1,7 @@
 """Core ingestion service used by Phase 3 endpoints."""
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from app.infra.qdrant_client import QdrantClient
 from app.infra.sparse_embedder import SparseEmbedder
 from app.ingestion.repositories import VectorChunksRepository
 from app.core.telemetry import IngestionTelemetryClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -28,6 +31,7 @@ class UploadResult:
     vector_size: int
     unchanged: int
     changed: int
+    payload_changed: int
     new: int
     stale_deleted: int
 
@@ -82,6 +86,8 @@ class IngestionService:
         embedding_model: str | None = None,
         batch_size: int | None = None,
         skip_cleanup: bool = False,
+        prefix_passage: str | None = None,
+        shared_book_chunk_type_override: str | None = None,
     ) -> UploadResult:
         """Validate, dedupe, embed, and upsert a batch of chunks.
 
@@ -96,27 +102,64 @@ class IngestionService:
         if not unique_chunks:
             raise ValueError("all chunks were filtered as duplicates")
 
-        start_time = time.perf_counter()
+        # Assistant-specific mapping for shared corpus base chunks:
+        # keep rag_chunks neutral (`book`), but allow embed-time role override
+        # for both shared books and shared lectures in Phase 1.
+        if shared_book_chunk_type_override in ("book", "secondary_book"):
+            for ch in unique_chunks:
+                source_type = (ch.metadata.source_type or "").strip().lower()
+                if source_type in ("book", "lecture") and ch.metadata.chunk_type == "book":
+                    ch.metadata.chunk_type = shared_book_chunk_type_override
 
+        start_time = time.perf_counter()
+        logger.info(
+            "upload_chunks: collection=%s requested=%d unique=%d duplicates=%d",
+            collection, len(chunks), len(unique_chunks), duplicate_count,
+        )
+
+        t0 = time.perf_counter()
         existing_payloads = await self._fetch_existing(collection, unique_chunks)
-        unchanged, changed, new = self._classify_chunks(unique_chunks, existing_payloads)
+        logger.info(
+            "upload_chunks: _fetch_existing done in %.2fs — found %d existing points",
+            time.perf_counter() - t0, len(existing_payloads),
+        )
+
+        unchanged, changed_embed, changed_payload_only, new = self._classify_chunks(
+            unique_chunks, existing_payloads
+        )
+        logger.info(
+            "upload_chunks: classify — unchanged=%d changed_embed=%d changed_payload_only=%d new=%d",
+            len(unchanged), len(changed_embed), len(changed_payload_only), len(new),
+        )
 
         # Embed only changed + new
-        to_embed = changed + new
+        to_embed = changed_embed + new
         embedding_batch = None
 
         # Strip formatting tags (<q>, <i>) from embedding text to reduce noise,
         # while preserving the original text for storage and display.
-        texts = [self._strip_markup(chunk.text) for chunk in to_embed]
+        # Prepend passage prefix for instruction-tuned models (e.g. "passage: " for e5).
+        from app.config import settings as _settings
+        if prefix_passage is None:
+            _passage_prefix: str = _settings.embedding_prefix_passage or ""
+        else:
+            _passage_prefix = prefix_passage
+        texts = [
+            (_passage_prefix + self._strip_markup(chunk.text))
+            for chunk in to_embed
+        ]
         embeddings: Sequence[Sequence[float]] = []
         vector_size = 0
         if to_embed:
             embed_batch_size = batch_size or self.default_batch_size
+            t0 = time.perf_counter()
+            logger.info("upload_chunks: embedding %d texts (batch_size=%d)…", len(texts), embed_batch_size)
             embedding_batch = await self.embedding_client.embed_texts(
                 texts,
                 model_name=embedding_model,
                 batch_size=embed_batch_size,
             )
+            logger.info("upload_chunks: embedding done in %.2fs", time.perf_counter() - t0)
             if len(embedding_batch.embeddings) != len(to_embed):
                 raise RuntimeError(
                     "embedding count does not match chunk count "
@@ -144,15 +187,23 @@ class IngestionService:
             points = list(
                 self._build_qdrant_points(to_embed, embeddings, sparse_vectors=sparse_vectors)
             )
+            t0 = time.perf_counter()
+            logger.info("upload_chunks: upserting %d points to Qdrant…", len(points))
             for i in range(0, len(points), embed_batch_size):
                 await self.qdrant_client.upsert_points(
                     collection, points[i : i + embed_batch_size]
                 )
+            logger.info("upload_chunks: upsert done in %.2fs", time.perf_counter() - t0)
 
-        # For unchanged chunks, update payload without re-embedding
+        # Unchanged chunks: content_hash matches → payload is already correct in Qdrant.
+        # set_payload is skipped to avoid O(N) sequential Qdrant calls for large sources.
         if unchanged:
+            logger.info("upload_chunks: %d unchanged chunks — skipping set_payload (hash match)", len(unchanged))
+
+        # For payload-only changed chunks (e.g. chunk_type override), update payload without re-embedding.
+        if changed_payload_only:
             payload_updates = []
-            for chunk in unchanged:
+            for chunk in changed_payload_only:
                 payload = chunk.metadata.model_dump(mode="json")
                 payload["text"] = chunk.text
                 payload["chunk_id"] = chunk.metadata.chunk_id
@@ -164,15 +215,32 @@ class IngestionService:
                         "payload": payload,
                     }
                 )
+            t0 = time.perf_counter()
+            logger.info(
+                "upload_chunks: updating payload for %d points (no re-embed)…",
+                len(payload_updates),
+            )
             await self.qdrant_client.set_payload(collection, payload_updates)
+            logger.info(
+                "upload_chunks: payload-only updates done in %.2fs",
+                time.perf_counter() - t0,
+            )
 
-        # vector_chunks mirror: write all unique_chunks (so metadata/text stay aligned with Qdrant)
-        await self.vector_chunks_repository.upsert_chunks(collection, unique_chunks)
+        # vector_chunks mirror: write all changed/new rows (including payload-only changes)
+        chunks_to_mirror = changed_embed + changed_payload_only + new
+        if chunks_to_mirror:
+            t0 = time.perf_counter()
+            logger.info("upload_chunks: mirroring %d chunks to vector_chunks…", len(chunks_to_mirror))
+            await self.vector_chunks_repository.upsert_chunks(collection, chunks_to_mirror)
+            logger.info("upload_chunks: mirror done in %.2fs", time.perf_counter() - t0)
 
         # Cleanup stale chunk_ids for involved source_ids (sync-style), unless disabled
         stale_deleted = 0
         if not skip_cleanup:
+            t0 = time.perf_counter()
+            logger.info("upload_chunks: running _cleanup_stale…")
             _, stale_deleted = await self._cleanup_stale(collection, unique_chunks)
+            logger.info("upload_chunks: _cleanup_stale done in %.2fs — %d stale deleted", time.perf_counter() - t0, stale_deleted)
 
         # Determine reporting values
         result_embedding_model = embedding_model or "skipped"
@@ -185,15 +253,21 @@ class IngestionService:
             ingestion_id=str(uuid4()),
             collection=collection,
             requested=len(chunks),
-            # "ingested" = wirklich geschrieben/überschrieben in Qdrant (changed + new)
-            ingested=len(changed) + len(new),
+            # "ingested" = wirklich geschrieben/überschrieben in Qdrant (embed or payload-only update).
+            ingested=len(changed_embed) + len(changed_payload_only) + len(new),
             duplicates=duplicate_count,
             embedding_model=result_embedding_model,
             vector_size=result_vector_size,
             unchanged=len(unchanged),
-            changed=len(changed),
+            changed=len(changed_embed) + len(changed_payload_only),
+            payload_changed=len(changed_payload_only),
             new=len(new),
             stale_deleted=stale_deleted,
+        )
+        logger.info(
+            "upload_chunks: done in %.2fs — requested=%d ingested=%d unchanged=%d new=%d changed=%d payload_changed=%d stale_deleted=%d",
+            time.perf_counter() - start_time,
+            result.requested, result.ingested, result.unchanged, result.new, result.changed, result.payload_changed, result.stale_deleted,
         )
 
         if self.telemetry_client:
@@ -282,11 +356,12 @@ class IngestionService:
         self,
         incoming: Sequence[ChunkRecord],
         existing_payloads: dict[str, dict[str, object]],
-    ) -> Tuple[List[ChunkRecord], List[ChunkRecord], List[ChunkRecord]]:
-        """Return (unchanged, changed, new) lists based on content_hash."""
+    ) -> Tuple[List[ChunkRecord], List[ChunkRecord], List[ChunkRecord], List[ChunkRecord]]:
+        """Return (unchanged, changed_embed, changed_payload_only, new) lists."""
 
         unchanged: List[ChunkRecord] = []
-        changed: List[ChunkRecord] = []
+        changed_embed: List[ChunkRecord] = []
+        changed_payload_only: List[ChunkRecord] = []
         new: List[ChunkRecord] = []
 
         for chunk in incoming:
@@ -296,12 +371,20 @@ class IngestionService:
                 new.append(chunk)
                 continue
             prev_hash = existing.get("content_hash")
-            if isinstance(prev_hash, str) and prev_hash == chunk.metadata.content_hash:
+            prev_type = existing.get("chunk_type")
+            if (
+                isinstance(prev_hash, str)
+                and prev_hash == chunk.metadata.content_hash
+                and isinstance(prev_type, str)
+                and prev_type == chunk.metadata.chunk_type
+            ):
                 unchanged.append(chunk)
+            elif isinstance(prev_hash, str) and prev_hash == chunk.metadata.content_hash:
+                changed_payload_only.append(chunk)
             else:
-                changed.append(chunk)
+                changed_embed.append(chunk)
 
-        return unchanged, changed, new
+        return unchanged, changed_embed, changed_payload_only, new
 
     def _build_qdrant_points(
         self,

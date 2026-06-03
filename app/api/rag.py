@@ -123,6 +123,14 @@ class EmbedChunksRequest(BaseModel):
             "Useful for bounded incremental embedding loops."
         ),
     )
+    prefix_passage: Optional[str] = Field(
+        None,
+        description=(
+            "Passage prefix prepended to each chunk text before embedding "
+            "(e.g. 'passage: ' for multilingual-e5-large). "
+            "Overrides RAGRUN_EMBEDDING_PREFIX_PASSAGE env var when provided."
+        ),
+    )
     max_chunks: Optional[int] = Field(
         None,
         ge=1,
@@ -130,6 +138,13 @@ class EmbedChunksRequest(BaseModel):
         description=(
             "Optional hard cap for the number of chunks loaded from rag_chunks "
             "for this request."
+        ),
+    )
+    shared_book_chunk_type_override: Optional[str] = Field(
+        None,
+        description=(
+            "Optional override for shared corpus book chunks in this request: "
+            "'book' or 'secondary_book'. Applied only to source_type=book rows."
         ),
     )
 
@@ -146,6 +161,7 @@ class UploadChunksResponse(BaseModel):
     vector_size: int
     unchanged: int
     changed: int
+    payload_changed: int = 0
     new: int
     stale_deleted: int
 
@@ -341,6 +357,15 @@ async def embed_chunks(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid chunk_type: {t!r}",
                 )
+    if request.shared_book_chunk_type_override is not None:
+        if request.shared_book_chunk_type_override not in ("book", "secondary_book"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Invalid shared_book_chunk_type_override: "
+                    f"{request.shared_book_chunk_type_override!r}"
+                ),
+            )
 
     rag_repo = get_rag_chunks_repository()
     chunks = await rag_repo.list_chunk_records_for_embed(
@@ -363,6 +388,7 @@ async def embed_chunks(
             vector_size=0,
             unchanged=0,
             changed=0,
+            payload_changed=0,
             new=0,
             stale_deleted=0,
         )
@@ -374,6 +400,8 @@ async def embed_chunks(
             embedding_model=request.embedding_model,
             batch_size=request.batch_size,
             skip_cleanup=bool(request.skip_cleanup),
+            prefix_passage=request.prefix_passage,
+            shared_book_chunk_type_override=request.shared_book_chunk_type_override,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -1283,9 +1311,10 @@ class QuoteExplainRequest(BaseModel):
 
 
 class QuoteExplainResponse(BaseModel):
-    """Response: chunk-shaped object with text and metadata."""
+    """Response: quote text, explanation, and metadata as separate fields."""
 
     text: str
+    explanation: str
     metadata: Dict[str, Any]
 
 
@@ -1326,7 +1355,11 @@ async def quote_explain(request: QuoteExplainRequest) -> QuoteExplainResponse:
             detail=f"quote-explain failed: {exc}",
         ) from exc
 
-    return QuoteExplainResponse(text=result["text"], metadata=result["metadata"])
+    return QuoteExplainResponse(
+        text=result["text"],
+        explanation=result["explanation"],
+        metadata=result["metadata"],
+    )
 
 
 # ---------------------------------------------------------------------------

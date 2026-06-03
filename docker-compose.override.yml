@@ -43,7 +43,7 @@ services:
   ragrun-api:
     environment:
       - DEBUG=true
-      - LOG_LEVEL=DEBUG
+      - RAGRUN_LOG_LEVEL=DEBUG
       - ENVIRONMENT=development
       # CORS (optional; app reads RAGRUN_CORS_ORIGINS from .env in production)
       - BACKEND_CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080"]

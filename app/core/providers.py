@@ -21,6 +21,7 @@ from app.infra.sparse_embedder import SparseEmbedder
 def get_embedding_client(batch_size: int | None = None) -> EmbeddingClient:
     return EmbeddingClient(
         settings.embeddings_base_url,
+        timeout=settings.embeddings_timeout_seconds,
         batch_size=batch_size or 64,
     )
 

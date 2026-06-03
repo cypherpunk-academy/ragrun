@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     postgres_dsn: str = "postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun"
     embeddings_base_url: AnyHttpUrl = "http://embedding-service:8001"
+    embeddings_timeout_seconds: float = 180.0
     deepseek_base_url: AnyHttpUrl = "https://api.deepseek.com"
 
     langfuse_host: Optional[str] = None
@@ -46,13 +47,20 @@ class Settings(BaseSettings):
     # When empty, only the built-in assistant-host personality is available.
     personalities_root: str = ""
 
-    # "Standard chunk" sizing (used by authentic_concept_explain prompts)
-    ace_chunk_min_words: int = 220
-    ace_chunk_target_words: int = 260
-    ace_chunk_max_words: int = 320
+    # "Standard chunk" sizing (used by authentic_concept_explain prompts).
+    # Aligned with quote_explanation budget (~200–300 words, e5-safe with passage prefix).
+    ace_chunk_min_words: int = 180
+    ace_chunk_target_words: int = 240
+    ace_chunk_max_words: int = 300
 
     # CORS: comma-separated list of allowed origins (e.g. "http://localhost:8080,https://example.com")
     cors_origins: str = ""
+
+    # Embedding prefixes for instruction-tuned models (e.g. multilingual-e5-large).
+    # Leave empty for models that do not require prefixes (e.g. cross-en-de-roberta).
+    # Set via RAGRUN_EMBEDDING_PREFIX_PASSAGE and RAGRUN_EMBEDDING_PREFIX_QUERY in .env.
+    embedding_prefix_passage: str = ""
+    embedding_prefix_query: str = ""
 
     use_hybrid_retrieval: bool = False
     hybrid_prefer_short_concepts: bool = True

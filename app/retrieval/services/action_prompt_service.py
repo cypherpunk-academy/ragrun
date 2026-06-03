@@ -208,6 +208,43 @@ def load_assistant_rag_collection(assistant_slug: str) -> str:
     return assistant_slug
 
 
+def load_assistant_embedding_prefixes(assistant_slug: str) -> tuple[str, str]:
+    """Return (prefix_passage, prefix_query) from the active embedder in assistant-manifest.yaml.
+
+    Reads ``active-embedder`` key to find the embedder entry, then extracts
+    ``prefix-passage`` and ``prefix-query``. Falls back to global settings when
+    no manifest / active-embedder / matching entry is found.
+    """
+    manifest_path = _resolve_assistants_root() / assistant_slug / "assistant-manifest.yaml"
+    if not manifest_path.is_file():
+        return _settings_embedding_prefixes()
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return _settings_embedding_prefixes()
+        active_key = data.get("active-embedder")
+        if not isinstance(active_key, str) or not active_key.strip():
+            return _settings_embedding_prefixes()
+        for entry in data.get("embedders") or []:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("key") == active_key.strip():
+                pp = entry.get("prefix-passage") or ""
+                pq = entry.get("prefix-query") or ""
+                return str(pp), str(pq)
+    except Exception:
+        logger.warning("Could not read embedding prefixes from %s", manifest_path, exc_info=True)
+    return _settings_embedding_prefixes()
+
+
+def _settings_embedding_prefixes() -> tuple[str, str]:
+    from app.config import settings as _cfg
+    return (
+        getattr(_cfg, "embedding_prefix_passage", "") or "",
+        getattr(_cfg, "embedding_prefix_query", "") or "",
+    )
+
+
 def load_assistant_lexical_strip_hybrid(assistant_slug: str) -> list[str]:
     """Phrases to remove from the user prompt for the sparse branch of hybrid retrieval only."""
     manifest_path = _resolve_assistants_root() / assistant_slug / "assistant-manifest.yaml"
@@ -594,6 +631,7 @@ async def _run_query(
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     sparse_query: str | None = None,
+    query_prefix: str = "",
 ) -> list[RetrievedSnippet]:
     """Execute a single query against Qdrant based on manifest spec."""
     chunk_types: list[str] = query_spec.get("chunk_types") or []
@@ -625,7 +663,69 @@ async def _run_query(
             qdrant_client=qdrant_client,
             author=author,
             sparse_query=sparse_query,
+            query_prefix=query_prefix,
         )
+    elif method == "dense+sparse":
+        # Dense-first with sparse supplement: dense fills the primary slots, sparse
+        # contributes only chunks not already found by dense (useful for exact terms
+        # like "moralische Technik" that dense embeddings may rank poorly).
+        k_sparse_slots = int(query_spec.get("k_sparse") or max(2, k_prompt // 3))
+        k_dense_slots = k_prompt - k_sparse_slots
+
+        if settings.use_hybrid_retrieval:
+            dense_hits, sparse_hits = await asyncio.gather(
+                dense_retrieve(
+                    query=query,
+                    k=k_retrieve,
+                    worldview=worldview,
+                    book_types=book_types,
+                    collection=collection,
+                    embedding_client=embedding_client,
+                    qdrant_client=qdrant_client,
+                    author=author,
+                    query_prefix=query_prefix,
+                ),
+                sparse_retrieve(
+                    query=sparse_query or query,
+                    k=k_retrieve,
+                    worldview=worldview,
+                    book_types=book_types,
+                    collection=collection,
+                    qdrant_client=qdrant_client,
+                    author=author,
+                ),
+            )
+            seen_ids: set[str] = set()
+            merged: list[RetrievedSnippet] = []
+            for s in dense_hits[:k_dense_slots]:
+                cid = _extract_chunk_id(s.payload if isinstance(s.payload, Mapping) else {})
+                if cid:
+                    seen_ids.add(cid)
+                merged.append(s)
+            sparse_added = 0
+            for s in sparse_hits:
+                if sparse_added >= k_sparse_slots:
+                    break
+                cid = _extract_chunk_id(s.payload if isinstance(s.payload, Mapping) else {})
+                if cid and cid in seen_ids:
+                    continue
+                if cid:
+                    seen_ids.add(cid)
+                merged.append(s)
+                sparse_added += 1
+            hits = merged
+        else:
+            hits = await dense_retrieve(
+                query=query,
+                k=k_retrieve,
+                worldview=worldview,
+                book_types=book_types,
+                collection=collection,
+                embedding_client=embedding_client,
+                qdrant_client=qdrant_client,
+                author=author,
+                query_prefix=query_prefix,
+            )
     elif method == "sparse":
         hits = await sparse_retrieve(
             query=query,
@@ -647,6 +747,7 @@ async def _run_query(
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
             author=author,
+            query_prefix=query_prefix,
         )
     return hits[:k_prompt]
 
@@ -714,6 +815,8 @@ async def run_queries_and_fill_prompt(
         if redacted != user_prompt:
             hybrid_sparse_query = redacted
 
+    _prefix_passage, query_prefix = load_assistant_embedding_prefixes(assistant_slug)
+
     # Group parallel queries (parallel_with): run in parallel, fill each slot separately
     parallel_names: set[str] = set()
     for q in queries:
@@ -729,26 +832,7 @@ async def run_queries_and_fill_prompt(
     chunk_index_map: list[dict[str, Any]] = []
     _next_index = [1]  # mutable to update in closure
 
-    def _strip_quote_explanation(text: str) -> str:
-        """Remove 'Erklärung:' block from quote chunks. LLM gets only the quote."""
-        if not text or "\n\nErklärung:" not in text and "\n\nErklaerung:" not in text:
-            return text
-        for sep in ("\n\nErklärung:\n\n", "\n\nErklaerung:\n\n"):
-            if sep in text:
-                return text.split(sep)[0].strip()
-        return text
-
     def _build_and_store(name: str, hits: list) -> None:
-        # For quotes: strip explanation, pass only the quote text to the prompt
-        if name == "quotes":
-            hits = [
-                RetrievedSnippet(
-                    text=_strip_quote_explanation(s.text),
-                    score=s.score,
-                    payload=s.payload,
-                )
-                for s in hits
-            ]
         ctx, refs, imap = build_context_numbered(
             hits, start_index=_next_index[0], include_score=True
         )
@@ -795,6 +879,7 @@ async def run_queries_and_fill_prompt(
                 embedding_client=embedding_client,
                 qdrant_client=qdrant_client,
                 sparse_query=hybrid_sparse_query,
+                query_prefix=query_prefix,
             )
         _build_and_store(name, hits)
         all_refs.extend(_resolve_refs_for_hits(hits))
@@ -849,6 +934,7 @@ async def run_queries_and_fill_prompt(
                     embedding_client=embedding_client,
                     qdrant_client=qdrant_client,
                     sparse_query=hybrid_sparse_query,
+                    query_prefix=query_prefix,
                 )
                 for _, spec in parallel_specs
             ]

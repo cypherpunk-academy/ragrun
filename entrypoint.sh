@@ -22,5 +22,5 @@ if [ "$attempt" -ge "$max_attempts" ]; then
   echo "[ragrun] WARNING: Could not apply migrations after ${max_attempts} attempts; starting API anyway." >&2
 fi
 
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
 

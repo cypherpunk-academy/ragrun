@@ -81,8 +81,15 @@ def _extract_chunk_id(payload: Mapping[str, object]) -> str | None:
     return cid if isinstance(cid, str) else None
 
 
-async def embed_text(text: str, embedding_client: EmbeddingClient) -> Sequence[float]:
-    result = await embedding_client.embed_texts([text])
+async def embed_text(
+    text: str,
+    embedding_client: EmbeddingClient,
+    *,
+    query_prefix: str | None = None,
+) -> Sequence[float]:
+    if query_prefix is None:
+        query_prefix = getattr(settings, "embedding_prefix_query", "") or ""
+    result = await embedding_client.embed_texts([query_prefix + text])
     return result.embeddings[0]
 
 
@@ -143,10 +150,11 @@ async def dense_retrieve(
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     author: str | None = None,
+    query_prefix: str | None = None,
 ) -> list[RetrievedSnippet]:
     mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
     limit = max(k * mult, k + 30)
-    vector = await embed_text(query, embedding_client)
+    vector = await embed_text(query, embedding_client, query_prefix=query_prefix)
     pf = payload_filter(worldview, book_types, author=author)
     hits = await qdrant_client.search_points(
         collection,
@@ -213,6 +221,7 @@ async def hybrid_retrieve(
     force_sparse: bool = False,
     author: str | None = None,
     sparse_query: str | None = None,
+    query_prefix: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Hybrid dense+BM25 with RRF; falls back to dense-only if sparse unavailable."""
 
@@ -225,6 +234,7 @@ async def hybrid_retrieve(
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
         author=author,
+        query_prefix=query_prefix,
     )
 
     if (not settings.use_hybrid_retrieval and not force_sparse) or k_sparse <= 0:
@@ -270,6 +280,7 @@ async def hybrid_retrieve_quote_parallel(
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     sparse_query: str | None = None,
+    query_prefix: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Zwei parallele Suchen: quote + book/secondary_book (author=Rudolf Steiner)."""
 
@@ -280,11 +291,12 @@ async def hybrid_retrieve_quote_parallel(
             k_sparse=k_per_branch,
             k_fused=k_per_branch,
             worldview=None,
-            book_types=["quote"],
+            book_types=["quote", "quote_explanation"],
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
             sparse_query=sparse_query,
+            query_prefix=query_prefix,
         )
 
     async def search_steiner_books() -> list[RetrievedSnippet]:
@@ -300,6 +312,7 @@ async def hybrid_retrieve_quote_parallel(
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
             sparse_query=sparse_query,
+            query_prefix=query_prefix,
         )
 
     quote_hits, book_hits = await asyncio.gather(search_quote(), search_steiner_books())
@@ -347,14 +360,18 @@ async def rerank_by_embedding(
     snippets: list[RetrievedSnippet],
     embedding_client: EmbeddingClient,
     k_final: int,
+    query_prefix: str | None = None,
+    passage_prefix: str | None = None,
 ) -> list[RetrievedSnippet]:
     """Simple embedding-based reranker."""
 
     if not snippets:
         return []
 
-    query_vec = await embed_text(query, embedding_client)
-    texts = [s.text for s in snippets]
+    if passage_prefix is None:
+        passage_prefix = getattr(settings, "embedding_prefix_passage", "") or ""
+    query_vec = await embed_text(query, embedding_client, query_prefix=query_prefix)
+    texts = [(passage_prefix + s.text) for s in snippets]
     embeddings = await embedding_client.embed_texts(texts)
     scored: list[Tuple[float, RetrievedSnippet]] = []
     for emb, snippet in zip(embeddings.embeddings, snippets):
@@ -568,6 +585,7 @@ async def typology_dense_retrieve(
     qdrant_client: QdrantClient,
     source_ids: List[str],
     chunk_types: List[str] | None = None,
+    query_prefix: str | None = None,
 ) -> List[RetrievedSnippet]:
     """
     Dense search with over-fetch, then post-filter by source_id UUID and chunk_type.
@@ -589,6 +607,7 @@ async def typology_dense_retrieve(
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            query_prefix=query_prefix,
         )
         filtered = filter_snippets_by_typology_source(
             raw,

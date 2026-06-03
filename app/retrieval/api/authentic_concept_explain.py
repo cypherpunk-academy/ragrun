@@ -1,6 +1,7 @@
 """API router for authentic concept explanation (Steiner-first)."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +14,8 @@ from app.retrieval.services.providers import (
     get_embedding_client,
     get_qdrant_client,
 )
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["authentic-concept-explain"])
@@ -60,9 +63,11 @@ async def authentic_concept_explain(
             concept=concept, verbose=bool(request.verbose), llm_retries=int(request.retries)
         )
     except Exception as exc:
+        detail = str(exc).strip() or f"{type(exc).__name__} ({exc!r})"
+        logger.exception("authentic concept explain failed for concept=%r: %s", concept, detail)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"authentic concept explain failed: {exc}",
+            detail=f"authentic concept explain failed: {detail}",
         ) from exc
 
     return AuthenticConceptExplainResponse(

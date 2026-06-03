@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Mapping, Sequence
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import and_, case, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -211,23 +215,25 @@ class RagChunksRepository:
         asst = rag_chunks_table.c.rag_partition == assistant_rag_collection
         shared_col = rag_chunks_table.c.rag_partition == RAG_PARTITION_SHARED
 
-        if shared_source_ids is not None and len(shared_source_ids) == 0:
-            partition_condition = asst
+        if source_ids is not None and len(source_ids) > 0:
+            # Per-source embed (rag:embed Phase 1): filter by source_id first so Postgres
+            # can use idx_rag_chunks_rag_partition_source_id. Avoids OR + huge
+            # shared_source_ids IN (...) which routinely times out on Supabase.
+            sid_in = rag_chunks_table.c.source_id.in_(source_ids)
+            if shared_source_ids is not None and len(shared_source_ids) == 0:
+                partition_condition = and_(asst, sid_in)
+            else:
+                partition_condition = and_(sid_in, or_(asst, shared_col))
+            condition = partition_condition
+        elif shared_source_ids is not None and len(shared_source_ids) == 0:
+            condition = asst
         elif shared_source_ids is None:
-            partition_condition = or_(asst, shared_col)
+            condition = or_(asst, shared_col)
         else:
-            partition_condition = or_(
+            condition = or_(
                 asst,
                 and_(shared_col, rag_chunks_table.c.source_id.in_(shared_source_ids)),
             )
-
-        if source_ids is not None and len(source_ids) > 0:
-            condition = and_(
-                partition_condition,
-                rag_chunks_table.c.source_id.in_(source_ids),
-            )
-        else:
-            condition = partition_condition
 
         if chunk_types is not None:
             if len(chunk_types) == 0:
@@ -238,22 +244,59 @@ class RagChunksRepository:
         if only_unembedded:
             condition = and_(condition, rag_chunks_table.c.embedded_at.is_(None))
 
-        def _select() -> List[ChunkRecord]:
-            with self.engine.begin() as connection:
-                stmt = (
-                    select(rag_chunks_table)
-                    .where(and_(condition, active))
-                    .order_by(rag_chunks_table.c.updated_at.asc(), rag_chunks_table.c.chunk_id.asc())
-                )
-                if max_chunks is not None and max_chunks > 0:
-                    stmt = stmt.limit(max_chunks)
-                result = connection.execute(stmt)
-                out: List[ChunkRecord] = []
-                for row in result.mappings():
-                    out.append(_row_to_chunk_record(row))
-                return out
+        max_retries = 4
+        retry_delay = 5.0
+        # Slightly above PG statement_timeout (55s) so we surface DB timeout, not client race.
+        query_timeout_s = 70.0
 
-        return await asyncio.to_thread(_select)
+        for attempt in range(1, max_retries + 1):
+            t0 = time.perf_counter()
+            logger.info(
+                "list_chunk_records_for_embed: querying Supabase — collection=%s source_ids=%s (attempt %d/%d)",
+                assistant_rag_collection, source_ids, attempt, max_retries,
+            )
+
+            def _select() -> List[ChunkRecord]:
+                with self.engine.begin() as connection:
+                    stmt = (
+                        select(rag_chunks_table)
+                        .where(and_(condition, active))
+                        .order_by(rag_chunks_table.c.updated_at.asc(), rag_chunks_table.c.chunk_id.asc())
+                    )
+                    if max_chunks is not None and max_chunks > 0:
+                        stmt = stmt.limit(max_chunks)
+                    result = connection.execute(stmt)
+                    out: List[ChunkRecord] = []
+                    for row in result.mappings():
+                        out.append(_row_to_chunk_record(row))
+                    return out
+
+            try:
+                chunks = await asyncio.wait_for(
+                    asyncio.to_thread(_select), timeout=query_timeout_s
+                )
+                logger.info(
+                    "list_chunk_records_for_embed: done in %.2fs — %d chunks returned",
+                    time.perf_counter() - t0, len(chunks),
+                )
+                return chunks
+            except asyncio.TimeoutError:
+                elapsed = time.perf_counter() - t0
+                if attempt < max_retries:
+                    logger.warning(
+                        "list_chunk_records_for_embed: TIMEOUT (%.0fs) — retrying in %.0fs "
+                        "(attempt %d/%d) collection=%s source_ids=%s",
+                        elapsed, retry_delay, attempt, max_retries,
+                        assistant_rag_collection, source_ids,
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(
+                        "list_chunk_records_for_embed: TIMEOUT after %d attempts — "
+                        "collection=%s source_ids=%s",
+                        max_retries, assistant_rag_collection, source_ids,
+                    )
+                    raise
 
     async def mark_embedded_for_embed_run(
         self,

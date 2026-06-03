@@ -48,7 +48,7 @@ class EmbeddingClient:
         resolved_model = model_name
         dimensions = 0
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=10.0)) as client:
             for chunk in _chunk_list(texts, resolved_batch_size):
                 payload: dict[str, object] = {"texts": chunk}
                 if model_name:

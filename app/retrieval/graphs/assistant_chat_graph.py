@@ -52,6 +52,7 @@ from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_
 from app.services.pricing_service import calculate_cost
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, hybrid_retrieve, hybrid_retrieve_quote_parallel
+from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
 logger = logging.getLogger(__name__)
 
@@ -453,6 +454,8 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
     embedding_client = get_embedding_client()
     qdrant_client = get_qdrant_client()
     collection = state["collection_name"]
+    assistant_slug = state.get("assistant_slug") or collection
+    _prefix_passage, query_prefix = load_assistant_embedding_prefixes(assistant_slug)
 
     # On retry: widen to all chunk types (no filter)
     book_types: list[str] = [] if retry >= 1 else list(state.get("retrieval_plan") or [])
@@ -465,6 +468,7 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            query_prefix=query_prefix,
         )
     else:
         chunks = await hybrid_retrieve(
@@ -477,6 +481,7 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            query_prefix=query_prefix,
         )
 
     sufficiency = _compute_sufficiency(chunks)

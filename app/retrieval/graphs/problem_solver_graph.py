@@ -24,6 +24,7 @@ from app.infra.qdrant_client import QdrantClient
 from app.retrieval.services.action_prompt_service import (
     _lemma_lookup_multi_begrif,
     load_assistant_instruction,
+    load_assistant_embedding_prefixes,
 )
 from app.retrieval.utils.retrievers import build_context, dense_retrieve, hybrid_retrieve
 
@@ -86,6 +87,7 @@ async def _retrieve_broad(
     collection: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    query_prefix: str = "",
 ) -> dict[str, str]:
     """Retrieve primary + secondary + quotes + concepts. Returns slot → text."""
     k = 6
@@ -99,6 +101,7 @@ async def _retrieve_broad(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     secondary_hits = await dense_retrieve(
         query=query,
@@ -108,6 +111,7 @@ async def _retrieve_broad(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     quote_hits = await dense_retrieve(
         query=query,
@@ -117,6 +121,7 @@ async def _retrieve_broad(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     concept_hits = await _lemma_lookup_multi_begrif(
         user_prompt=query,
@@ -140,6 +145,7 @@ async def _retrieve_primary_only(
     collection: str,
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
+    query_prefix: str = "",
 ) -> str:
     """Retrieve primary sources only (for Socrates rounds)."""
     k = 6
@@ -153,6 +159,7 @@ async def _retrieve_primary_only(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     ctx, _ = build_context(hits)
     return ctx or "(keine primären Quellen)"
@@ -177,17 +184,21 @@ async def run_problem_solver(
     except FileNotFoundError:
         instruction = ""
 
+    _prefix_passage, query_prefix = load_assistant_embedding_prefixes(assistant_slug)
+
     broad = await _retrieve_broad(
         query=problem_text,
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     primary_ctx = await _retrieve_primary_only(
         query=problem_text,
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
 
     dialog_history: list[dict[str, str]] = []

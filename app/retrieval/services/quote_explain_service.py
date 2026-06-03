@@ -14,13 +14,17 @@ from app.infra.qdrant_client import QdrantClient
 from app.retrieval.models import RetrievedSnippet
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, dense_retrieve
+from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
 logger = logging.getLogger(__name__)
 
 K_BOOKS = 4
 K_LECTURES = 4
 K_TOTAL = 8
-MAX_EXPLANATION_TOKENS = 600
+# Explanation is stored as its own chunk (Chunk B), quote as separate Chunk A.
+# 420 LLM output tokens × ~3.7 chars/token ≈ 1550 chars → ~422 e5-tokens incl.
+# "passage: " prefix, safely under 512 embedding token limit.
+MAX_EXPLANATION_TOKENS = 420
 
 
 def _resolve_assistant_dir(assistant: str) -> Path:
@@ -115,6 +119,8 @@ async def explain_quote(
     if not isinstance(writing_style, str):
         writing_style = ""
 
+    _prefix_passage, query_prefix = load_assistant_embedding_prefixes(assistant)
+
     # Retrieve: 4 from primary books, 4 from lectures (talk/talk_summary)
     hits_books = await dense_retrieve(
         query=quote,
@@ -124,6 +130,7 @@ async def explain_quote(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     hits_lectures = await dense_retrieve(
         query=quote,
@@ -133,6 +140,7 @@ async def explain_quote(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
 
     all_hits: list[RetrievedSnippet] = list(hits_books) + list(hits_lectures)
@@ -156,14 +164,11 @@ async def explain_quote(
     )
     explanation = explanation.content.strip()
 
-    # Combined output: quote (original) + Erklärung (immer Deutsch)
-    combined_text = f"{quote}\n\nErklärung:\n\n{explanation}"
-
     # Evaluate chunk relevance
     references: list[dict[str, Any]] = []
     if all_hits:
         references = await evaluate_chunk_relevance(
-            generated_text=combined_text,
+            generated_text=explanation,
             retrieved_chunks=all_hits,
             llm=chat_client,
             max_chunks=K_TOTAL,
@@ -195,7 +200,8 @@ async def explain_quote(
                     metadata[key] = val
 
     return {
-        "text": combined_text,
+        "text": quote,
+        "explanation": explanation,
         "metadata": metadata,
         "chunk_ids": chunk_ids,
         "collection": collection,

@@ -25,10 +25,19 @@ from app.retrieval.prompts.authentic_concept_explain import (
 from app.retrieval.services.graph_event_recorder import GraphEventRecorder
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, dense_retrieve, rerank_by_embedding
+from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
+from app.retrieval.utils.embedding_budget import (
+    MAX_EMBED_CHUNK_CHARS as MAX_LEXICON_CHARS,
+    MAX_EMBED_CHUNK_TOKENS as MAX_LEXICON_TOKENS,
+    SENTENCE_END_RE,
+    trim_to_embedding_budget,
+)
 from app.retrieval.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
-SENTENCE_END_RE = re.compile(r'[.!?][\"\'\u201c\u201d\u2019\u00BB\)\]]?\s*$')
+
+MAX_LEXICON_COMPLETION_TOKENS = 120
+MIN_LEXICON_CHARS = 400
 
 
 class RetryableCompletionError(RuntimeError):
@@ -179,6 +188,7 @@ async def _chat_with_retry(
     min_chars: int | None = None,
     require_sentence_end: bool = True,
     completion_instruction: str = "Schließe den Text sauber ab. Setze einen klaren Schlusssatz.",
+    completion_max_tokens: int | None = None,
     verbose: bool = False,
 ) -> tuple[str, list[Mapping[str, str]]]:
     """Call DeepSeek with best-effort completion retry to avoid truncated text."""
@@ -219,7 +229,9 @@ async def _chat_with_retry(
             ]
             _log_prompt(completion_messages)
             completion_obj = await client.chat(
-                completion_messages, temperature=temperature, max_tokens=max_tokens
+                completion_messages,
+                temperature=temperature,
+                max_tokens=completion_max_tokens if completion_max_tokens is not None else max_tokens,
             )
             completion = completion_obj.content
             combined = f"{result.rstrip()} {completion.lstrip()}".strip()
@@ -274,6 +286,7 @@ async def run_authentic_concept_explain_chain(
     if not concept or not concept.strip():
         raise ValueError("concept is required")
 
+    passage_prefix, query_prefix = load_assistant_embedding_prefixes(collection)
     cfg = cfg or VerifyRetrievalConfig()
     graph_event_id = uuid.uuid4()
     graph_name = "authentic_concept_explain"
@@ -351,9 +364,11 @@ async def run_authentic_concept_explain_chain(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     reranked = await rerank_by_embedding(
-        query=steiner_prior_text, snippets=raw_hits, embedding_client=embedding_client, k_final=cfg.k_final
+        query=steiner_prior_text, snippets=raw_hits, embedding_client=embedding_client, k_final=cfg.k_final,
+        query_prefix=query_prefix, passage_prefix=passage_prefix,
     )
     if _should_widen(reranked, cfg.k_final):
         widened = await dense_retrieve(
@@ -364,9 +379,11 @@ async def run_authentic_concept_explain_chain(
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            query_prefix=query_prefix,
         )
         reranked = await rerank_by_embedding(
-            query=steiner_prior_text, snippets=widened, embedding_client=embedding_client, k_final=cfg.k_final
+            query=steiner_prior_text, snippets=widened, embedding_client=embedding_client, k_final=cfg.k_final,
+            query_prefix=query_prefix, passage_prefix=passage_prefix,
         )
 
     verify_context, verify_refs = build_context(reranked)
@@ -442,12 +459,15 @@ async def run_authentic_concept_explain_chain(
             collection=collection,
             embedding_client=embedding_client,
             qdrant_client=qdrant_client,
+            query_prefix=query_prefix,
         )
         missing_reranked = await rerank_by_embedding(
             query=missing_query_text,
             snippets=missing_hits,
             embedding_client=embedding_client,
             k_final=cfg.k_final,
+            query_prefix=query_prefix,
+            passage_prefix=passage_prefix,
         )
 
         extra_context, extra_refs = build_context(missing_reranked)
@@ -480,16 +500,21 @@ async def run_authentic_concept_explain_chain(
     lexicon_prompt = build_steiner_lexicon_prompt(
         concept=concept, context=combined_context, verification_report=verification_report
     )
-    lexicon_entry, lexicon_prompt_messages = await _chat_with_retry(
+    lexicon_raw, lexicon_prompt_messages = await _chat_with_retry(
         chat_client,
         lexicon_prompt,
         temperature=0.3,
-        max_tokens=520,
+        max_tokens=MAX_LEXICON_TOKENS,
+        completion_max_tokens=MAX_LEXICON_COMPLETION_TOKENS,
         operation="steiner_lexicon",
         retries=llm_retries,
-        min_chars=900,
+        min_chars=MIN_LEXICON_CHARS,
+        completion_instruction=(
+            "Schließe den angefangenen Satz knapp ab (höchstens ein kurzer Schlusssatz)."
+        ),
         verbose=verbose,
     )
+    lexicon_entry = trim_to_embedding_budget(lexicon_raw)
     await _record_event(
         "steiner_lexicon",
         prompt_messages=lexicon_prompt_messages,

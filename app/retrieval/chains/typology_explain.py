@@ -24,9 +24,14 @@ from app.retrieval.utils.retrievers import (
     rerank_by_embedding,
     typology_dense_retrieve,
 )
+from app.retrieval.utils.embedding_budget import trim_to_embedding_budget
 from app.retrieval.utils.retry import retry_async
+from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
 logger = logging.getLogger(__name__)
+
+# JSON extract includes members list; explanation is trimmed to one e5-sized embed chunk.
+MAX_TYPOLOGY_EXTRACT_TOKENS = 800
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -161,6 +166,8 @@ async def run_typology_explain_chain(
             **kwargs,
         )
 
+    _passage_prefix, query_prefix = load_assistant_embedding_prefixes(collection)
+
     query_bits = [tname, *[a for a in aliases if isinstance(a, str) and a.strip()][:12]]
     query_text = ". ".join(query_bits)
 
@@ -176,6 +183,7 @@ async def run_typology_explain_chain(
         qdrant_client=qdrant_client,
         chunk_types=ct_list,
         source_ids=sid_list,
+        query_prefix=query_prefix or None,
     )
 
     if len(reranked) < 6:
@@ -189,6 +197,7 @@ async def run_typology_explain_chain(
             qdrant_client=qdrant_client,
             chunk_types=ct_list,
             source_ids=sid_list,
+            query_prefix=query_prefix or None,
         )
         reranked = wide
 
@@ -204,6 +213,7 @@ async def run_typology_explain_chain(
                 collection=collection,
                 embedding_client=embedding_client,
                 qdrant_client=qdrant_client,
+                query_prefix=query_prefix or None,
             )
             reranked = filter_snippets_by_typology_source(
                 h,
@@ -247,7 +257,7 @@ async def run_typology_explain_chain(
         chat_client,
         extract_messages,
         temperature=0.2,
-        max_tokens=4_000,
+        max_tokens=MAX_TYPOLOGY_EXTRACT_TOKENS,
         operation="typology_extract",
         retries=llm_retries,
         verbose=verbose,
@@ -296,8 +306,16 @@ async def run_typology_explain_chain(
         except Exception as exc:
             logger.warning("typology verify step failed: %s", exc)
 
+    explanation_trimmed = trim_to_embedding_budget(explanation.strip())
+    if len(explanation_trimmed) < len(explanation.strip()):
+        logger.info(
+            "typology explanation trimmed for embed budget (%s -> %s chars)",
+            len(explanation.strip()),
+            len(explanation_trimmed),
+        )
+
     references = await evaluate_chunk_relevance(
-        generated_text=explanation,
+        generated_text=explanation_trimmed,
         retrieved_chunks=reranked,
         llm=chat_client,
         max_chunks=20,
@@ -306,7 +324,7 @@ async def run_typology_explain_chain(
     return TypologyExplainResult(
         name=tname,
         members=members,
-        explanation=explanation.strip(),
+        explanation=explanation_trimmed,
         aliases=merged_aliases,
         references=references,
         graph_event_id=str(graph_event_id),

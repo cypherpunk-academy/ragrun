@@ -29,6 +29,7 @@ from app.retrieval.utils.retrievers import (
     rerank_by_embedding,
     sparse_retrieve,
 )
+from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 from app.retrieval.utils.retry import retry_async
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,8 @@ async def _retrieve_with_widen(
     k_final: int,
     hybrid: bool,
     sparse_only: bool = False,
+    query_prefix: str = "",
+    passage_prefix: str = "",
 ) -> RetrievalOutcome:
     """Retrieve with optional widening and hybrid fallback."""
 
@@ -203,6 +206,7 @@ async def _retrieve_with_widen(
                 embedding_client=embedding_client,
                 qdrant_client=qdrant_client,
                 force_sparse=False,
+                query_prefix=query_prefix or None,
             )
         else:
             mode_label = "dense"
@@ -214,10 +218,12 @@ async def _retrieve_with_widen(
                 collection=collection,
                 embedding_client=embedding_client,
                 qdrant_client=qdrant_client,
+                query_prefix=query_prefix or None,
             )
 
         reranked = await rerank_by_embedding(
-            query=query, snippets=hits, embedding_client=embedding_client, k_final=k_final
+            query=query, snippets=hits, embedding_client=embedding_client, k_final=k_final,
+            query_prefix=query_prefix or None, passage_prefix=passage_prefix or None,
         )
 
         if _should_widen(reranked, k_final):
@@ -239,9 +245,11 @@ async def _retrieve_with_widen(
                     collection=collection,
                     embedding_client=embedding_client,
                     qdrant_client=qdrant_client,
+                    query_prefix=query_prefix or None,
                 )
             reranked = await rerank_by_embedding(
-                query=query, snippets=widened_hits, embedding_client=embedding_client, k_final=k_final
+                query=query, snippets=widened_hits, embedding_client=embedding_client, k_final=k_final,
+                query_prefix=query_prefix or None, passage_prefix=passage_prefix or None,
             )
             return reranked, widened_hits, mode_label
 
@@ -289,6 +297,8 @@ async def run_concept_explain_worldviews_graph(
         raise ValueError("concept is required")
     if not worldviews:
         raise ValueError("worldviews must not be empty")
+
+    passage_prefix, query_prefix = load_assistant_embedding_prefixes(collection)
 
     # If caller did not supply a RetrievalConfig, derive it from defaults + settings.
     # Important: k_final values cap the number of chunks we keep after reranking; to
@@ -352,6 +362,8 @@ async def run_concept_explain_worldviews_graph(
         k_final=cfg.k_final_concept,
         hybrid=hybrid,
         sparse_only=True,
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
     )
     concept_context, concept_refs = build_context(concept_outcome.hits)
     concept_errors = ["no_sparse_hits"] if not concept_outcome.hits else None
@@ -413,6 +425,8 @@ async def run_concept_explain_worldviews_graph(
                 widen_to=cfg.widen_context1,
                 k_final=cfg.k_final_context1,
                 hybrid=hybrid,
+                query_prefix=query_prefix,
+                passage_prefix=passage_prefix,
             )
             ctx1_text, ctx1_refs = build_context(ctx1_outcome.hits)
             await _record_event(
@@ -467,6 +481,8 @@ async def run_concept_explain_worldviews_graph(
                 widen_to=cfg.widen_context2,
                 k_final=cfg.k_final_context2,
                 hybrid=hybrid,
+                query_prefix=query_prefix,
+                passage_prefix=passage_prefix,
             )
             ctx2_text, ctx2_refs = build_context(ctx2_outcome.hits)
 
