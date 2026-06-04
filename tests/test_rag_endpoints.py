@@ -74,6 +74,7 @@ class StubRagChunksRepository:
         self.mark_embedded_calls: list[tuple[str, list[str]]] = []
         self.last_embed_kwargs: dict[str, object] | None = None
         self.deprecate_orphans_calls: list[tuple[str, dict[str, list[str]]]] = []
+        self.deprecate_chunk_ids_calls: list[tuple[str, list[str]]] = []
 
     async def upsert_chunks(self, rag_partition: str, chunks, *, default_scope=None):
         self.upsert_calls.append(
@@ -85,6 +86,10 @@ class StubRagChunksRepository:
     ) -> dict[str, int]:
         self.deprecate_orphans_calls.append((rag_partition, dict(active_by_source)))
         return {sid: 0 for sid in active_by_source}
+
+    async def deprecate_chunk_ids(self, rag_partition: str, chunk_ids: list[str]) -> int:
+        self.deprecate_chunk_ids_calls.append((rag_partition, list(chunk_ids)))
+        return len(chunk_ids)
 
     async def list_chunk_records_for_embed(
         self,
@@ -171,6 +176,47 @@ def test_store_endpoint_persists_chunks(client_with_stub):
     assert rag_stub.deprecate_orphans_calls[0][1] == {
         "test-source": ["test-001", "test-002"],
     }
+
+
+def test_store_endpoint_skips_deprecate_when_requested(client_with_stub):
+    """skip_deprecate_orphans=true must not call deprecate_orphans_for_sources."""
+    client, _stub, rag_stub = client_with_stub
+
+    payload = {
+        "chunks_jsonl_content": _sample_chunk_jsonl("test-001", "hash1"),
+        "collection_name": "test-collection",
+        "skip_deprecate_orphans": True,
+    }
+
+    response = client.post("/api/v1/rag/store-chunks", json=payload)
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["stored"] == 1
+    assert body["deprecated"] == 0
+    assert body["deprecated_by_source"] == {}
+    assert len(rag_stub.deprecate_orphans_calls) == 0
+
+
+def test_deprecate_chunk_ids_endpoint(client_with_stub):
+    """deprecate-chunk-ids marks explicit chunk_ids via repository."""
+    client, _stub, rag_stub = client_with_stub
+
+    response = client.post(
+        "/api/v1/rag/deprecate-chunk-ids",
+        json={
+            "collection_name": "test-collection",
+            "chunk_ids": ["old-001", "old-002"],
+        },
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["collection"] == "test-collection"
+    assert body["deprecated"] == 2
+    assert rag_stub.deprecate_chunk_ids_calls == [
+        ("test-collection", ["old-001", "old-002"]),
+    ]
 
 
 def test_embed_endpoint_runs_ingestion(client_with_stub):

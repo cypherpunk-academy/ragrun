@@ -46,6 +46,13 @@ class StoreChunksRequest(BaseModel):
         None,
         description="Optional scope when chunk metadata has no source_type (e.g. book, assistant).",
     )
+    skip_deprecate_orphans: bool = Field(
+        False,
+        description=(
+            "When true, upsert only; do not run orphan deprecation for this batch. "
+            "Use for incremental concept pushes; run explicit deprecation at end of run."
+        ),
+    )
 
 
 class StoreChunksResponse(BaseModel):
@@ -67,6 +74,21 @@ class StoreChunksResponse(BaseModel):
     deprecate_seconds: Optional[float] = Field(
         None, description="Server time spent in orphan deprecation (diagnostics)."
     )
+
+
+class DeprecateChunkIdsRequest(BaseModel):
+    """Mark explicit chunk_ids as deprecated in rag_chunks."""
+
+    collection_name: str = Field(..., description="rag_partition (assistant rag-collection)")
+    chunk_ids: List[str] = Field(
+        default_factory=list,
+        description="chunk_ids to mark deprecated (typically: embedded before run minus run output)",
+    )
+
+
+class DeprecateChunkIdsResponse(BaseModel):
+    collection: str
+    deprecated: int = Field(0, description="Rows newly marked deprecated")
 
 
 class EmbedChunksRequest(BaseModel):
@@ -301,22 +323,25 @@ async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
     )
     upsert_seconds = time.perf_counter() - t0
 
-    active_by_source: Dict[str, List[str]] = {}
-    chunk_types_by_source: Dict[str, set[str]] = {}
-    for c in chunks:
-        sid = c.metadata.source_id
-        active_by_source.setdefault(sid, []).append(c.metadata.chunk_id)
-        chunk_types_by_source.setdefault(sid, set()).add(c.metadata.chunk_type)
+    deprecated_by_source: Dict[str, int] = {}
+    deprecate_seconds = 0.0
+    if not request.skip_deprecate_orphans:
+        active_by_source: Dict[str, List[str]] = {}
+        chunk_types_by_source: Dict[str, set[str]] = {}
+        for c in chunks:
+            sid = c.metadata.source_id
+            active_by_source.setdefault(sid, []).append(c.metadata.chunk_id)
+            chunk_types_by_source.setdefault(sid, set()).add(c.metadata.chunk_type)
 
-    t1 = time.perf_counter()
-    deprecated_by_source = await rag_repo.deprecate_orphans_for_sources(
-        request.collection_name,
-        active_by_source,
-        chunk_types_by_source={
-            sid: sorted(types) for sid, types in chunk_types_by_source.items()
-        },
-    )
-    deprecate_seconds = time.perf_counter() - t1
+        t1 = time.perf_counter()
+        deprecated_by_source = await rag_repo.deprecate_orphans_for_sources(
+            request.collection_name,
+            active_by_source,
+            chunk_types_by_source={
+                sid: sorted(types) for sid, types in chunk_types_by_source.items()
+            },
+        )
+        deprecate_seconds = time.perf_counter() - t1
     deprecated = sum(deprecated_by_source.values())
 
     logger.info(
@@ -335,6 +360,34 @@ async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
         deprecated_by_source=deprecated_by_source,
         upsert_seconds=round(upsert_seconds, 3),
         deprecate_seconds=round(deprecate_seconds, 3),
+    )
+
+
+@router.post(
+    "/deprecate-chunk-ids",
+    response_model=DeprecateChunkIdsResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def deprecate_chunk_ids_endpoint(
+    request: DeprecateChunkIdsRequest,
+) -> DeprecateChunkIdsResponse:
+    """Soft-retire specific rag_chunks rows (excluded from embed until re-upserted)."""
+
+    chunk_ids = [cid.strip() for cid in request.chunk_ids if cid and cid.strip()]
+    if not chunk_ids:
+        return DeprecateChunkIdsResponse(collection=request.collection_name, deprecated=0)
+
+    rag_repo = get_rag_chunks_repository()
+    deprecated = await rag_repo.deprecate_chunk_ids(request.collection_name, chunk_ids)
+    logger.info(
+        "deprecate-chunk-ids partition=%s requested=%d deprecated=%d",
+        request.collection_name,
+        len(chunk_ids),
+        deprecated,
+    )
+    return DeprecateChunkIdsResponse(
+        collection=request.collection_name,
+        deprecated=deprecated,
     )
 
 

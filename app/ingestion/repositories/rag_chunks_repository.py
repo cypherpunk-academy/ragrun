@@ -188,6 +188,34 @@ class RagChunksRepository:
 
         return await asyncio.to_thread(_write)
 
+    async def deprecate_chunk_ids(
+        self,
+        rag_partition: str,
+        chunk_ids: List[str],
+    ) -> int:
+        """Set deprecated_at=now() for the given chunk_ids in rag_partition (active rows only)."""
+
+        if not chunk_ids:
+            return 0
+        now = datetime.now(timezone.utc)
+
+        def _write() -> int:
+            with self.engine.begin() as connection:
+                result = connection.execute(
+                    update(rag_chunks_table)
+                    .where(
+                        and_(
+                            rag_chunks_table.c.rag_partition == rag_partition,
+                            rag_chunks_table.c.chunk_id.in_(chunk_ids),
+                            rag_chunks_table.c.deprecated_at.is_(None),
+                        )
+                    )
+                    .values(deprecated_at=now)
+                )
+                return int(result.rowcount or 0)
+
+        return await asyncio.to_thread(_write)
+
     async def list_chunk_records_for_embed(
         self,
         assistant_rag_collection: str,
