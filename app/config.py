@@ -3,7 +3,7 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import AnyHttpUrl
+from pydantic import AliasChoices, AnyHttpUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,6 +56,23 @@ class Settings(BaseSettings):
     # CORS: comma-separated list of allowed origins (e.g. "http://localhost:8080,https://example.com")
     cors_origins: str = ""
 
+    # Supabase (JWT validation for /app/* and sync RPC forwarding)
+    supabase_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAGRUN_SUPABASE_URL", "EXPO_PUBLIC_SUPABASE_URL"),
+    )
+    supabase_anon_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAGRUN_SUPABASE_ANON_KEY", "EXPO_PUBLIC_SUPABASE_ANON_KEY"),
+    )
+    supabase_jwt_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAGRUN_SUPABASE_JWT_SECRET", "SUPABASE_JWT_SECRET"),
+    )
+
+    # Default assistant for app search when collection is omitted
+    app_default_assistant_slug: str = "philo-von-freisinn"
+
     # Embedding prefixes for instruction-tuned models (e.g. multilingual-e5-large).
     # Leave empty for models that do not require prefixes (e.g. cross-en-de-roberta).
     # Set via RAGRUN_EMBEDDING_PREFIX_PASSAGE and RAGRUN_EMBEDDING_PREFIX_QUERY in .env.
@@ -97,6 +114,7 @@ class Settings(BaseSettings):
         env_prefix="RAGRUN_",
         env_ignore_empty=True,
         extra="ignore",
+        populate_by_name=True,
     )
 
 

@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS vector_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_vector_chunks_source_id ON vector_chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_vector_chunks_created_at ON vector_chunks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vector_chunks_begriff_segment_title ON vector_chunks(collection, LOWER(metadata->>'segment_title')) WHERE chunk_type = 'begriff';
+CREATE INDEX IF NOT EXISTS idx_vector_chunks_collection_chunk_type ON vector_chunks(collection, chunk_type);
+CREATE INDEX IF NOT EXISTS idx_vector_chunks_collection_source_id ON vector_chunks(collection, source_id);
 
 -- rag_chunks: primary chunk store (DB-first); embedded_at set after Qdrant sync
 CREATE TABLE IF NOT EXISTS rag_chunks (
@@ -42,6 +45,7 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_source_id ON rag_chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_created_at ON rag_chunks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_rag_partition_embedded_at ON rag_chunks(rag_partition, embedded_at);
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_partition_deprecated_updated ON rag_chunks(rag_partition, updated_at) WHERE deprecated_at IS NULL;
 
 -- rag_paragraphs: individual paragraph texts linked to their source lecture/book
 CREATE TABLE IF NOT EXISTS rag_paragraphs (
@@ -57,6 +61,7 @@ CREATE TABLE IF NOT EXISTS rag_paragraphs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rag_paragraphs_source_id ON rag_paragraphs(source_id);
+CREATE INDEX IF NOT EXISTS idx_rag_paragraphs_updated_at ON rag_paragraphs(updated_at);
 
 -- app_paragraph_chunk: many-to-many mapping between paragraphs and chunks
 CREATE TABLE IF NOT EXISTS app_paragraph_chunk (

@@ -1,0 +1,170 @@
+"""Talk persistence for /app/chat."""
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any, Sequence
+
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+from app.db.ports import TalksPort
+
+
+class PostgresTalksRepository(TalksPort):
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    async def create_talk_turn(
+        self,
+        *,
+        user_id: str,
+        user_name: str,
+        collection: str,
+        personality: str,
+        title: str,
+        user_message: str,
+        assistant_message: str,
+        talk_id: str | None = None,
+        kontext_meta: dict[str, Any] | None = None,
+        usage: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        km = kontext_meta or {}
+        kontext_source_id = km.get("sourceId") or km.get("source_id")
+        kontext_paragraph_id = km.get("segmentId") or km.get("paragraph_id")
+        kontext_paragraph = km.get("paragraphHint") or km.get("paragraph_hint")
+
+        def _write() -> dict[str, str]:
+            with self._engine.begin() as conn:
+                talk_id_val: str | None
+                if talk_id:
+                    existing = conn.execute(
+                        text("SELECT talk_id::text FROM rag_talks WHERE talk_id = :talk_id"),
+                        {"talk_id": talk_id},
+                    ).first()
+                    talk_id_val = str(existing[0]) if existing else None
+                else:
+                    talk_id_val = None
+
+                if not talk_id_val:
+                    row = conn.execute(
+                        text(
+                            """
+                            INSERT INTO rag_talks
+                              (collection, user_id, user_name, title, personality,
+                               kontext_source_id, kontext_paragraph_id, kontext_paragraph,
+                               publishing_status, updated_at)
+                            VALUES
+                              (:collection, :user_id, :user_name, :title, :personality,
+                               :kontext_source_id, :kontext_paragraph_id, :kontext_paragraph,
+                               'personal', now())
+                            RETURNING talk_id::text
+                            """
+                        ),
+                        {
+                            "collection": collection,
+                            "user_id": user_id,
+                            "user_name": user_name,
+                            "title": title[:500] if title else user_message[:120],
+                            "personality": personality,
+                            "kontext_source_id": kontext_source_id,
+                            "kontext_paragraph_id": kontext_paragraph_id,
+                            "kontext_paragraph": kontext_paragraph,
+                        },
+                    ).first()
+                    talk_id_val = str(row[0])
+                    turn_index = 0
+                else:
+                    max_idx = conn.execute(
+                        text(
+                            "SELECT COALESCE(MAX(turn_index), -1) FROM rag_turns WHERE talk_id = :talk_id"
+                        ),
+                        {"talk_id": talk_id_val},
+                    ).scalar()
+                    turn_index = int(max_idx or -1) + 1
+                    conn.execute(
+                        text("UPDATE rag_talks SET updated_at = now() WHERE talk_id = :talk_id"),
+                        {"talk_id": talk_id_val},
+                    )
+
+                turn_row = conn.execute(
+                    text(
+                        """
+                        INSERT INTO rag_turns
+                          (talk_id, turn_index, personality, user_message, assistant_message,
+                           usage, collection, kontext_meta)
+                        VALUES
+                          (:talk_id, :turn_index, :personality, :user_message, :assistant_message,
+                           CAST(:usage AS jsonb), :collection, CAST(:kontext_meta AS jsonb))
+                        RETURNING turn_id::text
+                        """
+                    ),
+                    {
+                        "talk_id": talk_id_val,
+                        "turn_index": turn_index,
+                        "personality": personality,
+                        "user_message": user_message,
+                        "assistant_message": assistant_message,
+                        "usage": json.dumps(usage) if usage else None,
+                        "collection": collection,
+                        "kontext_meta": json.dumps(kontext_meta) if kontext_meta else None,
+                    },
+                ).first()
+                turn_id_val = str(turn_row[0])
+
+                if usage:
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO rag_usage
+                              (account_id, turn_id, talk_id, endpoint, model, provider,
+                               prompt_tokens, completion_tokens, total_tokens)
+                            VALUES
+                              (:account_id, :turn_id, :talk_id, 'app_chat', :model, 'deepseek',
+                               :prompt_tokens, :completion_tokens, :total_tokens)
+                            """
+                        ),
+                        {
+                            "account_id": user_id,
+                            "turn_id": turn_id_val,
+                            "talk_id": talk_id_val,
+                            "model": usage.get("model"),
+                            "prompt_tokens": usage.get("prompt_tokens"),
+                            "completion_tokens": usage.get("completion_tokens"),
+                            "total_tokens": usage.get("total_tokens"),
+                        },
+                    )
+
+            return {"talk_id": talk_id_val, "turn_id": turn_id_val}
+
+        return await asyncio.to_thread(_write)
+
+    async def load_talk_turns(self, talk_id: str) -> Sequence[dict[str, Any]]:
+        def _read() -> list[dict[str, Any]]:
+            with self._engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT turn_index, user_message, assistant_message
+                        FROM rag_turns
+                        WHERE talk_id = :talk_id
+                        ORDER BY turn_index ASC
+                        """
+                    ),
+                    {"talk_id": talk_id},
+                ).mappings().all()
+            return [dict(r) for r in rows]
+
+        return await asyncio.to_thread(_read)
+
+    async def save_talk_summary(self, talk_id: str, summary: str) -> None:
+        def _write() -> None:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE rag_talks SET summary = :summary, updated_at = now() WHERE talk_id = :talk_id"
+                    ),
+                    {"talk_id": talk_id, "summary": summary},
+                )
+
+        await asyncio.to_thread(_write)

@@ -29,6 +29,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .api import app_api as app_api_router
 from .api import rag as rag_router
 from .api import admin as admin_router
 from .api.chat import router as chat_router
@@ -148,6 +149,7 @@ if _cors_origins:
         allow_headers=["*"],
     )
 
+app.include_router(app_api_router.router)
 app.include_router(rag_router.router, prefix="/api/v1")
 app.include_router(admin_router.router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
