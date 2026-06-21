@@ -45,6 +45,7 @@ services:
       - "8000:8000"
     volumes:
       - /Users/michael/Reniets/Ai/ragrun-personalities:/personalities:ro
+      - fastembed-cache:/tmp/fastembed_cache
     depends_on:
       - qdrant
       - embedding-service
@@ -52,3 +53,4 @@ services:
 volumes:
   qdrant-data:
   embeddings-model-cache:
+  fastembed-cache:
