@@ -140,6 +140,7 @@ async def app_search_endpoint(
         types=body.types,
         limit=body.limit,
         collection=body.collection,
+        engine=get_engine(),
     )
     return SearchResponse(results=results)
 
