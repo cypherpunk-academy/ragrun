@@ -65,6 +65,18 @@ class ChunkMetadata(BaseModel):
         None,
         description="Optional container type (book, begriff, etc.).",
     )
+    book_title: Optional[str] = Field(None, description="Full work title for search cards.")
+    venue: Optional[str] = Field(None, description="Lecture venue or city.")
+    lecture_date: Optional[str] = Field(None, description="Lecture date (ISO YYYY-MM-DD preferred).")
+    lecture_id: Optional[str] = Field(
+        None,
+        description="Readable catalog lecture id (e.g. 19190525); not rag_chunks source_id.",
+    )
+    paragraph: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Paragraph number in source segment (1-based), e.g. quote anchor.",
+    )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")
     references: Optional[List[Dict[str, Any]]] = Field(

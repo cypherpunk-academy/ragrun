@@ -71,3 +71,14 @@ def test_chunk_record_requires_metadata(base_metadata_dict):
     }
     with pytest.raises(ValueError):
         ChunkRecord.from_dict(chunk_dict)
+
+
+def test_chunk_metadata_lecture_quote_fields(base_metadata_dict):
+    payload = base_metadata_dict.copy()
+    payload["chunk_type"] = "quote"
+    payload["lecture_id"] = "19190525"
+    payload["paragraph"] = 7
+    metadata = ChunkMetadata.from_payload(payload)
+    dumped = metadata.model_dump(mode="json")
+    assert dumped["lecture_id"] == "19190525"
+    assert dumped["paragraph"] == 7
