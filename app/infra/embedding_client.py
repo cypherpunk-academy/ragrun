@@ -6,6 +6,8 @@ from typing import Iterable, List, Sequence
 
 import httpx
 
+from app.debug_agent_log import agent_log
+
 
 def _chunk_list(items: Sequence[str], chunk_size: int) -> Iterable[List[str]]:
     """Yield successive slices from a sequence."""
@@ -53,9 +55,29 @@ class EmbeddingClient:
                 payload: dict[str, object] = {"texts": chunk}
                 if model_name:
                     payload["model"] = model_name
-                response = await client.post(f"{self.base_url}/api/v1/embeddings", json=payload)
-                response.raise_for_status()
-                data = response.json()
+                target_url = f"{self.base_url}/api/v1/embeddings"
+                # region agent log
+                agent_log(
+                    location="embedding_client.py:embed_texts:before_post",
+                    message="embedding request",
+                    data={"target_url": target_url, "batch_size": len(chunk)},
+                    hypothesis_id="C",
+                )
+                # endregion
+                try:
+                    response = await client.post(target_url, json=payload)
+                    response.raise_for_status()
+                    data = response.json()
+                except httpx.ConnectTimeout as exc:
+                    # region agent log
+                    agent_log(
+                        location="embedding_client.py:embed_texts:connect_timeout",
+                        message="embedding ConnectTimeout",
+                        data={"target_url": target_url, "exc": str(exc)},
+                        hypothesis_id="C",
+                    )
+                    # endregion
+                    raise
                 chunk_embeddings = data.get("embeddings")
                 if not isinstance(chunk_embeddings, list):
                     raise RuntimeError("embedding service returned malformed payload")

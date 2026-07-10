@@ -15,6 +15,7 @@ from app.retrieval.models import RetrievedSnippet
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, dense_retrieve
 from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
+from app.debug_agent_log import agent_log
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,15 @@ async def explain_quote(
     if not quote:
         raise ValueError("quote is required")
 
+    # region agent log
+    agent_log(
+        location="quote_explain_service.py:explain_quote:entry",
+        message="explain_quote started",
+        data={"assistant": assistant, "quote_len": len(quote)},
+        hypothesis_id="A",
+    )
+    # endregion
+
     manifest = _load_manifest(assistant)
     collection = manifest.get("rag-collection") or assistant
     if not isinstance(collection, str):
@@ -144,6 +154,18 @@ async def explain_quote(
     )
 
     all_hits: list[RetrievedSnippet] = list(hits_books) + list(hits_lectures)
+    # region agent log
+    agent_log(
+        location="quote_explain_service.py:explain_quote:after_retrieve",
+        message="retrieval complete",
+        data={
+            "books_hits": len(hits_books),
+            "lectures_hits": len(hits_lectures),
+            "collection": collection,
+        },
+        hypothesis_id="C-D",
+    )
+    # endregion
     if not all_hits:
         logger.warning("No chunks retrieved for quote; using empty context")
 
@@ -157,22 +179,55 @@ async def explain_quote(
         language=language,
         writing_style=writing_style,
     )
+    # region agent log
+    agent_log(
+        location="quote_explain_service.py:explain_quote:before_main_chat",
+        message="calling main DeepSeek chat",
+        data={"max_tokens": MAX_EXPLANATION_TOKENS},
+        hypothesis_id="A",
+    )
+    # endregion
     explanation = await chat_client.chat(
         messages,
         temperature=0.3,
         max_tokens=MAX_EXPLANATION_TOKENS,
+        _debug_caller="quote_explain_main",
     )
     explanation = explanation.content.strip()
+    # region agent log
+    agent_log(
+        location="quote_explain_service.py:explain_quote:after_main_chat",
+        message="main DeepSeek chat ok",
+        data={"explanation_len": len(explanation)},
+        hypothesis_id="A",
+    )
+    # endregion
 
     # Evaluate chunk relevance
     references: list[dict[str, Any]] = []
     if all_hits:
+        # region agent log
+        agent_log(
+            location="quote_explain_service.py:explain_quote:before_ref_eval",
+            message="calling reference evaluation",
+            data={"hit_count": len(all_hits)},
+            hypothesis_id="B",
+        )
+        # endregion
         references = await evaluate_chunk_relevance(
             generated_text=explanation,
             retrieved_chunks=all_hits,
             llm=chat_client,
             max_chunks=K_TOTAL,
         )
+        # region agent log
+        agent_log(
+            location="quote_explain_service.py:explain_quote:after_ref_eval",
+            message="reference evaluation done",
+            data={"reference_count": len(references)},
+            hypothesis_id="B",
+        )
+        # endregion
 
     # Extract chunk_ids for event recording
     chunk_ids: list[str] = []

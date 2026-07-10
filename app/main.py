@@ -28,10 +28,13 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi import Depends
+
 from .config import settings
 from .api import app_api as app_api_router
 from .api import rag as rag_router
 from .api import admin as admin_router
+from .api.internal_auth import require_internal_key
 from .api.chat import router as chat_router
 from .api.action_prompt import router as action_prompt_router
 from .api.problem_solver import router as problem_solver_router
@@ -150,8 +153,8 @@ if _cors_origins:
     )
 
 app.include_router(app_api_router.router)
-app.include_router(rag_router.router, prefix="/api/v1")
-app.include_router(admin_router.router, prefix="/api/v1")
+app.include_router(rag_router.router, prefix="/api/v1", dependencies=[Depends(require_internal_key)])
+app.include_router(admin_router.router, prefix="/api/v1", dependencies=[Depends(require_internal_key)])
 app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(action_prompt_router, prefix="/api/v1")

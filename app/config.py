@@ -3,8 +3,24 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import AliasChoices, AnyHttpUrl, Field
+from pydantic import AliasChoices, AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_postgres_dsn(dsn: str) -> str:
+    """Force psycopg v3 driver — bare postgresql:// would default to psycopg2."""
+    s = (dsn or "").strip()
+    if not s:
+        return s
+    if s.startswith("postgresql+psycopg://"):
+        return s
+    if s.startswith("postgresql+psycopg2://"):
+        return "postgresql+psycopg://" + s.removeprefix("postgresql+psycopg2://")
+    if s.startswith("postgresql://"):
+        return "postgresql+psycopg://" + s.removeprefix("postgresql://")
+    if s.startswith("postgres://"):
+        return "postgresql+psycopg://" + s.removeprefix("postgres://")
+    return s
 
 
 class Settings(BaseSettings):
@@ -20,6 +36,14 @@ class Settings(BaseSettings):
     qdrant_timeout_seconds: float = 300.0
 
     postgres_dsn: str = "postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun"
+
+    @field_validator("postgres_dsn", mode="before")
+    @classmethod
+    def _normalize_postgres_dsn(cls, v: object) -> object:
+        if isinstance(v, str):
+            return normalize_postgres_dsn(v)
+        return v
+
     embeddings_base_url: AnyHttpUrl = "http://embedding-service:8001"
     embeddings_timeout_seconds: float = 180.0
     deepseek_base_url: AnyHttpUrl = "https://api.deepseek.com"
@@ -55,6 +79,12 @@ class Settings(BaseSettings):
 
     # CORS: comma-separated list of allowed origins (e.g. "http://localhost:8080,https://example.com")
     cors_origins: str = ""
+
+    # Shared secret for internal CLI routes (/api/v1/rag/* and /api/v1/admin/*).
+    # When set, every request to those routes must supply the same value in the
+    # X-Api-Key header.  When empty (default), the routes remain open — safe for
+    # local / trusted-LAN deployments.  Generate with: openssl rand -hex 32
+    internal_api_key: str = ""
 
     # Supabase (JWT validation for /app/* and sync RPC forwarding)
     supabase_url: str = Field(

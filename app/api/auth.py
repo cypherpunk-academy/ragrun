@@ -9,6 +9,7 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
+from jwt.exceptions import MissingCryptographyError, PyJWKClientError
 
 from app.config import settings
 
@@ -41,8 +42,35 @@ def _jwks_client() -> PyJWKClient | None:
 def _decode_supabase_jwt(token: str) -> dict:
     secret = (settings.supabase_jwt_secret or "").strip()
     decode_options = {"require": ["sub", "exp"]}
+    jwks_error: Exception | None = None
 
     try:
+        header = jwt.get_unverified_header(token)
+        alg = str(header.get("alg", ""))
+
+        # Modern Supabase projects sign user JWTs with ES256/RS256 (JWKS). Symmetric
+        # HS256 tokens (legacy secret / tests) skip JWKS entirely.
+        jwks = _jwks_client()
+        if jwks is not None and not alg.startswith("HS"):
+            try:
+                signing_key = jwks.get_signing_key_from_jwt(token)
+                return jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=_JWT_ALGORITHMS,
+                    audience="authenticated",
+                    options=decode_options,
+                )
+            except MissingCryptographyError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Install cryptography for ES256 Supabase JWT validation",
+                ) from exc
+            except (jwt.InvalidTokenError, PyJWKClientError) as exc:
+                jwks_error = exc
+                if not secret:
+                    raise
+
         if secret:
             return jwt.decode(
                 token,
@@ -52,7 +80,6 @@ def _decode_supabase_jwt(token: str) -> dict:
                 options=decode_options,
             )
 
-        jwks = _jwks_client()
         if jwks is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -62,14 +89,8 @@ def _decode_supabase_jwt(token: str) -> dict:
                 ),
             )
 
-        signing_key = jwks.get_signing_key_from_jwt(token)
-        return jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=_JWT_ALGORITHMS,
-            audience="authenticated",
-            options=decode_options,
-        )
+        if jwks_error is not None:
+            raise jwks_error
     except HTTPException:
         raise
     except jwt.ExpiredSignatureError as exc:
@@ -77,7 +98,7 @@ def _decode_supabase_jwt(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token expired",
         ) from exc
-    except jwt.InvalidTokenError as exc:
+    except (jwt.InvalidTokenError, PyJWKClientError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",

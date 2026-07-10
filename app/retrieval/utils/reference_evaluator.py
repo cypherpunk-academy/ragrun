@@ -9,6 +9,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from app.infra.deepseek_client import ChatResult
 from app.retrieval.models import RetrievedSnippet
+from app.debug_agent_log import agent_log
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +259,18 @@ async def evaluate_chunk_relevance(
     ]
 
     try:
-        result = await llm.chat(messages, temperature=0.0, max_tokens=1200)
-    except Exception:
+        result = await llm.chat(
+            messages, temperature=0.0, max_tokens=1200, _debug_caller="reference_evaluator"
+        )
+    except Exception as exc:
+        # region agent log
+        agent_log(
+            location="reference_evaluator.py:evaluate_chunk_relevance:llm_failed",
+            message="reference evaluation LLM failed",
+            data={"exc_type": type(exc).__name__, "exc": str(exc)},
+            hypothesis_id="B",
+        )
+        # endregion
         logger.exception("Reference evaluation LLM call failed; using fallback references")
         return _fallback_references(ranked_for_fallback)
 

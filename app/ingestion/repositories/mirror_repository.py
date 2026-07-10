@@ -92,6 +92,31 @@ class VectorChunksRepository:
 
         await asyncio.to_thread(_delete)
 
+    async def list_source_type_keys(
+        self,
+        collection: str,
+        *,
+        chunk_types: list[str] | None = None,
+        source_ids: list[str] | None = None,
+    ) -> set[tuple[str, str]]:
+        """Distinct (source_id, chunk_type) keys present in vector_chunks."""
+
+        def _select() -> set[tuple[str, str]]:
+            stmt = select(
+                vector_chunks_table.c.source_id,
+                vector_chunks_table.c.chunk_type,
+            ).where(vector_chunks_table.c.collection == collection)
+            if chunk_types:
+                stmt = stmt.where(vector_chunks_table.c.chunk_type.in_(chunk_types))
+            if source_ids:
+                stmt = stmt.where(vector_chunks_table.c.source_id.in_(source_ids))
+            stmt = stmt.distinct()
+            with self.engine.begin() as connection:
+                rows = connection.execute(stmt).fetchall()
+            return {(str(row[0]), str(row[1])) for row in rows}
+
+        return await asyncio.to_thread(_select)
+
     async def list_chunk_ids_by_source(self, collection: str, source_id: str) -> List[str]:
         """Return chunk_ids for a given source_id in a collection."""
 

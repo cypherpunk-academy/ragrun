@@ -377,13 +377,33 @@ class QdrantClient:
         if filter_ is not None:
             payload["filter"] = filter_
 
-        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
-            response = await client.post(
-                f"{self.base_url}/collections/{collection}/points/search", json=payload
+        target_url = f"{self.base_url}/collections/{collection}/points/search"
+        # region agent log
+        from app.debug_agent_log import agent_log
+
+        agent_log(
+            location="qdrant_client.py:search_points:before_post",
+            message="qdrant search request",
+            data={"target_url": target_url, "collection": collection, "limit": limit},
+            hypothesis_id="D",
+        )
+        # endregion
+        try:
+            async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
+                response = await client.post(target_url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.ConnectTimeout as exc:
+            # region agent log
+            agent_log(
+                location="qdrant_client.py:search_points:connect_timeout",
+                message="qdrant ConnectTimeout",
+                data={"target_url": target_url, "collection": collection, "exc": str(exc)},
+                hypothesis_id="D",
             )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("result", []) or []
+            # endregion
+            raise
+        return data.get("result", []) or []
 
     async def ensure_sparse_config(self, collection: str, *, vector_name: str = "text-sparse") -> bool:
         """Ensure sparse slot exists, without trying unsupported in-place schema mutation.

@@ -50,7 +50,7 @@ class BatchEmbeddingService:
         all_embeddings = []
         chunks = list(self._chunk_texts(texts, chunk_size))
         
-        logger.info(f"Processing {len(texts)} texts in {len(chunks)} chunks of size {chunk_size}")
+        logger.debug(f"Processing {len(texts)} texts in {len(chunks)} chunks of size {chunk_size}")
         
         for i, chunk in enumerate(chunks):
             try:
@@ -58,13 +58,13 @@ class BatchEmbeddingService:
                 all_embeddings.extend(chunk_embeddings.tolist())
                 
                 if (i + 1) % 10 == 0:  # Log progress every 10 chunks
-                    logger.info(f"Processed {i + 1}/{len(chunks)} chunks")
+                    logger.debug(f"Processed {i + 1}/{len(chunks)} chunks")
                     
             except Exception as e:
                 logger.error(f"Failed to process chunk {i + 1}: {str(e)}")
                 raise
         
-        logger.info(f"Completed processing {len(texts)} texts")
+        logger.debug(f"Completed processing {len(texts)} texts")
         return all_embeddings
     
     async def process_documents_with_metadata(

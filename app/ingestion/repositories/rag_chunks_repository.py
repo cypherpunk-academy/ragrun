@@ -9,9 +9,14 @@ from typing import Dict, Iterable, List, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
-from sqlalchemy import and_, case, delete, or_, select, update
+# Serialize embed DB reads: one open Supavisor connection at a time.
+_embed_db_lock = asyncio.Lock()
+
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
+
+from app.db.session import fetch_mappings_autocommit, fetch_one_autocommit
 
 from app.db.tables import rag_chunks_table
 from app.shared.models import ChunkRecord
@@ -35,6 +40,48 @@ def _row_to_chunk_record(row: Mapping[str, object]) -> ChunkRecord:
     if not isinstance(meta, dict):
         raise ValueError("rag_chunks.metadata must be a JSON object")
     return ChunkRecord.from_dict({"text": str(row.get("text") or ""), "metadata": meta})
+
+
+def build_embed_chunks_condition(
+    assistant_rag_collection: str,
+    *,
+    shared_source_ids: list[str] | None = None,
+    source_ids: list[str] | None = None,
+    chunk_types: list[str] | None = None,
+    only_unembedded: bool = False,
+) -> object | None:
+    """SQLAlchemy condition for embed-chunks queries, or None when no rows match."""
+
+    asst = rag_chunks_table.c.rag_partition == assistant_rag_collection
+    shared_col = rag_chunks_table.c.rag_partition == RAG_PARTITION_SHARED
+
+    if source_ids is not None and len(source_ids) > 0:
+        sid_in = rag_chunks_table.c.source_id.in_(source_ids)
+        if shared_source_ids is not None and len(shared_source_ids) == 0:
+            partition_condition = and_(asst, sid_in)
+        else:
+            partition_condition = and_(sid_in, or_(asst, shared_col))
+        condition = partition_condition
+    elif shared_source_ids is not None and len(shared_source_ids) == 0:
+        condition = asst
+    elif shared_source_ids is None:
+        condition = or_(asst, shared_col)
+    else:
+        condition = or_(
+            asst,
+            and_(shared_col, rag_chunks_table.c.source_id.in_(shared_source_ids)),
+        )
+
+    if chunk_types is not None:
+        if len(chunk_types) == 0:
+            return None
+        condition = and_(condition, rag_chunks_table.c.chunk_type.in_(chunk_types))
+
+    active = rag_chunks_table.c.deprecated_at.is_(None)
+    if only_unembedded:
+        condition = and_(condition, rag_chunks_table.c.embedded_at.is_(None))
+
+    return and_(condition, active)
 
 
 class RagChunksRepository:
@@ -125,10 +172,11 @@ class RagChunksRepository:
                         else_=rag_chunks_table.c.embedded_at,
                     ),
                 },
-                # Re-runs with unchanged summaries: skip row rewrite (major Supabase win).
+                # Skip no-op re-runs when text unchanged; still apply metadata-only repairs.
                 where=or_(
                     rag_chunks_table.c.content_hash != excluded.content_hash,
                     rag_chunks_table.c.deprecated_at.is_not(None),
+                    rag_chunks_table.c.metadata.is_distinct_from(excluded.metadata),
                 ),
             )
             connection.execute(stmt)
@@ -146,7 +194,7 @@ class RagChunksRepository:
         active_by_source: Dict[str, List[str]],
         *,
         chunk_types_by_source: Dict[str, List[str]] | None = None,
-    ) -> Dict[str, int]:
+    ) -> tuple[Dict[str, int], List[str]]:
         """Set deprecated_at=now() for non-active rows per (rag_partition, source_id).
 
         For each ``source_id`` in ``active_by_source``, rows in ``rag_partition`` with that
@@ -154,15 +202,16 @@ class RagChunksRepository:
         list are marked deprecated. Upserted batch rows stay active (``deprecated_at``
         cleared on conflict update when needed).
 
-        Returns: number of rows marked deprecated per ``source_id`` (0 if none or ``active_ids`` empty).
+        Returns: (per ``source_id`` deprecation counts, all newly deprecated ``chunk_id``s).
         """
 
         if not active_by_source:
-            return {}
+            return {}, []
         now = datetime.now(timezone.utc)
 
-        def _write() -> Dict[str, int]:
+        def _write() -> tuple[Dict[str, int], List[str]]:
             out: Dict[str, int] = {}
+            deprecated_ids: List[str] = []
             with self.engine.begin() as connection:
                 for source_id, active_ids in active_by_source.items():
                     if not active_ids:
@@ -182,11 +231,95 @@ class RagChunksRepository:
                         update(rag_chunks_table)
                         .where(and_(*conditions))
                         .values(deprecated_at=now)
+                        .returning(rag_chunks_table.c.chunk_id)
                     )
-                    out[source_id] = int(result.rowcount or 0)
-            return out
+                    ids = [str(row[0]) for row in result.fetchall()]
+                    deprecated_ids.extend(ids)
+                    out[source_id] = len(ids)
+            return out, deprecated_ids
 
         return await asyncio.to_thread(_write)
+
+    async def list_active_chunk_ids_for_embed(
+        self,
+        assistant_rag_collection: str,
+        source_type_keys: set[tuple[str, str]],
+    ) -> dict[tuple[str, str], set[str]]:
+        """Active rag_chunks chunk_ids per (source_id, chunk_type) for embed cleanup."""
+
+        if not source_type_keys:
+            return {}
+
+        partitions = (assistant_rag_collection, RAG_PARTITION_SHARED)
+        keys_list = list(source_type_keys)
+
+        def _select() -> dict[tuple[str, str], set[str]]:
+            out: dict[tuple[str, str], set[str]] = {key: set() for key in source_type_keys}
+            for offset in range(0, len(keys_list), 100):
+                batch = keys_list[offset : offset + 100]
+                key_conditions = [
+                    and_(
+                        rag_chunks_table.c.source_id == source_id,
+                        rag_chunks_table.c.chunk_type == chunk_type,
+                    )
+                    for source_id, chunk_type in batch
+                ]
+                stmt = (
+                    select(
+                        rag_chunks_table.c.source_id,
+                        rag_chunks_table.c.chunk_type,
+                        rag_chunks_table.c.chunk_id,
+                    )
+                    .where(
+                        rag_chunks_table.c.deprecated_at.is_(None),
+                        rag_chunks_table.c.rag_partition.in_(partitions),
+                        or_(*key_conditions),
+                    )
+                )
+                rows = fetch_mappings_autocommit(self.engine, stmt)
+                for row in rows:
+                    key = (str(row["source_id"]), str(row["chunk_type"]))
+                    if key in out:
+                        out[key].add(str(row["chunk_id"]))
+            return out
+
+        async with _embed_db_lock:
+            return await asyncio.to_thread(_select)
+
+    async def list_embed_cleanup_scope(
+        self,
+        assistant_rag_collection: str,
+        *,
+        shared_source_ids: list[str] | None = None,
+        source_ids: list[str] | None = None,
+        chunk_types: list[str] | None = None,
+    ) -> set[tuple[str, str]]:
+        """Distinct active (source_id, chunk_type) keys matching embed-chunks filters."""
+
+        condition = build_embed_chunks_condition(
+            assistant_rag_collection,
+            shared_source_ids=shared_source_ids,
+            source_ids=source_ids,
+            chunk_types=chunk_types,
+            only_unembedded=False,
+        )
+        if condition is None:
+            return set()
+
+        def _select() -> set[tuple[str, str]]:
+            rows = fetch_mappings_autocommit(
+                self.engine,
+                select(
+                    rag_chunks_table.c.source_id,
+                    rag_chunks_table.c.chunk_type,
+                )
+                .where(condition)
+                .distinct(),
+            )
+            return {(str(row["source_id"]), str(row["chunk_type"])) for row in rows}
+
+        async with _embed_db_lock:
+            return await asyncio.to_thread(_select)
 
     async def deprecate_chunk_ids(
         self,
@@ -240,91 +373,94 @@ class RagChunksRepository:
           When ``[]``, returns no rows (caller uses this to mean “no filter” only if omitted).
         """
 
-        asst = rag_chunks_table.c.rag_partition == assistant_rag_collection
-        shared_col = rag_chunks_table.c.rag_partition == RAG_PARTITION_SHARED
+        condition = build_embed_chunks_condition(
+            assistant_rag_collection,
+            shared_source_ids=shared_source_ids,
+            source_ids=source_ids,
+            chunk_types=chunk_types,
+            only_unembedded=only_unembedded,
+        )
+        if condition is None:
+            return []
 
-        if source_ids is not None and len(source_ids) > 0:
-            # Per-source embed (rag:embed Phase 1): filter by source_id first so Postgres
-            # can use idx_rag_chunks_rag_partition_source_id. Avoids OR + huge
-            # shared_source_ids IN (...) which routinely times out on Supabase.
-            sid_in = rag_chunks_table.c.source_id.in_(source_ids)
-            if shared_source_ids is not None and len(shared_source_ids) == 0:
-                partition_condition = and_(asst, sid_in)
-            else:
-                partition_condition = and_(sid_in, or_(asst, shared_col))
-            condition = partition_condition
-        elif shared_source_ids is not None and len(shared_source_ids) == 0:
-            condition = asst
-        elif shared_source_ids is None:
-            condition = or_(asst, shared_col)
-        else:
-            condition = or_(
-                asst,
-                and_(shared_col, rag_chunks_table.c.source_id.in_(shared_source_ids)),
+        t0 = time.perf_counter()
+        logger.info(
+            "list_chunk_records_for_embed: querying Supabase — collection=%s source_ids=%s",
+            assistant_rag_collection,
+            source_ids,
+        )
+
+        def _select() -> List[ChunkRecord]:
+            stmt = (
+                select(rag_chunks_table)
+                .where(condition)
+                .order_by(rag_chunks_table.c.updated_at.asc(), rag_chunks_table.c.chunk_id.asc())
             )
+            if max_chunks is not None and max_chunks > 0:
+                stmt = stmt.limit(max_chunks)
+            rows = fetch_mappings_autocommit(self.engine, stmt)
+            return [_row_to_chunk_record(row) for row in rows]
 
-        if chunk_types is not None:
-            if len(chunk_types) == 0:
-                return []
-            condition = and_(condition, rag_chunks_table.c.chunk_type.in_(chunk_types))
+        # Do NOT wrap asyncio.to_thread in asyncio.wait_for: cancelling the await
+        # abandons the worker thread, which keeps its Postgres transaction open
+        # (idle in transaction) and leaks Supavisor connections.
+        async with _embed_db_lock:
+            chunks = await asyncio.to_thread(_select)
+        logger.info(
+            "list_chunk_records_for_embed: done in %.2fs — %d chunks returned",
+            time.perf_counter() - t0,
+            len(chunks),
+        )
+        return chunks
 
-        active = rag_chunks_table.c.deprecated_at.is_(None)
-        if only_unembedded:
-            condition = and_(condition, rag_chunks_table.c.embedded_at.is_(None))
+    async def stats_for_embed(
+        self,
+        assistant_rag_collection: str,
+        *,
+        shared_source_ids: list[str] | None = None,
+        source_ids: list[str] | None = None,
+        chunk_types: list[str] | None = None,
+        only_unembedded: bool = False,
+        max_chunks: int | None = None,
+    ) -> tuple[int, float]:
+        """Return (chunk_count, text_kb) for embed-chunks filters without loading rows."""
 
-        max_retries = 4
-        retry_delay = 5.0
-        # Slightly above PG statement_timeout (55s) so we surface DB timeout, not client race.
-        query_timeout_s = 70.0
+        condition = build_embed_chunks_condition(
+            assistant_rag_collection,
+            shared_source_ids=shared_source_ids,
+            source_ids=source_ids,
+            chunk_types=chunk_types,
+            only_unembedded=only_unembedded,
+        )
+        if condition is None:
+            return 0, 0.0
 
-        for attempt in range(1, max_retries + 1):
-            t0 = time.perf_counter()
-            logger.info(
-                "list_chunk_records_for_embed: querying Supabase — collection=%s source_ids=%s (attempt %d/%d)",
-                assistant_rag_collection, source_ids, attempt, max_retries,
+        def _aggregate() -> tuple[int, float]:
+            base = (
+                select(
+                    rag_chunks_table.c.text,
+                    rag_chunks_table.c.updated_at,
+                    rag_chunks_table.c.chunk_id,
+                )
+                .where(condition)
+                .order_by(rag_chunks_table.c.updated_at.asc(), rag_chunks_table.c.chunk_id.asc())
             )
+            if max_chunks is not None and max_chunks > 0:
+                base = base.limit(max_chunks)
+            limited = base.subquery("embed_stats_rows")
+            row = fetch_one_autocommit(
+                self.engine,
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(func.octet_length(limited.c.text)), 0),
+                ).select_from(limited),
+            )
+            count = int(row[0] or 0)
+            text_bytes = int(row[1] or 0)
+            return count, text_bytes / 1024.0
 
-            def _select() -> List[ChunkRecord]:
-                with self.engine.begin() as connection:
-                    stmt = (
-                        select(rag_chunks_table)
-                        .where(and_(condition, active))
-                        .order_by(rag_chunks_table.c.updated_at.asc(), rag_chunks_table.c.chunk_id.asc())
-                    )
-                    if max_chunks is not None and max_chunks > 0:
-                        stmt = stmt.limit(max_chunks)
-                    result = connection.execute(stmt)
-                    out: List[ChunkRecord] = []
-                    for row in result.mappings():
-                        out.append(_row_to_chunk_record(row))
-                    return out
-
-            try:
-                chunks = await asyncio.wait_for(
-                    asyncio.to_thread(_select), timeout=query_timeout_s
-                )
-                logger.info(
-                    "list_chunk_records_for_embed: done in %.2fs — %d chunks returned",
-                    time.perf_counter() - t0, len(chunks),
-                )
-                return chunks
-            except asyncio.TimeoutError:
-                elapsed = time.perf_counter() - t0
-                if attempt < max_retries:
-                    logger.warning(
-                        "list_chunk_records_for_embed: TIMEOUT (%.0fs) — retrying in %.0fs "
-                        "(attempt %d/%d) collection=%s source_ids=%s",
-                        elapsed, retry_delay, attempt, max_retries,
-                        assistant_rag_collection, source_ids,
-                    )
-                    await asyncio.sleep(retry_delay)
-                else:
-                    logger.error(
-                        "list_chunk_records_for_embed: TIMEOUT after %d attempts — "
-                        "collection=%s source_ids=%s",
-                        max_retries, assistant_rag_collection, source_ids,
-                    )
-                    raise
+        async with _embed_db_lock:
+            return await asyncio.to_thread(_aggregate)
 
     async def mark_embedded_for_embed_run(
         self,

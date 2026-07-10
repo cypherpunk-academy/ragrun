@@ -29,6 +29,7 @@ from app.retrieval.utils.retrievers import (
     hybrid_retrieve_quote_parallel,
     redact_lexical_phrases,
     snippet_author,
+    snippet_chunk_type_value,
     sparse_retrieve,
 )
 
@@ -752,6 +753,91 @@ async def _run_query(
     return hits[:k_prompt]
 
 
+def _snippet_parent_id(payload: Mapping[str, Any]) -> str | None:
+    """Extract parent_id from a RetrievedSnippet payload (nested metadata or flat)."""
+    p = payload.get("payload")
+    if not isinstance(p, Mapping):
+        p = payload
+    md = p.get("metadata")
+    if isinstance(md, Mapping):
+        pid = md.get("parent_id")
+        if isinstance(pid, str) and pid.strip():
+            return pid.strip()
+    pid = p.get("parent_id")
+    return pid.strip() if isinstance(pid, str) and pid.strip() else None
+
+
+async def _resolve_quote_explanation_hits(
+    hits: list[RetrievedSnippet],
+    collection_name: str,
+) -> list[RetrievedSnippet]:
+    """Replace quote_explanation snippets with their parent quote chunk.
+
+    quote_explanation chunks are retrieval-only helpers whose text is explanation
+    prose — the LLM should always see the verbatim quote text instead.
+    """
+    expl_index_set = {
+        i for i, h in enumerate(hits)
+        if snippet_chunk_type_value(h.payload) == "quote_explanation"
+    }
+    if not expl_index_set:
+        return hits
+
+    parent_ids = [
+        pid
+        for i in sorted(expl_index_set)
+        if (pid := _snippet_parent_id(hits[i].payload))
+    ]
+    unique_ids = list(dict.fromkeys(parent_ids))
+
+    parents: dict[str, tuple[str, dict]] = {}
+    if unique_ids:
+        async_session = get_async_sessionmaker()
+        async with async_session() as session:
+            row = await session.execute(
+                text(
+                    "SELECT chunk_id, text, metadata FROM vector_chunks "
+                    "WHERE chunk_id = ANY(:ids)"
+                ),
+                {"ids": unique_ids},
+            )
+            for rec in row.fetchall():
+                meta = dict(rec.metadata) if rec.metadata else {}
+                meta["chunk_id"] = rec.chunk_id
+                meta["chunk_type"] = "quote"
+                parents[rec.chunk_id] = (rec.text or "", meta)
+
+    existing_ids = {
+        str(hits[i].payload.get("chunk_id") or "")
+        for i in range(len(hits))
+        if i not in expl_index_set
+    }
+
+    seen_parent_ids: set[str] = set()
+    out: list[RetrievedSnippet] = []
+    for i, hit in enumerate(hits):
+        if i not in expl_index_set:
+            out.append(hit)
+            continue
+        pid = _snippet_parent_id(hit.payload)
+        if not pid or pid not in parents:
+            logger.warning(
+                "dropping quote_explanation hit — parent quote %s not found in vector_chunks",
+                pid or "(missing parent_id)",
+            )
+            continue
+        if pid in seen_parent_ids or pid in existing_ids:
+            continue
+        seen_parent_ids.add(pid)
+        text_val, meta = parents[pid]
+        out.append(RetrievedSnippet(
+            text=text_val,
+            score=hit.score,
+            payload={"payload": meta, "chunk_id": pid},
+        ))
+    return out
+
+
 async def run_queries_and_fill_prompt(
     *,
     action_id: str,
@@ -881,6 +967,8 @@ async def run_queries_and_fill_prompt(
                 sparse_query=hybrid_sparse_query,
                 query_prefix=query_prefix,
             )
+        if "quote_explanation" in chunk_types or "quote" in chunk_types:
+            hits = await _resolve_quote_explanation_hits(hits, collection_name)
         _build_and_store(name, hits)
         all_refs.extend(_resolve_refs_for_hits(hits))
         all_snippets.extend(hits)

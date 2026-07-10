@@ -5,9 +5,10 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 from uuid import UUID, uuid4, uuid5, NAMESPACE_DNS
 
+from app.debug_agent_log import agent_log
 from app.shared.models import ChunkRecord
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
@@ -49,6 +50,7 @@ class IngestionService:
     """Coordinates validation, embedding, and Qdrant upserts."""
 
     _TAG_STRIP_RE = re.compile(r"</?\s*(q|i)\b[^>]*>", re.IGNORECASE)
+    _SOFT_HYPHEN_RE = re.compile("\u00ad")
 
     @staticmethod
     def _qdrant_filter_for_source(source_id: str) -> dict[str, object]:
@@ -56,10 +58,29 @@ class IngestionService:
         return {"must": [{"key": "source_id", "match": {"value": source_id}}]}
 
     @staticmethod
+    def _qdrant_filter_for_source_and_type(
+        source_id: str,
+        chunk_type: str,
+    ) -> dict[str, object]:
+        return {
+            "must": [
+                {"key": "source_id", "match": {"value": source_id}},
+                {"key": "chunk_type", "match": {"value": chunk_type}},
+            ]
+        }
+
+    @staticmethod
     def _strip_markup(text: str) -> str:
         """Remove <q ...>...</q> and <i ...>...</i> tags, keep inner text."""
 
         return IngestionService._TAG_STRIP_RE.sub("", text or "")
+
+    @classmethod
+    def _prepare_embedding_text(cls, text: str) -> str:
+        """Normalize chunk text for dense/sparse embedding (storage text unchanged)."""
+
+        stripped = cls._strip_markup(text)
+        return cls._SOFT_HYPHEN_RE.sub("", stripped)
 
     def __init__(
         self,
@@ -86,6 +107,7 @@ class IngestionService:
         embedding_model: str | None = None,
         batch_size: int | None = None,
         skip_cleanup: bool = False,
+        cleanup_active_ids: Mapping[tuple[str, str], set[str]] | None = None,
         prefix_passage: str | None = None,
         shared_book_chunk_type_override: str | None = None,
     ) -> UploadResult:
@@ -131,13 +153,28 @@ class IngestionService:
             "upload_chunks: classify — unchanged=%d changed_embed=%d changed_payload_only=%d new=%d",
             len(unchanged), len(changed_embed), len(changed_payload_only), len(new),
         )
+        if unique_chunks:
+            sample = unique_chunks[0].metadata
+            agent_log(
+                location="ingestion_service.py:upload_chunks:classify",
+                message="upload_chunks classified",
+                data={
+                    "source_id": sample.source_id,
+                    "unchanged": len(unchanged),
+                    "changed_embed": len(changed_embed),
+                    "changed_payload_only": len(changed_payload_only),
+                    "new": len(new),
+                    "total": len(unique_chunks),
+                },
+                hypothesis_id="H5",
+            )
 
         # Embed only changed + new
         to_embed = changed_embed + new
         embedding_batch = None
 
-        # Strip formatting tags (<q>, <i>) from embedding text to reduce noise,
-        # while preserving the original text for storage and display.
+        # Strip formatting tags (<q>, <i>) and soft hyphens from embedding text to reduce
+        # noise, while preserving the original text for storage and display.
         # Prepend passage prefix for instruction-tuned models (e.g. "passage: " for e5).
         from app.config import settings as _settings
         if prefix_passage is None:
@@ -145,7 +182,7 @@ class IngestionService:
         else:
             _passage_prefix = prefix_passage
         texts = [
-            (_passage_prefix + self._strip_markup(chunk.text))
+            (_passage_prefix + self._prepare_embedding_text(chunk.text))
             for chunk in to_embed
         ]
         embeddings: Sequence[Sequence[float]] = []
@@ -239,7 +276,11 @@ class IngestionService:
         if not skip_cleanup:
             t0 = time.perf_counter()
             logger.info("upload_chunks: running _cleanup_stale…")
-            _, stale_deleted = await self._cleanup_stale(collection, unique_chunks)
+            _, stale_deleted = await self._cleanup_stale(
+                collection,
+                unique_chunks,
+                active_ids_by_source_type=cleanup_active_ids,
+            )
             logger.info("upload_chunks: _cleanup_stale done in %.2fs — %d stale deleted", time.perf_counter() - t0, stale_deleted)
 
         # Determine reporting values
@@ -310,6 +351,35 @@ class IngestionService:
             deleted=len(chunk_ids),
         )
 
+    async def cleanup_stale_vectors(
+        self,
+        collection: str,
+        active_ids_by_source_type: Mapping[tuple[str, str], set[str]],
+    ) -> int:
+        """Remove Qdrant/mirror vectors not in the active rag_chunks id sets."""
+
+        if not active_ids_by_source_type:
+            return 0
+
+        class _ScopeChunk:
+            def __init__(self, source_id: str, chunk_type: str) -> None:
+                self.metadata = type(
+                    "Meta",
+                    (),
+                    {"source_id": source_id, "chunk_type": chunk_type, "chunk_id": ""},
+                )()
+
+        scope_chunks = [
+            _ScopeChunk(source_id, chunk_type)
+            for source_id, chunk_type in active_ids_by_source_type
+        ]
+        _, stale_deleted = await self._cleanup_stale(
+            collection,
+            scope_chunks,
+            active_ids_by_source_type=active_ids_by_source_type,
+        )
+        return stale_deleted
+
     def _dedupe_chunks(self, chunks: Sequence[ChunkRecord]) -> tuple[List[ChunkRecord], int]:
         """Drop duplicates based on chunk_id + content_hash."""
 
@@ -378,13 +448,41 @@ class IngestionService:
                 and isinstance(prev_type, str)
                 and prev_type == chunk.metadata.chunk_type
             ):
-                unchanged.append(chunk)
+                if self._search_payload_unchanged(existing, chunk):
+                    unchanged.append(chunk)
+                else:
+                    changed_payload_only.append(chunk)
             elif isinstance(prev_hash, str) and prev_hash == chunk.metadata.content_hash:
                 changed_payload_only.append(chunk)
             else:
                 changed_embed.append(chunk)
 
         return unchanged, changed_embed, changed_payload_only, new
+
+    _SEARCH_PAYLOAD_KEYS = (
+        "author",
+        "book_title",
+        "source_title",
+        "segment_title",
+        "source_type",
+        "venue",
+        "lecture_date",
+        "parent_id",
+        "lecture_id",
+        "body_source_id",
+        "paragraph_id",
+    )
+
+    def _search_payload_unchanged(
+        self,
+        existing: dict[str, object],
+        chunk: ChunkRecord,
+    ) -> bool:
+        incoming = chunk.metadata.model_dump(mode="json")
+        for key in self._SEARCH_PAYLOAD_KEYS:
+            if existing.get(key) != incoming.get(key):
+                return False
+        return True
 
     def _build_qdrant_points(
         self,
@@ -424,25 +522,41 @@ class IngestionService:
         self,
         collection: str,
         chunks: Sequence[ChunkRecord],
+        *,
+        active_ids_by_source_type: Mapping[tuple[str, str], set[str]] | None = None,
     ) -> tuple[int, int]:
-        """Delete chunk_ids of same source_ids that were not part of the upload."""
+        """Delete Qdrant/mirror chunk_ids not in the active set per (source_id, chunk_type).
+
+        When ``active_ids_by_source_type`` is provided (embed-chunks), each group uses the
+        full active rag_chunks id set so partial batches still remove historical orphans.
+        Otherwise falls back to the ids delivered in this upload batch only.
+        """
 
         if not chunks:
             return (0, 0)
 
-        by_source: dict[str, set[str]] = {}
+        batch_ids_by_key: dict[tuple[str, str], set[str]] = {}
         for ch in chunks:
-            by_source.setdefault(ch.metadata.source_id, set()).add(ch.metadata.chunk_id)
+            key = (ch.metadata.source_id, ch.metadata.chunk_type)
+            batch_ids_by_key.setdefault(key, set()).add(ch.metadata.chunk_id)
 
         total_stale = 0
-        total_sources = 0
+        total_groups = 0
 
-        for source_id, delivered_ids in by_source.items():
-            total_sources += 1
-            # Cleanup source-of-truth: Qdrant (mirror may be missing/out-of-date).
+        for key, batch_ids in batch_ids_by_key.items():
+            source_id, chunk_type = key
+            if active_ids_by_source_type is not None:
+                if key not in active_ids_by_source_type:
+                    active_ids = batch_ids
+                else:
+                    active_ids = active_ids_by_source_type[key]
+            else:
+                active_ids = batch_ids
+
+            total_groups += 1
             existing_points = await self.qdrant_client.scroll_all_points(
                 collection,
-                filter_=self._qdrant_filter_for_source(source_id),
+                filter_=self._qdrant_filter_for_source_and_type(source_id, chunk_type),
                 limit=512,
                 with_payload=True,
                 with_vectors=False,
@@ -454,18 +568,16 @@ class IngestionService:
                 if isinstance(cid, str) and cid:
                     existing_ids.append(cid)
 
-            stale_ids = [cid for cid in existing_ids if cid not in delivered_ids]
+            stale_ids = [cid for cid in existing_ids if cid not in active_ids]
             if not stale_ids:
                 continue
             total_stale += len(stale_ids)
-            # Delete from Qdrant (UUIDv5) and mirror
             point_uuids = [str(uuid5(NAMESPACE_DNS, cid)) for cid in stale_ids]
             await self.qdrant_client.delete_points(collection, point_uuids)
-            # Best-effort: mirror cleanup should not block sync.
             try:
                 await self.vector_chunks_repository.delete_chunks(collection, stale_ids)
             except Exception:
                 pass
 
-        return (total_sources, total_stale)
+        return (total_groups, total_stale)
 

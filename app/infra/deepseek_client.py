@@ -6,6 +6,8 @@ from typing import Iterable, List, Mapping, Optional
 
 import httpx
 
+from app.debug_agent_log import agent_log
+
 
 @dataclass
 class ChatResult:
@@ -39,6 +41,7 @@ class DeepSeekClient:
         *,
         temperature: float = 0.2,
         max_tokens: int = 300,
+        _debug_caller: str = "unknown",
     ) -> ChatResult:
         """Call DeepSeek chat completions. Returns content + token usage."""
 
@@ -54,22 +57,55 @@ class DeepSeekClient:
             "Authorization": f"Bearer {self.api_key}",
         }
 
+        target_url = f"{self.base_url}/chat/completions"
+        # region agent log
+        agent_log(
+            location="deepseek_client.py:chat:before_post",
+            message="DeepSeek chat request",
+            data={"target_url": target_url, "caller": _debug_caller, "max_tokens": max_tokens},
+            hypothesis_id="A-B",
+        )
+        # endregion
         timeout_obj = httpx.Timeout(self.timeout, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout_obj) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions", json=payload, headers=headers
+        try:
+            async with httpx.AsyncClient(timeout=timeout_obj) as client:
+                response = await client.post(target_url, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.ConnectTimeout as exc:
+            # region agent log
+            agent_log(
+                location="deepseek_client.py:chat:connect_timeout",
+                message="DeepSeek ConnectTimeout",
+                data={"target_url": target_url, "caller": _debug_caller, "exc": str(exc)},
+                hypothesis_id="A-B",
             )
-            response.raise_for_status()
-            data = response.json()
-            choices: Optional[List[Mapping[str, object]]] = data.get("choices")  # type: ignore[arg-type]
-            if not choices:
-                raise RuntimeError("DeepSeek returned no choices")
-            message = choices[0].get("message", {})
-            content = message.get("content") if isinstance(message, dict) else None
-            if not content or not isinstance(content, str):
-                raise RuntimeError("DeepSeek returned empty content")
-            usage: dict = data.get("usage") or {}
-            return ChatResult(content=content.strip(), usage=usage)
+            # endregion
+            raise
+        except httpx.HTTPError as exc:
+            # region agent log
+            agent_log(
+                location="deepseek_client.py:chat:http_error",
+                message="DeepSeek HTTP error",
+                data={
+                    "target_url": target_url,
+                    "caller": _debug_caller,
+                    "exc_type": type(exc).__name__,
+                    "exc": str(exc),
+                },
+                hypothesis_id="A-B",
+            )
+            # endregion
+            raise
+        choices: Optional[List[Mapping[str, object]]] = data.get("choices")  # type: ignore[arg-type]
+        if not choices:
+            raise RuntimeError("DeepSeek returned no choices")
+        message = choices[0].get("message", {})
+        content = message.get("content") if isinstance(message, dict) else None
+        if not content or not isinstance(content, str):
+            raise RuntimeError("DeepSeek returned empty content")
+        usage: dict = data.get("usage") or {}
+        return ChatResult(content=content.strip(), usage=usage)
 
     async def list_models(self) -> list[str]:
         """Best-effort probe for available models (if endpoint is exposed)."""

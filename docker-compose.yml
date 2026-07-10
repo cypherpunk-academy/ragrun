@@ -10,10 +10,8 @@ services:
 
   embedding-service:
     build:
-      context: .
-      dockerfile: personal-embeddings-service/Dockerfile
-      args:
-        RAGKEEP_PROJECT_ROOT: ragkeep
+      context: personal-embeddings-service
+      dockerfile: Dockerfile
     container_name: ragrun-embeddings
     environment:
       USE_HALF_PRECISION: "false"
@@ -37,7 +35,7 @@ services:
     environment:
       RAGRUN_APP_ENV: docker
       RAGRUN_QDRANT_URL: http://qdrant:6333
-      RAGRUN_POSTGRES_DSN: postgresql+psycopg://postgres.rmdqihhjjyizbuhxkxhn:j2hT2fWwHCjx_AKyDB%2Ac@aws-1-eu-north-1.pooler.supabase.com:5432/postgres
+      RAGRUN_POSTGRES_DSN: postgresql+psycopg://postgres.rmdqihhjjyizbuhxkxhn:j2hT2fWwHCjx_AKyDB%2Ac@aws-1-eu-north-1.pooler.supabase.com:6543/postgres
       RAGRUN_EMBEDDINGS_BASE_URL: http://embedding-service:8001
       RAGRUN_DEEPSEEK_API_KEY: ${RAGRUN_DEEPSEEK_API_KEY}
       RAGRUN_PERSONALITIES_ROOT: /personalities

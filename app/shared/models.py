@@ -77,6 +77,22 @@ class ChunkMetadata(BaseModel):
         ge=1,
         description="Paragraph number in source segment (1-based), e.g. quote anchor.",
     )
+    body_source_id: Optional[str] = Field(
+        None,
+        description="Body chunk source_id (book-id or lecture uuid) for paragraph lookup.",
+    )
+    paragraph_id: Optional[str] = Field(
+        None,
+        description="rag_paragraphs.id for quote navigation.",
+    )
+    quote_span: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Character offsets {start,end} of quote text in paragraph text_raw.",
+    )
+    quote_verified: Optional[bool] = Field(
+        None,
+        description="True when quote_span was verified against paragraph text_raw.",
+    )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")
     references: Optional[List[Dict[str, Any]]] = Field(

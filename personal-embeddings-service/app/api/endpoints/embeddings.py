@@ -13,6 +13,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _input_size_kb(texts: list[str]) -> float:
+    return sum(len(t.encode("utf-8")) for t in texts) / 1024.0
+
+
+def _texts_from_request(texts: Union[str, List[str]]) -> list[str]:
+    if isinstance(texts, str):
+        return [texts]
+    return list(texts)
+
+
 class EmbeddingRequest(BaseModel):
     texts: Union[str, List[str]] = Field(
         ..., description="Text or list of texts to embed"
@@ -71,6 +81,11 @@ async def create_embeddings(request: EmbeddingRequest):
         processing_time = time.time() - start_time
 
         embeddings_list, count, dimensions = _normalize_embeddings(embeddings)
+        logger.info(
+            "Embedded %d chunks with size %.1fKB",
+            count,
+            _input_size_kb(_texts_from_request(request.texts)),
+        )
 
         await telemetry_client.record_embedding_batch(
             route="POST /api/v1/embeddings",
@@ -122,6 +137,11 @@ async def create_batch_embeddings(request: BatchRequest):
             model_name=model_name,
         )
         processing_time = time.time() - start_time
+        logger.info(
+            "Embedded %d chunks with size %.1fKB",
+            len(embeddings_list),
+            _input_size_kb(request.texts),
+        )
 
         await telemetry_client.record_embedding_batch(
             route="POST /api/v1/embeddings/batch",

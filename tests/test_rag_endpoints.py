@@ -82,10 +82,17 @@ class StubRagChunksRepository:
         )
 
     async def deprecate_orphans_for_sources(
-        self, rag_partition: str, active_by_source: dict[str, list[str]]
-    ) -> dict[str, int]:
+        self, rag_partition: str, active_by_source: dict[str, list[str]], **kwargs
+    ) -> tuple[dict[str, int], list[str]]:
         self.deprecate_orphans_calls.append((rag_partition, dict(active_by_source)))
-        return {sid: 0 for sid in active_by_source}
+        return {sid: 0 for sid in active_by_source}, []
+
+    async def list_active_chunk_ids_for_embed(
+        self,
+        assistant_rag_collection: str,
+        source_type_keys: set[tuple[str, str]],
+    ) -> dict[tuple[str, str], set[str]]:
+        return {key: set() for key in source_type_keys}
 
     async def deprecate_chunk_ids(self, rag_partition: str, chunk_ids: list[str]) -> int:
         self.deprecate_chunk_ids_calls.append((rag_partition, list(chunk_ids)))
@@ -98,6 +105,8 @@ class StubRagChunksRepository:
         shared_source_ids=None,
         source_ids=None,
         chunk_types=None,
+        only_unembedded=False,
+        max_chunks=None,
     ):
         self.last_embed_kwargs = {
             "collection": assistant_rag_collection,
@@ -105,7 +114,31 @@ class StubRagChunksRepository:
             "source_ids": source_ids,
             "chunk_types": chunk_types,
         }
-        return list(self.list_records)
+        records = list(self.list_records)
+        if max_chunks is not None and max_chunks > 0:
+            records = records[:max_chunks]
+        return records
+
+    async def stats_for_embed(
+        self,
+        assistant_rag_collection: str,
+        *,
+        shared_source_ids=None,
+        source_ids=None,
+        chunk_types=None,
+        only_unembedded=False,
+        max_chunks=None,
+    ):
+        records = await self.list_chunk_records_for_embed(
+            assistant_rag_collection,
+            shared_source_ids=shared_source_ids,
+            source_ids=source_ids,
+            chunk_types=chunk_types,
+            only_unembedded=only_unembedded,
+            max_chunks=max_chunks,
+        )
+        text_kb = sum(len(r.text.encode("utf-8")) for r in records) / 1024.0
+        return len(records), round(text_kb, 1)
 
     async def mark_embedded_for_embed_run(self, assistant_rag_collection: str, chunk_ids):
         self.mark_embedded_calls.append((assistant_rag_collection, list(chunk_ids)))
@@ -233,6 +266,8 @@ def test_embed_endpoint_runs_ingestion(client_with_stub):
 
     response = client.post("/api/v1/rag/embed-chunks", json=payload)
     assert response.status_code == 202
+    body = response.json()
+    assert body["text_kb"] > 0
     assert stub.upload_calls[0]["collection"] == "test-collection"
     assert stub.upload_calls[0].get("skip_cleanup") is True
     assert rag_stub.mark_embedded_calls[0][0] == "test-collection"
@@ -279,6 +314,24 @@ def test_embed_endpoint_rejects_invalid_chunk_type(client_with_stub):
     response = client.post("/api/v1/rag/embed-chunks", json=payload)
     assert response.status_code == 400
     assert "Invalid chunk_type" in response.json()["detail"]
+
+
+def test_embed_chunks_stats_endpoint(client_with_stub):
+    """embed-chunks/stats returns aggregate count and text size."""
+    client, _, rag_stub = client_with_stub
+    rag_stub.list_records = [
+        ChunkRecord.from_dict(json.loads(_sample_chunk_jsonl("test-001", "hash1"))),
+        ChunkRecord.from_dict(json.loads(_sample_chunk_jsonl("test-002", "hash2"))),
+    ]
+
+    response = client.post(
+        "/api/v1/rag/embed-chunks/stats",
+        json={"collection_name": "test-collection"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["chunk_count"] == 2
+    assert body["text_kb"] > 0
 
 
 def test_store_endpoint_validates_jsonl(client_with_stub):

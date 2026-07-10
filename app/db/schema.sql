@@ -49,23 +49,31 @@ CREATE INDEX IF NOT EXISTS idx_rag_chunks_partition_deprecated_updated ON rag_ch
 
 -- rag_paragraphs: individual paragraph texts linked to their source lecture/book
 CREATE TABLE IF NOT EXISTS rag_paragraphs (
-    id VARCHAR(512) NOT NULL PRIMARY KEY,
+    id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     source_id VARCHAR(256) NOT NULL,
     language VARCHAR(8) NOT NULL,
     segment_index INTEGER NOT NULL,
+    segment_slug TEXT,
     segment_title TEXT NOT NULL,
     paragraph_number INTEGER NOT NULL,
     text_raw TEXT NOT NULL,
+    lemma_fingerprint JSONB,
+    annotations JSONB,
+    deprecated_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS rag_paragraphs_natural_key
+    ON rag_paragraphs (source_id, segment_slug, paragraph_number)
+    WHERE deprecated_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_rag_paragraphs_source_id ON rag_paragraphs(source_id);
 CREATE INDEX IF NOT EXISTS idx_rag_paragraphs_updated_at ON rag_paragraphs(updated_at);
 
 -- app_paragraph_chunk: many-to-many mapping between paragraphs and chunks
 CREATE TABLE IF NOT EXISTS app_paragraph_chunk (
-    paragraph_id VARCHAR(512) NOT NULL,
+    paragraph_id UUID NOT NULL,
     chunk_id VARCHAR(256) NOT NULL,
     rag_partition VARCHAR(128) NOT NULL,
     PRIMARY KEY (paragraph_id, chunk_id, rag_partition)

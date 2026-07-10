@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! git submodule update --init --remote ragkeep; then
+if ! git submodule update --init --remote ragkeep steineroriginals; then
   echo "ERROR: git submodule update failed; aborting." >&2
   exit 1
 fi

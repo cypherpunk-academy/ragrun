@@ -30,6 +30,7 @@ def _make_token(secret: str, *, sub: str = "user-1", expired: bool = False) -> s
 def test_parse_bearer_token_valid(jwt_secret: str) -> None:
     token = _make_token(jwt_secret)
     with patch("app.api.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = jwt_secret
         user = parse_bearer_token(token)
     assert user.user_id == "user-1"
@@ -40,6 +41,7 @@ def test_parse_bearer_token_valid(jwt_secret: str) -> None:
 def test_parse_bearer_token_expired(jwt_secret: str) -> None:
     token = _make_token(jwt_secret, expired=True)
     with patch("app.api.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = jwt_secret
         with pytest.raises(HTTPException) as exc:
             parse_bearer_token(token)

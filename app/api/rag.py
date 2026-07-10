@@ -23,6 +23,8 @@ from ..retrieval.services.quote_explain_service import explain_quote
 from ..core.telemetry import telemetry_client as ingestion_telemetry
 from ..ingestion.repositories import RagChunksRepository, VectorChunksRepository
 from ..ingestion.services import IngestionService
+from ..shared.rag_partition import RAG_PARTITION_SHARED
+from ..debug_agent_log import agent_log
 from ..infra.sparse_embedder import SparseEmbedder
 
 router = APIRouter(prefix="/rag", tags=["rag"])
@@ -110,8 +112,8 @@ class EmbedChunksRequest(BaseModel):
     skip_cleanup: bool = Field(
         False,
         description=(
-            "If true, do not delete stale chunks during this embed run. "
-            "Used by sync workflows that delete stale chunk_ids explicitly."
+            "If true, do not delete stale Qdrant/mirror chunk_ids after this embed run. "
+            "When false, cleanup uses all active rag_chunks ids per (source_id, chunk_type)."
         ),
     )
     shared_source_ids: Optional[List[str]] = Field(
@@ -162,6 +164,13 @@ class EmbedChunksRequest(BaseModel):
             "for this request."
         ),
     )
+    cleanup_only: bool = Field(
+        False,
+        description=(
+            "When true, skip embedding and only remove stale Qdrant/mirror vectors "
+            "for active rag_chunks matching the filters."
+        ),
+    )
     shared_book_chunk_type_override: Optional[str] = Field(
         None,
         description=(
@@ -186,6 +195,14 @@ class UploadChunksResponse(BaseModel):
     payload_changed: int = 0
     new: int
     stale_deleted: int
+    text_kb: float = 0.0
+
+
+class EmbedChunksStatsResponse(BaseModel):
+    """Aggregate chunk count and text size for an embed-chunks request."""
+
+    chunk_count: int
+    text_kb: float
 
 
 class DeleteChunksRequest(BaseModel):
@@ -194,6 +211,15 @@ class DeleteChunksRequest(BaseModel):
     all: bool = Field(False, description="Delete all chunks in collection")
     filter: Optional[Dict[str, Any]] = Field(
         None, description="Metadata filter (e.g., {'book_id': '123'})"
+    )
+    source_id_prefix: Optional[str] = Field(
+        None,
+        description=(
+            "Delete all chunks whose source_id starts with this prefix "
+            "(e.g. 'lecture:' to remove all old-format lecture chunks). "
+            "Matched against vector_chunks.source_id using LIKE 'prefix%'. "
+            "Cannot be combined with 'all=true'."
+        ),
     )
     collection_name: Optional[str] = Field(None, description="Target collection name")
     dry_run: bool = Field(False, description="Preview deletion without executing")
@@ -271,6 +297,15 @@ def _get_ingestion_service() -> IngestionService:
 
 
 @lru_cache(maxsize=1)
+def _get_vector_chunks_repository() -> VectorChunksRepository:
+    return VectorChunksRepository(get_sync_engine())
+
+
+def get_vector_chunks_repository() -> VectorChunksRepository:
+    return _get_vector_chunks_repository()
+
+
+@lru_cache(maxsize=1)
 def _get_rag_chunks_repository() -> RagChunksRepository:
     return RagChunksRepository(get_sync_engine())
 
@@ -324,6 +359,7 @@ async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
     upsert_seconds = time.perf_counter() - t0
 
     deprecated_by_source: Dict[str, int] = {}
+    deprecated_chunk_ids: List[str] = []
     deprecate_seconds = 0.0
     if not request.skip_deprecate_orphans:
         active_by_source: Dict[str, List[str]] = {}
@@ -334,7 +370,7 @@ async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
             chunk_types_by_source.setdefault(sid, set()).add(c.metadata.chunk_type)
 
         t1 = time.perf_counter()
-        deprecated_by_source = await rag_repo.deprecate_orphans_for_sources(
+        deprecated_by_source, deprecated_chunk_ids = await rag_repo.deprecate_orphans_for_sources(
             request.collection_name,
             active_by_source,
             chunk_types_by_source={
@@ -342,6 +378,19 @@ async def store_chunks(request: StoreChunksRequest) -> StoreChunksResponse:
             },
         )
         deprecate_seconds = time.perf_counter() - t1
+        if (
+            deprecated_chunk_ids
+            and request.collection_name != RAG_PARTITION_SHARED
+        ):
+            service = _get_ingestion_service()
+            await service.delete_chunks(
+                collection=request.collection_name,
+                chunk_ids=deprecated_chunk_ids,
+            )
+            logger.info(
+                "store-chunks removed %d deprecated vectors from Qdrant/mirror",
+                len(deprecated_chunk_ids),
+            )
     deprecated = sum(deprecated_by_source.values())
 
     logger.info(
@@ -379,6 +428,12 @@ async def deprecate_chunk_ids_endpoint(
 
     rag_repo = get_rag_chunks_repository()
     deprecated = await rag_repo.deprecate_chunk_ids(request.collection_name, chunk_ids)
+    if deprecated and request.collection_name != RAG_PARTITION_SHARED:
+        service = _get_ingestion_service()
+        await service.delete_chunks(
+            collection=request.collection_name,
+            chunk_ids=chunk_ids,
+        )
     logger.info(
         "deprecate-chunk-ids partition=%s requested=%d deprecated=%d",
         request.collection_name,
@@ -391,17 +446,7 @@ async def deprecate_chunk_ids_endpoint(
     )
 
 
-@router.post(
-    "/embed-chunks",
-    response_model=UploadChunksResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def embed_chunks(
-    request: EmbedChunksRequest,
-    service: IngestionService = Depends(get_ingestion_service),
-) -> UploadChunksResponse:
-    """Read all chunks for a collection from rag_chunks, embed into Qdrant, mirror vector_chunks."""
-
+def _validate_embed_chunks_request(request: EmbedChunksRequest) -> None:
     if request.chunk_types is not None:
         allowed = frozenset(CHUNK_TYPE_ENUM)
         for t in request.chunk_types:
@@ -420,8 +465,28 @@ async def embed_chunks(
                 ),
             )
 
+
+def _chunks_text_kb(chunks: List[ChunkRecord]) -> float:
+    return sum(len(c.text.encode("utf-8")) for c in chunks) / 1024.0
+
+
+@router.post(
+    "/embed-chunks/stats",
+    response_model=EmbedChunksStatsResponse,
+)
+async def embed_chunks_stats(request: EmbedChunksRequest) -> EmbedChunksStatsResponse:
+    """Return chunk count and UTF-8 text size for embed-chunks filters (no embedding)."""
+
+    _validate_embed_chunks_request(request)
+    t0 = time.perf_counter()
+    agent_log(
+        location="rag.py:embed_chunks_stats:start",
+        message="stats handler start",
+        data={"source_ids": request.source_ids, "collection": request.collection_name},
+        hypothesis_id="H2",
+    )
     rag_repo = get_rag_chunks_repository()
-    chunks = await rag_repo.list_chunk_records_for_embed(
+    chunk_count, text_kb = await rag_repo.stats_for_embed(
         request.collection_name,
         shared_source_ids=request.shared_source_ids,
         source_ids=request.source_ids,
@@ -429,8 +494,70 @@ async def embed_chunks(
         only_unembedded=bool(request.only_unembedded),
         max_chunks=request.max_chunks,
     )
+    agent_log(
+        location="rag.py:embed_chunks_stats:done",
+        message="stats handler done",
+        data={
+            "source_ids": request.source_ids,
+            "chunk_count": chunk_count,
+            "text_kb": round(text_kb, 1),
+            "seconds": round(time.perf_counter() - t0, 2),
+        },
+        hypothesis_id="H2",
+    )
+    return EmbedChunksStatsResponse(chunk_count=chunk_count, text_kb=round(text_kb, 1))
 
-    if not chunks:
+
+@router.post(
+    "/embed-chunks",
+    response_model=UploadChunksResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def embed_chunks(
+    request: EmbedChunksRequest,
+    service: IngestionService = Depends(get_ingestion_service),
+) -> UploadChunksResponse:
+    """Read all chunks for a collection from rag_chunks, embed into Qdrant, mirror vector_chunks."""
+
+    _validate_embed_chunks_request(request)
+
+    t0 = time.perf_counter()
+    agent_log(
+        location="rag.py:embed_chunks:start",
+        message="embed handler start",
+        data={"source_ids": request.source_ids, "collection": request.collection_name},
+        hypothesis_id="H3",
+    )
+    rag_repo = get_rag_chunks_repository()
+
+    async def _run_embed_cleanup() -> int:
+        if request.skip_cleanup:
+            return 0
+        scope_keys = await rag_repo.list_embed_cleanup_scope(
+            request.collection_name,
+            shared_source_ids=request.shared_source_ids,
+            source_ids=request.source_ids,
+            chunk_types=request.chunk_types,
+        )
+        vector_keys = await get_vector_chunks_repository().list_source_type_keys(
+            request.collection_name,
+            chunk_types=request.chunk_types,
+            source_ids=request.source_ids,
+        )
+        scope_keys |= vector_keys
+        if not scope_keys:
+            return 0
+        cleanup_active_ids = await rag_repo.list_active_chunk_ids_for_embed(
+            request.collection_name,
+            scope_keys,
+        )
+        return await service.cleanup_stale_vectors(
+            request.collection_name,
+            cleanup_active_ids,
+        )
+
+    if request.cleanup_only:
+        stale_deleted = await _run_embed_cleanup()
         return UploadChunksResponse(
             ingestion_id=str(uuid.uuid4()),
             collection=request.collection_name,
@@ -443,7 +570,55 @@ async def embed_chunks(
             changed=0,
             payload_changed=0,
             new=0,
-            stale_deleted=0,
+            stale_deleted=stale_deleted,
+            text_kb=0.0,
+        )
+
+    chunks = await rag_repo.list_chunk_records_for_embed(
+        request.collection_name,
+        shared_source_ids=request.shared_source_ids,
+        source_ids=request.source_ids,
+        chunk_types=request.chunk_types,
+        only_unembedded=bool(request.only_unembedded),
+        max_chunks=request.max_chunks,
+    )
+    text_kb = round(_chunks_text_kb(chunks), 1)
+    agent_log(
+        location="rag.py:embed_chunks:loaded",
+        message="chunks loaded for embed",
+        data={
+            "source_ids": request.source_ids,
+            "chunk_count": len(chunks),
+            "text_kb": text_kb,
+            "load_seconds": round(time.perf_counter() - t0, 2),
+        },
+        hypothesis_id="H3",
+    )
+
+    if not chunks:
+        stale_deleted = await _run_embed_cleanup()
+        return UploadChunksResponse(
+            ingestion_id=str(uuid.uuid4()),
+            collection=request.collection_name,
+            requested=0,
+            ingested=0,
+            duplicates=0,
+            embedding_model=request.embedding_model or "skipped",
+            vector_size=0,
+            unchanged=0,
+            changed=0,
+            payload_changed=0,
+            new=0,
+            stale_deleted=stale_deleted,
+            text_kb=0.0,
+        )
+
+    source_type_keys = {(c.metadata.source_id, c.metadata.chunk_type) for c in chunks}
+    cleanup_active_ids = None
+    if not request.skip_cleanup:
+        cleanup_active_ids = await rag_repo.list_active_chunk_ids_for_embed(
+            request.collection_name,
+            source_type_keys,
         )
 
     try:
@@ -453,6 +628,7 @@ async def embed_chunks(
             embedding_model=request.embedding_model,
             batch_size=request.batch_size,
             skip_cleanup=bool(request.skip_cleanup),
+            cleanup_active_ids=cleanup_active_ids,
             prefix_passage=request.prefix_passage,
             shared_book_chunk_type_override=request.shared_book_chunk_type_override,
         )
@@ -465,12 +641,25 @@ async def embed_chunks(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
 
+    agent_log(
+        location="rag.py:embed_chunks:done",
+        message="embed handler done",
+        data={
+            "source_ids": request.source_ids,
+            "requested": result.requested,
+            "ingested": result.ingested,
+            "payload_changed": result.payload_changed,
+            "seconds": round(time.perf_counter() - t0, 2),
+        },
+        hypothesis_id="H5",
+    )
+
     await rag_repo.mark_embedded_for_embed_run(
         request.collection_name,
         [c.metadata.chunk_id for c in chunks],
     )
 
-    return UploadChunksResponse(**asdict(result))
+    return UploadChunksResponse(**asdict(result), text_kb=text_kb)
 
 
 def _qdrant_filter_for_source(source_id: str) -> dict[str, object]:
@@ -642,46 +831,66 @@ async def delete_chunk_ids(
     )
 
 
+def _apply_delete_chunks_filter(
+    query: object,
+    request: "DeleteChunksRequest",
+) -> object:
+    """Apply request filters to a vector_chunks SELECT query."""
+    from sqlalchemy import select as _select  # noqa: F401 — used via caller
+
+    if request.source_id_prefix:
+        prefix = request.source_id_prefix.rstrip("%")
+        query = query.where(  # type: ignore[union-attr]
+            vector_chunks_table.c.source_id.like(f"{prefix}%")
+        )
+    if request.filter:
+        for key, value in request.filter.items():
+            query = query.where(  # type: ignore[union-attr]
+                vector_chunks_table.c.metadata[key].as_string() == str(value)
+            )
+    return query
+
+
+def _has_delete_chunks_filter(request: "DeleteChunksRequest") -> bool:
+    return bool(request.all or request.source_id_prefix or request.filter)
+
+
 @router.post("/delete-chunks", response_model=DeleteChunksResponse)
 async def delete_chunks(
     request: DeleteChunksRequest,
     service: IngestionService = Depends(get_ingestion_service),
 ) -> DeleteChunksResponse:
-    """Delete chunks by metadata filter or delete all (ragprep-compatible endpoint)."""
+    """Delete chunks by metadata filter, source_id_prefix, or delete all (ragprep-compatible)."""
 
     collection = request.collection_name or "default"
 
-    if request.dry_run:
-        # Preview deletion by counting matching chunks
-        engine = get_engine()
-        query = select(func.count()).select_from(vector_chunks_table).where(
-            vector_chunks_table.c.collection == collection
+    if not _has_delete_chunks_filter(request):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Must provide at least one of: 'all=true', 'filter', or 'source_id_prefix'",
+        )
+    if request.all and request.source_id_prefix:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'all=true' and 'source_id_prefix' are mutually exclusive",
         )
 
-        if not request.all and request.filter:
-            # Build filter conditions
-            for key, value in request.filter.items():
-                # Use JSONB containment for metadata fields
-                query = query.where(
-                    vector_chunks_table.c.metadata[key].as_string() == str(value)
-                )
-        elif not request.all:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Must provide either 'all=true' or 'filter' parameter",
-            )
+    if request.dry_run:
+        engine = get_engine()
+        count_query = select(func.count()).select_from(vector_chunks_table).where(
+            vector_chunks_table.c.collection == collection
+        )
+        if not request.all:
+            count_query = _apply_delete_chunks_filter(count_query, request)
 
         with engine.connect() as conn:
-            matched = conn.execute(query).scalar() or 0
+            matched = conn.execute(count_query).scalar() or 0
 
         # Fallback: mirror may be missing/out-of-date while Qdrant contains points.
-        # If mirror count is 0, estimate via Qdrant scroll (bounded by limit).
         if matched == 0:
-            # Best-effort only: dry-run should never fail just because Qdrant is down.
             try:
                 qdrant_client = get_qdrant_client()
                 if request.all:
-                    # Without a limit, this could be very expensive.
                     if request.limit is None:
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
@@ -697,7 +906,7 @@ async def delete_chunks(
                         limit=request.limit,
                     )
                     matched = len(qdrant_ids)
-                elif request.filter:
+                elif request.filter and not request.source_id_prefix:
                     qdrant_filter = _qdrant_filter_from_kv_filter(request.filter)
                     qdrant_ids = await _qdrant_chunk_ids_for_filter(
                         qdrant_client=qdrant_client,
@@ -706,10 +915,10 @@ async def delete_chunks(
                         limit=request.limit,
                     )
                     matched = len(qdrant_ids)
+                # source_id_prefix: mirror is authoritative; no Qdrant fallback needed
             except HTTPException:
                 raise
             except Exception:
-                # Keep matched=0 on any connectivity/scroll error.
                 pass
 
         if request.limit and matched > request.limit:
@@ -722,30 +931,23 @@ async def delete_chunks(
             collection=collection, matched=matched, deleted=0, dry_run=True
         )
 
-    # Actual deletion: query Postgres for matching chunk_ids
+    # Actual deletion: query Postgres mirror for matching chunk_ids
     engine = get_engine()
-    query = select(vector_chunks_table.c.chunk_id).where(
+    id_query = select(vector_chunks_table.c.chunk_id).where(
         vector_chunks_table.c.collection == collection
     )
-
-    if not request.all and request.filter:
-        for key, value in request.filter.items():
-            query = query.where(vector_chunks_table.c.metadata[key].as_string() == str(value))
-    elif not request.all:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Must provide either 'all=true' or 'filter' parameter",
-        )
+    if not request.all:
+        id_query = _apply_delete_chunks_filter(id_query, request)
 
     with engine.connect() as conn:
-        result_rows = conn.execute(query).fetchall()
+        result_rows = conn.execute(id_query).fetchall()
         chunk_ids = [row[0] for row in result_rows]
 
     # Fallback: if mirror has no rows but Qdrant still has points, delete via Qdrant filter.
-    if not chunk_ids:
+    # (Not applicable for source_id_prefix — mirror is the source of truth there.)
+    if not chunk_ids and not request.source_id_prefix:
         qdrant_client = get_qdrant_client()
         if request.all:
-            # Deleting "all" without a mirror can be dangerously expensive; require an explicit limit.
             if request.limit is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
