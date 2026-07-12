@@ -378,6 +378,15 @@ async def app_search(
             parent_id = _parent_id_from_meta(meta)
             if parent_id:
                 item["_parent_id"] = parent_id
+        if chunk_type == "chapter_summary":
+            parent_id = _parent_id_from_meta(meta)
+            if parent_id:
+                item["parent_id"] = parent_id
+            source_index = meta.get("source_index")
+            if source_index is None:
+                source_index = meta.get("segment_index")
+            if isinstance(source_index, (int, float)) and not isinstance(source_index, bool):
+                item["source_index"] = int(source_index)
         results.append(item)
 
     if engine is not None and results:
