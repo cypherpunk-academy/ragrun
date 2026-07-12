@@ -110,6 +110,32 @@ async def _lookup_paragraph_ids(
     return await asyncio.to_thread(_query)
 
 
+async def _lookup_source_ids_for_paragraphs(
+    paragraph_ids: list[str],
+    engine: Engine,
+) -> dict[str, str]:
+    """Returns {paragraph_id: source_id} from rag_paragraphs for active paragraphs."""
+    if not paragraph_ids:
+        return {}
+
+    def _query() -> dict[str, str]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id::text AS paragraph_id, source_id
+                    FROM rag_paragraphs
+                    WHERE id = ANY(CAST(:ids AS uuid[]))
+                      AND deprecated_at IS NULL
+                    """
+                ),
+                {"ids": paragraph_ids},
+            ).mappings().all()
+        return {str(r["paragraph_id"]): str(r["source_id"]) for r in rows}
+
+    return await asyncio.to_thread(_query)
+
+
 def _parent_id_from_meta(meta: dict[str, Any]) -> str | None:
     parent_id = meta.get("parent_id")
     if isinstance(parent_id, str) and parent_id.strip():
@@ -342,6 +368,7 @@ async def app_search(
             "book_title": book_title,
             "venue": meta.get("venue"),
             "lecture_date": meta.get("lecture_date"),
+            "vortragstitel": meta.get("vortragstitel"),
         }
         if chunk_type in ("quote", "quote_explanation"):
             item["quote_text"] = text_val
@@ -362,6 +389,26 @@ async def app_search(
         for r in results:
             if not r.get("paragraph_id"):
                 r["paragraph_id"] = pid_map.get(str(r.get("chunk_id") or ""))
+
+    # Resolve source_id from rag_paragraphs for all navigation results.
+    # The chunk's source_id may differ from the paragraph's source_id (e.g. quote chunks
+    # stored under a collection-level source_id). Using the paragraph's source_id ensures
+    # the app can load the correct paragraphs from its local database.
+    if engine is not None and results:
+        nav_paragraph_ids = [
+            str(r["paragraph_id"])
+            for r in results
+            if r.get("paragraph_id")
+            and str(r.get("chunk_type") or "") in _NAVIGATION_CHUNK_TYPES
+        ]
+        if nav_paragraph_ids:
+            para_source_map = await _lookup_source_ids_for_paragraphs(nav_paragraph_ids, engine)
+            for r in results:
+                pid = r.get("paragraph_id")
+                if pid and str(r.get("chunk_type") or "") in _NAVIGATION_CHUNK_TYPES:
+                    resolved_sid = para_source_map.get(str(pid))
+                    if resolved_sid:
+                        r["source_id"] = resolved_sid
 
     for r in results:
         r.pop("_parent_id", None)

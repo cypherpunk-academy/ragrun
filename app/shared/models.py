@@ -68,6 +68,10 @@ class ChunkMetadata(BaseModel):
     book_title: Optional[str] = Field(None, description="Full work title for search cards.")
     venue: Optional[str] = Field(None, description="Lecture venue or city.")
     lecture_date: Optional[str] = Field(None, description="Lecture date (ISO YYYY-MM-DD preferred).")
+    vortragstitel: Optional[str] = Field(
+        None,
+        description="Catalog topic title for lectures; shown below phase5 H1 segment_title on cards.",
+    )
     lecture_id: Optional[str] = Field(
         None,
         description="Readable catalog lecture id (e.g. 19190525); not rag_chunks source_id.",

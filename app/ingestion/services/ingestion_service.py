@@ -51,6 +51,7 @@ class IngestionService:
 
     _TAG_STRIP_RE = re.compile(r"</?\s*(q|i)\b[^>]*>", re.IGNORECASE)
     _SOFT_HYPHEN_RE = re.compile("\u00ad")
+    _PARA_MARKER_RE = re.compile(r"(?m)^\d{1,4}\|\s?")
 
     @staticmethod
     def _qdrant_filter_for_source(source_id: str) -> dict[str, object]:
@@ -80,6 +81,7 @@ class IngestionService:
         """Normalize chunk text for dense/sparse embedding (storage text unchanged)."""
 
         stripped = cls._strip_markup(text)
+        stripped = cls._PARA_MARKER_RE.sub("", stripped)
         return cls._SOFT_HYPHEN_RE.sub("", stripped)
 
     def __init__(
@@ -467,10 +469,12 @@ class IngestionService:
         "source_type",
         "venue",
         "lecture_date",
+        "vortragstitel",
         "parent_id",
         "lecture_id",
         "body_source_id",
         "paragraph_id",
+        "paragraph",
     )
 
     def _search_payload_unchanged(
