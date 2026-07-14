@@ -32,7 +32,7 @@ async def test_deepseek_chat() -> bool:
         return True
     client = DeepSeekClient(
         settings.deepseek_api_key,
-        model=settings.deepseek_chat_model or "deepseek-chat",
+        model=settings.deepseek_chat_model or "deepseek-v4-flash",
         timeout=settings.deepseek_timeout_seconds,
         base_url=str(settings.deepseek_base_url),
     )

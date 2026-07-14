@@ -24,9 +24,10 @@ class DeepSeekClient:
         self,
         api_key: str,
         *,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-flash",
         timeout: float = 120.0,
         base_url: str = "https://api.deepseek.com",
+        thinking: Optional[Mapping[str, str]] = None,
     ) -> None:
         if not api_key:
             raise ValueError("DeepSeek API key is required")
@@ -34,6 +35,10 @@ class DeepSeekClient:
         self.model = model
         self.timeout = timeout
         self.base_url = str(base_url).rstrip("/")
+        # Explicit thinking mode (deepseek-v4-flash defaults to "enabled" server-side
+        # if omitted — pass {"type": "disabled"} to match the old non-reasoning
+        # deepseek-chat behavior). None = let the API use its own default.
+        self.thinking = dict(thinking) if thinking is not None else None
 
     async def chat(
         self,
@@ -51,6 +56,8 @@ class DeepSeekClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if self.thinking is not None:
+            payload["thinking"] = self.thinking
 
         headers = {
             "Content-Type": "application/json",

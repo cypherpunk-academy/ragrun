@@ -36,27 +36,34 @@ def get_qdrant_client(timeout: float | None = None) -> QdrantClient:
 
 
 def _deepseek_cache_key(model: Optional[str]) -> str:
-    return model or "deepseek-chat"
+    return model or "deepseek-v4-flash"
 
 
 @lru_cache(maxsize=8)
-def get_deepseek_client(model: Optional[str] = None) -> DeepSeekClient:
+def get_deepseek_client(
+    model: Optional[str] = None,
+    thinking_type: Optional[str] = None,
+) -> DeepSeekClient:
     if not settings.deepseek_api_key:
         raise RuntimeError("RAGRUN_DEEPSEEK_API_KEY is required for LLM calls")
     return DeepSeekClient(
         settings.deepseek_api_key,
-        model=model or settings.deepseek_chat_model or "deepseek-chat",
+        model=model or settings.deepseek_chat_model or "deepseek-v4-flash",
         base_url=settings.deepseek_base_url,
         timeout=getattr(settings, "deepseek_timeout_seconds", 120.0),
+        thinking={"type": thinking_type} if thinking_type else None,
     )
 
 
 def get_deepseek_reasoner_client() -> DeepSeekClient:
-    return get_deepseek_client(model=settings.deepseek_reasoner_model)
+    # Old deepseek-reasoner behavior = thinking mode enabled.
+    return get_deepseek_client(model=settings.deepseek_reasoner_model, thinking_type="enabled")
 
 
 def get_deepseek_chat_client() -> DeepSeekClient:
-    return get_deepseek_client(model=settings.deepseek_chat_model)
+    # Old deepseek-chat behavior = non-thinking. deepseek-v4-flash defaults to
+    # thinking "enabled" if the field is omitted, so this must be explicit.
+    return get_deepseek_client(model=settings.deepseek_chat_model, thinking_type="disabled")
 
 
 @lru_cache(maxsize=1)

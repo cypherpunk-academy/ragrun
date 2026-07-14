@@ -77,12 +77,15 @@ def _make_llm(streaming: bool = False) -> ChatOpenAI:
     if not settings.deepseek_api_key:
         raise RuntimeError("RAGRUN_DEEPSEEK_API_KEY is required for chat")
     return ChatOpenAI(
-        model=settings.deepseek_chat_model or "deepseek-chat",
+        model=settings.deepseek_chat_model or "deepseek-v4-flash",
         openai_api_key=settings.deepseek_api_key,
         openai_api_base=f"{str(settings.deepseek_base_url).rstrip('/')}/",
         temperature=0.3,
         max_tokens=1200,
         streaming=streaming,
+        # deepseek-v4-flash defaults to thinking "enabled" if omitted — this path
+        # never used reasoning mode under the old deepseek-chat name, so keep it off.
+        model_kwargs={"thinking": {"type": "disabled"}},
     )
 
 
@@ -226,7 +229,7 @@ async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
     result: IntentResult = raw_result["parsed"]
     _usage_meta = (raw_result.get("raw") or object())
     _usage_meta = getattr(_usage_meta, "usage_metadata", None) or {}
-    _ci_model = settings.deepseek_chat_model or "deepseek-chat"
+    _ci_model = settings.deepseek_chat_model or "deepseek-v4-flash"
     _ci_cost = calculate_cost(_ci_model, _usage_meta.get("input_tokens"), _usage_meta.get("output_tokens"))
     enqueue_record_usage(
         UsageRecorder(),
@@ -536,7 +539,7 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
     thread_id = (config.get("configurable") or {}).get("thread_id")
     usage_comment = ""
     if usage_meta:
-        _model = settings.deepseek_chat_model or "deepseek-chat"
+        _model = settings.deepseek_chat_model or "deepseek-v4-flash"
         _pt = usage_meta.get("input_tokens")
         _ct = usage_meta.get("output_tokens")
         _tt = usage_meta.get("total_tokens")
@@ -665,7 +668,7 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
         _skip_usage = msg.usage_metadata or {}
         if _skip_usage:
             _thread_id = (config.get("configurable") or {}).get("thread_id")
-            _sk_model = settings.deepseek_chat_model or "deepseek-chat"
+            _sk_model = settings.deepseek_chat_model or "deepseek-v4-flash"
             _sk_cost = calculate_cost(_sk_model, _skip_usage.get("input_tokens"), _skip_usage.get("output_tokens"))
             response += (
                 f'\n<!-- usage {json.dumps({"prompt_tokens": _skip_usage.get("input_tokens"), "completion_tokens": _skip_usage.get("output_tokens"), "total_tokens": _skip_usage.get("total_tokens"), "model": _sk_model, "cost_usd": _sk_cost["cost_usd"], "cost_eur": _sk_cost["cost_eur"]})} -->'

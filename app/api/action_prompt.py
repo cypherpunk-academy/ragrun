@@ -126,12 +126,15 @@ REFERENCE_TEXT_MAX_CHARS = 2000
 
 def _make_llm(streaming: bool = True) -> ChatOpenAI:
     return ChatOpenAI(
-        model=settings.deepseek_chat_model or "deepseek-chat",
+        model=settings.deepseek_chat_model or "deepseek-v4-flash",
         openai_api_key=settings.deepseek_api_key,
         openai_api_base=f"{str(settings.deepseek_base_url).rstrip('/')}/",
         temperature=0.3,
         max_tokens=1200,  # room for full answer + all citations (was 800, refs cut off)
         streaming=streaming,
+        # deepseek-v4-flash defaults to thinking "enabled" if omitted — this path
+        # never used reasoning mode under the old deepseek-chat name, so keep it off.
+        model_kwargs={"thinking": {"type": "disabled"}},
     )
 
 router = APIRouter(tags=["action-prompt"])
@@ -351,7 +354,7 @@ async def execute_prompt(assistant_slug: str, body: ExecutePromptRequest, reques
     account_id = request.headers.get("X-Account-Id", "anonymous")
     llm = _make_llm(streaming=body.stream)
     chat_client = get_deepseek_chat()
-    _model_name = settings.deepseek_chat_model or "deepseek-chat"
+    _model_name = settings.deepseek_chat_model or "deepseek-v4-flash"
 
     async def event_generator():
         yield {"data": json.dumps({"type": "start"})}

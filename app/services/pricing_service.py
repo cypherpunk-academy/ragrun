@@ -83,7 +83,7 @@ def calculate_cost(
         return {"cost_usd": 0.0, "cost_eur": 0.0}
 
     models = pricing.get("models", {})
-    mp = models.get(model) or models.get("deepseek-chat")
+    mp = models.get(model) or models.get("deepseek-v4-flash")
     if not mp:
         return {"cost_usd": 0.0, "cost_eur": 0.0}
 

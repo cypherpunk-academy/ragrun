@@ -57,8 +57,13 @@ class Settings(BaseSettings):
     telemetry_timeout_seconds: float = 2.0
 
     deepseek_api_key: Optional[str] = None
-    deepseek_reasoner_model: Optional[str] = "deepseek-reasoner"
-    deepseek_chat_model: Optional[str] = "deepseek-chat"
+    # "deepseek-chat"/"deepseek-reasoner" are retired 2026-07-24 15:59 UTC.
+    # Both aliases already route to deepseek-v4-flash today, distinguished only
+    # by the "thinking" request parameter (see app/core/providers.py) — not by
+    # a separate model name. deepseek-v4-pro exists as a higher-tier model but
+    # is not required to preserve current behavior.
+    deepseek_reasoner_model: Optional[str] = "deepseek-v4-flash"
+    deepseek_chat_model: Optional[str] = "deepseek-v4-flash"
     deepseek_model_probe: bool = True
     deepseek_timeout_seconds: float = 120.0
 

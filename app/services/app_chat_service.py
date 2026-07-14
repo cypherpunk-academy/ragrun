@@ -86,7 +86,7 @@ async def send_app_chat(
         talk_id=talk_id,
         kontext_meta=ctx if ctx else None,
         usage={
-            "model": settings.deepseek_chat_model or "deepseek-chat",
+            "model": settings.deepseek_chat_model or "deepseek-v4-flash",
             **result.usage,
         },
     )
