@@ -112,29 +112,6 @@ class PostgresTalksRepository(TalksPort):
                 ).first()
                 turn_id_val = str(turn_row[0])
 
-                if usage:
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO rag_usage
-                              (account_id, turn_id, talk_id, endpoint, model, provider,
-                               prompt_tokens, completion_tokens, total_tokens)
-                            VALUES
-                              (:account_id, :turn_id, :talk_id, 'app_chat', :model, 'deepseek',
-                               :prompt_tokens, :completion_tokens, :total_tokens)
-                            """
-                        ),
-                        {
-                            "account_id": user_id,
-                            "turn_id": turn_id_val,
-                            "talk_id": talk_id_val,
-                            "model": usage.get("model"),
-                            "prompt_tokens": usage.get("prompt_tokens"),
-                            "completion_tokens": usage.get("completion_tokens"),
-                            "total_tokens": usage.get("total_tokens"),
-                        },
-                    )
-
             return {"talk_id": talk_id_val, "turn_id": turn_id_val}
 
         return await asyncio.to_thread(_write)
@@ -166,5 +143,35 @@ class PostgresTalksRepository(TalksPort):
                     ),
                     {"talk_id": talk_id, "summary": summary},
                 )
+
+        await asyncio.to_thread(_write)
+
+    async def save_turn_references(
+        self, turn_id: str, references: Sequence[dict[str, Any]]
+    ) -> None:
+        if not references:
+            return
+
+        def _write() -> None:
+            with self._engine.begin() as conn:
+                for idx, ref in enumerate(references):
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO rag_references
+                              (turn_id, ref_index, chunk_id, relevance, source_title, segment_title)
+                            VALUES
+                              (:turn_id, :ref_index, :chunk_id, :relevance, :source_title, :segment_title)
+                            """
+                        ),
+                        {
+                            "turn_id": turn_id,
+                            "ref_index": idx,
+                            "chunk_id": ref.get("chunk_id"),
+                            "relevance": ref.get("relevance"),
+                            "source_title": ref.get("source_title"),
+                            "segment_title": ref.get("segment_title"),
+                        },
+                    )
 
         await asyncio.to_thread(_write)

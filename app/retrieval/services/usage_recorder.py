@@ -37,11 +37,15 @@ class UsageRecorder:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
         thread_id: str | None = None,
+        turn_id: str | None = None,
+        talk_id: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
         row = {
             "account_id": account_id,
             "thread_id": thread_id,
+            "turn_id": turn_id,
+            "talk_id": talk_id,
             "endpoint": endpoint,
             "model": model,
             "provider": provider,

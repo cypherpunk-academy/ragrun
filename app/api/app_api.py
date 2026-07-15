@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
 from sqlalchemy import text
 
@@ -15,6 +16,7 @@ from app.db.session import get_engine
 from app.retrieval.services.action_prompt_service import list_actions, load_assistant_name
 from app.services.app_catalog_repository import PostgresCatalogRepository
 from app.services.app_chat_service import send_app_chat, summarize_app_talk
+from app.services.app_chat_stream_service import stream_app_chat
 from app.services.app_search_service import app_search
 from app.services.app_sync_service import pull_changes, push_changes
 from app.services.app_talks_repository import PostgresTalksRepository
@@ -77,6 +79,8 @@ class ChatRequest(BaseModel):
     message: str
     personality: str
     talk_id: str | None = None
+    mode: str | None = None
+    model: str | None = None
     context_mode: str | None = None
     context_ids: ChatContextIds | None = None
 
@@ -177,22 +181,59 @@ async def app_chunk(
 @router.post("/chat", response_model=ChatResponse)
 async def app_chat(
     body: ChatRequest,
+    request: Request,
     user: Annotated[AuthUser, Depends(get_current_user)],
 ) -> ChatResponse:
     try:
         result = await send_app_chat(
+            request.app.state.chat_graph,
             _talks(),
             user_id=user.user_id,
             user_name=user.email or user.user_id,
             message=body.message,
             personality=body.personality,
             talk_id=body.talk_id,
+            mode=body.mode,
+            model=body.model,
             context_mode=body.context_mode,
             context_ids=body.context_ids.model_dump() if body.context_ids else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return ChatResponse(**result)
+
+
+@router.post("/chat/stream")
+async def app_chat_stream(
+    body: ChatRequest,
+    request: Request,
+    user: Annotated[AuthUser, Depends(get_current_user)],
+) -> EventSourceResponse:
+    """SSE-Streaming-Variante von /app/chat (Contract §3/§5/§6).
+
+    Validierung vor Stream-Start (SSE-Response committet sofort Status 200 —
+    Fehler danach koennen nur noch als `error`-Event, nicht als HTTP-Status,
+    gemeldet werden).
+    """
+    if not body.message.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message must not be empty")
+    if not body.personality.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="personality must not be empty")
+
+    generator = stream_app_chat(
+        request.app.state.chat_graph,
+        _talks(),
+        user_id=user.user_id,
+        user_name=user.email or user.user_id,
+        message=body.message,
+        personality=body.personality,
+        talk_id=body.talk_id,
+        mode=body.mode,
+        model=body.model,
+        context_mode=body.context_mode,
+        context_ids=body.context_ids.model_dump() if body.context_ids else None,
+    )
+    return EventSourceResponse(generator)
 
 
 @router.post("/chat/{talk_id}/summarize", response_model=ChatSummarizeResponse)

@@ -1,20 +1,20 @@
-"""Non-streaming chat for /app/chat."""
+"""Non-streaming chat for /app/chat.
+
+3a.5: nutzt denselben Graph-Kern wie /app/chat/stream (app_chat_stream_service),
+nicht mehr den abgespeckten app_search-Pfad. `send_app_chat` bleibt als dünner
+Wrapper erhalten, damit `app/api/app_api.py` unverändert bleibt.
+"""
 from __future__ import annotations
 
 from typing import Any
 
-from app.config import settings
 from app.db.ports import TalksPort
-from app.retrieval.services.action_prompt_service import (
-    _load_personality_system,
-    load_assistant_name,
-    load_assistant_rag_collection,
-)
 from app.retrieval.services.providers import get_deepseek_chat
-from app.services.app_search_service import app_search
+from app.services.app_chat_stream_service import run_app_chat_once
 
 
 async def send_app_chat(
+    graph: Any,
     talks: TalksPort,
     *,
     user_id: str,
@@ -22,79 +22,24 @@ async def send_app_chat(
     message: str,
     personality: str,
     talk_id: str | None = None,
+    mode: str | None = None,
+    model: str | None = None,
     context_mode: str | None = None,
     context_ids: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    msg = message.strip()
-    if not msg:
-        raise ValueError("message must not be empty")
-    personality_slug = personality.strip()
-    if not personality_slug:
-        raise ValueError("personality must not be empty")
-
-    assistant_slug = settings.app_default_assistant_slug
-    collection = load_assistant_rag_collection(assistant_slug)
-    assistant_name = load_assistant_name(assistant_slug)
-
-    system_parts: list[str] = []
-    personality_system = _load_personality_system(personality_slug)
-    if personality_system:
-        system_parts.append(personality_system.replace("{assistant_name}", assistant_name))
-    else:
-        system_parts.append(
-            f"Du bist {personality_slug}, ein hilfreicher Gesprächspartner in der App."
-        )
-
-    context_block = ""
-    ctx = context_ids or {}
-    if context_mode == "paragraph" and ctx.get("paragraph_id"):
-        context_block = f"\n\nKontext-Absatz: {ctx.get('paragraph_id')}"
-    elif context_mode == "segment" and ctx.get("segment_id"):
-        context_block = f"\n\nKontext-Segment: {ctx.get('segment_id')}"
-
-    retrieval_block = ""
-    try:
-        hits = await app_search(query=msg, limit=4, collection=collection)
-        if hits:
-            lines = []
-            for h in hits[:4]:
-                lines.append(f"- [{h.get('chunk_id')}] {h.get('snippet', '')}")
-            retrieval_block = "\n\nRelevante Quellen:\n" + "\n".join(lines)
-    except Exception:
-        retrieval_block = ""
-
-    system_prompt = "".join(system_parts) + context_block + retrieval_block
-    chat_client = get_deepseek_chat()
-    result = await chat_client.chat(
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": msg},
-        ],
-        temperature=0.4,
-        max_tokens=1200,
-    )
-
-    title = msg[:120]
-    saved = await talks.create_talk_turn(
+    return await run_app_chat_once(
+        graph,
+        talks,
         user_id=user_id,
-        user_name=user_name or user_id,
-        collection=collection,
-        personality=personality_slug,
-        title=title,
-        user_message=msg,
-        assistant_message=result.content,
+        user_name=user_name,
+        message=message,
+        personality=personality,
         talk_id=talk_id,
-        kontext_meta=ctx if ctx else None,
-        usage={
-            "model": settings.deepseek_chat_model or "deepseek-v4-flash",
-            **result.usage,
-        },
+        mode=mode,
+        model=model,
+        context_mode=context_mode,
+        context_ids=context_ids,
     )
-    return {
-        "talk_id": saved["talk_id"],
-        "turn_id": saved["turn_id"],
-        "reply": result.content,
-    }
 
 
 async def summarize_app_talk(talks: TalksPort, *, talk_id: str) -> str:

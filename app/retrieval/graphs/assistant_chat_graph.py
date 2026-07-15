@@ -73,19 +73,24 @@ def _load_intent_classify_prompt() -> str:
 # LLM factory
 # ---------------------------------------------------------------------------
 
-def _make_llm(streaming: bool = False) -> ChatOpenAI:
+def _make_llm(
+    streaming: bool = False,
+    model: str | None = None,
+    thinking_type: str | None = None,
+) -> ChatOpenAI:
     if not settings.deepseek_api_key:
         raise RuntimeError("RAGRUN_DEEPSEEK_API_KEY is required for chat")
     return ChatOpenAI(
-        model=settings.deepseek_chat_model or "deepseek-v4-flash",
+        model=model or settings.deepseek_chat_model or "deepseek-v4-flash",
         openai_api_key=settings.deepseek_api_key,
         openai_api_base=f"{str(settings.deepseek_base_url).rstrip('/')}/",
         temperature=0.3,
         max_tokens=1200,
         streaming=streaming,
-        # deepseek-v4-flash defaults to thinking "enabled" if omitted — this path
-        # never used reasoning mode under the old deepseek-chat name, so keep it off.
-        model_kwargs={"thinking": {"type": "disabled"}},
+        # deepseek-v4-flash defaults to thinking "enabled" if omitted — always set
+        # explicitly so non-thinking callers (e.g. App-Chat-Modus "chat") don't pay
+        # for reasoning tokens.
+        extra_body={"thinking": {"type": thinking_type or "disabled"}},
     )
 
 
@@ -163,6 +168,16 @@ class ChatState(_ChatStateRequired, total=False):
 
     # Billing
     account_id: str
+
+    # App-Chat: Modus/Modell-Auflösung (Filo §7.2) — leer = Default (siehe _make_llm)
+    model: str
+    thinking_type: str
+
+    # App-Chat: unterdrückt die graph-interne enqueue_record_usage()-Buchung
+    # (thread_id-verknüpft, kein turn_id/talk_id) — der App-Adapter bucht selbst,
+    # mit echter turn_id/talk_id-Verknüpfung, aus usage_metadata unten.
+    skip_usage: bool
+    usage_metadata: dict | None
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +533,11 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
 async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
     # TODO (Iter. 2+): resolve persona by assistant_slug
     persona = load_system_prompt()
-    llm = _make_llm(streaming=True)
+    llm = _make_llm(
+        streaming=True,
+        model=state.get("model"),
+        thinking_type=state.get("thinking_type"),
+    )
 
     context_text = state.get("context_text", "")
     recent_messages = list(state.get("messages") or [])[-6:]  # last 3 turns
@@ -539,7 +558,7 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
     thread_id = (config.get("configurable") or {}).get("thread_id")
     usage_comment = ""
     if usage_meta:
-        _model = settings.deepseek_chat_model or "deepseek-v4-flash"
+        _model = state.get("model") or settings.deepseek_chat_model or "deepseek-v4-flash"
         _pt = usage_meta.get("input_tokens")
         _ct = usage_meta.get("output_tokens")
         _tt = usage_meta.get("total_tokens")
@@ -547,20 +566,24 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         usage_comment = (
             f'\n<!-- usage {json.dumps({"prompt_tokens": _pt, "completion_tokens": _ct, "total_tokens": _tt, "model": _model, "cost_usd": _cost["cost_usd"], "cost_eur": _cost["cost_eur"]})} -->'
         )
-        enqueue_record_usage(
-            UsageRecorder(),
-            account_id=state.get("account_id") or "anonymous",
-            thread_id=thread_id,
-            endpoint="graphs/assistant_chat/compose_answer",
-            model=_model,
-            provider="deepseek",
-            prompt_tokens=_pt,
-            completion_tokens=_ct,
-            total_tokens=_tt,
-            extra=_cost if (_cost["cost_usd"] > 0) else None,
-        )
+        if not state.get("skip_usage"):
+            enqueue_record_usage(
+                UsageRecorder(),
+                account_id=state.get("account_id") or "anonymous",
+                thread_id=thread_id,
+                endpoint="graphs/assistant_chat/compose_answer",
+                model=_model,
+                provider="deepseek",
+                prompt_tokens=_pt,
+                completion_tokens=_ct,
+                total_tokens=_tt,
+                extra=_cost if (_cost["cost_usd"] > 0) else None,
+            )
 
-    return {"messages": [AIMessage(content=response + usage_comment)]}
+    return {
+        "messages": [AIMessage(content=response + usage_comment)],
+        "usage_metadata": usage_meta or None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -655,7 +678,11 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
 
     if last_ai is None:
         # Skip path: no compose_answer was called → generate direct response
-        llm = _make_llm(streaming=False)
+        llm = _make_llm(
+            streaming=False,
+            model=state.get("model"),
+            thinking_type=state.get("thinking_type"),
+        )
         persona = load_system_prompt()
         msg = await llm.ainvoke(
             [
@@ -666,27 +693,30 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
         )
         response = msg.content
         _skip_usage = msg.usage_metadata or {}
+        usage_metadata_out = _skip_usage or None
         if _skip_usage:
             _thread_id = (config.get("configurable") or {}).get("thread_id")
-            _sk_model = settings.deepseek_chat_model or "deepseek-v4-flash"
+            _sk_model = state.get("model") or settings.deepseek_chat_model or "deepseek-v4-flash"
             _sk_cost = calculate_cost(_sk_model, _skip_usage.get("input_tokens"), _skip_usage.get("output_tokens"))
             response += (
                 f'\n<!-- usage {json.dumps({"prompt_tokens": _skip_usage.get("input_tokens"), "completion_tokens": _skip_usage.get("output_tokens"), "total_tokens": _skip_usage.get("total_tokens"), "model": _sk_model, "cost_usd": _sk_cost["cost_usd"], "cost_eur": _sk_cost["cost_eur"]})} -->'
             )
-            enqueue_record_usage(
-                UsageRecorder(),
-                account_id=state.get("account_id") or "anonymous",
-                thread_id=_thread_id,
-                endpoint="graphs/assistant_chat/finalize_skip",
-                model=_sk_model,
-                provider="deepseek",
-                prompt_tokens=_skip_usage.get("input_tokens"),
-                completion_tokens=_skip_usage.get("output_tokens"),
-                total_tokens=_skip_usage.get("total_tokens"),
-                extra=_sk_cost if (_sk_cost["cost_usd"] > 0) else None,
-            )
+            if not state.get("skip_usage"):
+                enqueue_record_usage(
+                    UsageRecorder(),
+                    account_id=state.get("account_id") or "anonymous",
+                    thread_id=_thread_id,
+                    endpoint="graphs/assistant_chat/finalize_skip",
+                    model=_sk_model,
+                    provider="deepseek",
+                    prompt_tokens=_skip_usage.get("input_tokens"),
+                    completion_tokens=_skip_usage.get("output_tokens"),
+                    total_tokens=_skip_usage.get("total_tokens"),
+                    extra=_sk_cost if (_sk_cost["cost_usd"] > 0) else None,
+                )
     else:
         response = last_ai.content
+        usage_metadata_out = state.get("usage_metadata")
         if state.get("sufficiency") == "insufficient":
             response = (
                 "Zu diesem Thema finde ich in meinen Quellen keinen ausreichenden Beleg.\n\n"
@@ -700,6 +730,7 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
         "citations":  list(state.get("citations") or []),
         "intent":     state.get("intent", ""),
         "sufficiency": state.get("sufficiency", ""),
+        "usage_metadata": usage_metadata_out,
     }
 
 

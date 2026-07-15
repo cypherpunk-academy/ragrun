@@ -134,7 +134,7 @@ def _make_llm(streaming: bool = True) -> ChatOpenAI:
         streaming=streaming,
         # deepseek-v4-flash defaults to thinking "enabled" if omitted — this path
         # never used reasoning mode under the old deepseek-chat name, so keep it off.
-        model_kwargs={"thinking": {"type": "disabled"}},
+        extra_body={"thinking": {"type": "disabled"}},
     )
 
 router = APIRouter(tags=["action-prompt"])
