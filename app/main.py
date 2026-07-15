@@ -44,6 +44,7 @@ from .core.providers import (
     get_deepseek_reasoner_client,
 )
 from .services.pricing_service import update_pricing
+from .tools.index import register_all_tools
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     #   app.state.chat_graph = build_chat_graph(checkpointer=checkpointer)
     app.state.chat_graph = build_chat_graph()
     logger.info("Chat graph initialized (MemorySaver)")
+
+    app.state.app_tool_registry = register_all_tools()
+    logger.info("App tool registry initialized")
 
     await update_pricing()
 

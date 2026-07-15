@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "addresses": {
+      "type": "array",
+      "description": "Liste von Adressen — jeweils entweder ein einzelner Absatz (paragraph_id) oder ein Abschnitt (heading_path).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "paragraph_id": {
+            "type": "string",
+            "description": "z. B. \"ch1.p2\""
+          },
+          "heading_path": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "z. B. [\"## Kapitel 1: Die Grundidee\"]"
+          }
+        }
+      }
+    }
+  },
+  "required": ["addresses"]
+}

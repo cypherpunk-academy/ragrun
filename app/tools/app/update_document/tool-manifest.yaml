@@ -1,0 +1,18 @@
+id: update_document
+label: Arbeitsdokument aktualisieren
+description: >
+  Ändert ein verknüpftes Arbeitsdokument gezielt: einzelner Absatz,
+  Abschnitt unter einer Überschrift, oder Überschrift umbenennen.
+  Keine Tabellen — nur # / ## / ### und Absätze.
+category: app-document
+execution: client
+
+availability:
+  requires_linked_document: true
+  modes: [chat, nachdenken]
+
+result_key: suggested_document_update
+
+tests:
+  - cases/update_paragraph.yaml
+  - cases/update_section.yaml

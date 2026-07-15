@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Titel des neuen Arbeitstexts."
+    },
+    "content": {
+      "type": "string",
+      "description": "Markdown-Inhalt inkl. `#`-Titelzeile, `##`/`###`-Überschriften und Absätzen. Keine Tabellen."
+    }
+  },
+  "required": ["title", "content"]
+}

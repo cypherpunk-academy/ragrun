@@ -1,0 +1,13 @@
+linked_document_id: "11111111-1111-1111-1111-111111111111"
+args:
+  operation: update_paragraph
+  paragraph_id: "ch1.p2"
+  content: "Krank wird der Organismus, wenn ein Glied die Aufgaben eines anderen übernimmt."
+  summary_for_chat: "Absatz in Kapitel 1 überarbeitet."
+expected_payload:
+  document_id: "11111111-1111-1111-1111-111111111111"
+  operation: update_paragraph
+  paragraph_id: "ch1.p2"
+  heading_path: null
+  content: "Krank wird der Organismus, wenn ein Glied die Aufgaben eines anderen übernimmt."
+  summary_for_chat: "Absatz in Kapitel 1 überarbeitet."
