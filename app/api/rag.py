@@ -24,7 +24,6 @@ from ..core.telemetry import telemetry_client as ingestion_telemetry
 from ..ingestion.repositories import RagChunksRepository, VectorChunksRepository
 from ..ingestion.services import IngestionService
 from ..shared.rag_partition import RAG_PARTITION_SHARED
-from ..debug_agent_log import agent_log
 from ..infra.sparse_embedder import SparseEmbedder
 
 router = APIRouter(prefix="/rag", tags=["rag"])
@@ -478,13 +477,6 @@ async def embed_chunks_stats(request: EmbedChunksRequest) -> EmbedChunksStatsRes
     """Return chunk count and UTF-8 text size for embed-chunks filters (no embedding)."""
 
     _validate_embed_chunks_request(request)
-    t0 = time.perf_counter()
-    agent_log(
-        location="rag.py:embed_chunks_stats:start",
-        message="stats handler start",
-        data={"source_ids": request.source_ids, "collection": request.collection_name},
-        hypothesis_id="H2",
-    )
     rag_repo = get_rag_chunks_repository()
     chunk_count, text_kb = await rag_repo.stats_for_embed(
         request.collection_name,
@@ -493,17 +485,6 @@ async def embed_chunks_stats(request: EmbedChunksRequest) -> EmbedChunksStatsRes
         chunk_types=request.chunk_types,
         only_unembedded=bool(request.only_unembedded),
         max_chunks=request.max_chunks,
-    )
-    agent_log(
-        location="rag.py:embed_chunks_stats:done",
-        message="stats handler done",
-        data={
-            "source_ids": request.source_ids,
-            "chunk_count": chunk_count,
-            "text_kb": round(text_kb, 1),
-            "seconds": round(time.perf_counter() - t0, 2),
-        },
-        hypothesis_id="H2",
     )
     return EmbedChunksStatsResponse(chunk_count=chunk_count, text_kb=round(text_kb, 1))
 
@@ -521,13 +502,6 @@ async def embed_chunks(
 
     _validate_embed_chunks_request(request)
 
-    t0 = time.perf_counter()
-    agent_log(
-        location="rag.py:embed_chunks:start",
-        message="embed handler start",
-        data={"source_ids": request.source_ids, "collection": request.collection_name},
-        hypothesis_id="H3",
-    )
     rag_repo = get_rag_chunks_repository()
 
     async def _run_embed_cleanup() -> int:
@@ -583,17 +557,6 @@ async def embed_chunks(
         max_chunks=request.max_chunks,
     )
     text_kb = round(_chunks_text_kb(chunks), 1)
-    agent_log(
-        location="rag.py:embed_chunks:loaded",
-        message="chunks loaded for embed",
-        data={
-            "source_ids": request.source_ids,
-            "chunk_count": len(chunks),
-            "text_kb": text_kb,
-            "load_seconds": round(time.perf_counter() - t0, 2),
-        },
-        hypothesis_id="H3",
-    )
 
     if not chunks:
         stale_deleted = await _run_embed_cleanup()
@@ -640,19 +603,6 @@ async def embed_chunks(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
-
-    agent_log(
-        location="rag.py:embed_chunks:done",
-        message="embed handler done",
-        data={
-            "source_ids": request.source_ids,
-            "requested": result.requested,
-            "ingested": result.ingested,
-            "payload_changed": result.payload_changed,
-            "seconds": round(time.perf_counter() - t0, 2),
-        },
-        hypothesis_id="H5",
-    )
 
     await rag_repo.mark_embedded_for_embed_run(
         request.collection_name,

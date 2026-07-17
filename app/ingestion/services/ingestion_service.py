@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 from uuid import UUID, uuid4, uuid5, NAMESPACE_DNS
 
-from app.debug_agent_log import agent_log
 from app.shared.models import ChunkRecord
 from app.infra.embedding_client import EmbeddingClient
 from app.infra.qdrant_client import QdrantClient
@@ -155,22 +154,6 @@ class IngestionService:
             "upload_chunks: classify — unchanged=%d changed_embed=%d changed_payload_only=%d new=%d",
             len(unchanged), len(changed_embed), len(changed_payload_only), len(new),
         )
-        if unique_chunks:
-            sample = unique_chunks[0].metadata
-            agent_log(
-                location="ingestion_service.py:upload_chunks:classify",
-                message="upload_chunks classified",
-                data={
-                    "source_id": sample.source_id,
-                    "unchanged": len(unchanged),
-                    "changed_embed": len(changed_embed),
-                    "changed_payload_only": len(changed_payload_only),
-                    "new": len(new),
-                    "total": len(unique_chunks),
-                },
-                hypothesis_id="H5",
-            )
-
         # Embed only changed + new
         to_embed = changed_embed + new
         embedding_batch = None

@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, List, Mapping, Optional
+from typing import Iterable, List, Mapping, Optional, Union
 
 import httpx
-
-from app.debug_agent_log import agent_log
 
 
 @dataclass
@@ -15,6 +13,7 @@ class ChatResult:
 
     content: str
     usage: dict = field(default_factory=dict)
+    tool_calls: Optional[list] = field(default=None)
 
 
 class DeepSeekClient:
@@ -46,9 +45,15 @@ class DeepSeekClient:
         *,
         temperature: float = 0.2,
         max_tokens: int = 300,
+        tools: Optional[list] = None,
+        tool_choice: Optional[Union[str, dict]] = None,
         _debug_caller: str = "unknown",
     ) -> ChatResult:
-        """Call DeepSeek chat completions. Returns content + token usage."""
+        """Call DeepSeek chat completions. Returns content + token usage.
+
+        If `tools` is provided, the model may return `tool_calls` instead of
+        (or in addition to) `content` — see `ChatResult.tool_calls`.
+        """
 
         payload: dict[str, object] = {
             "model": self.model,
@@ -58,6 +63,10 @@ class DeepSeekClient:
         }
         if self.thinking is not None:
             payload["thinking"] = self.thinking
+        if tools is not None:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
 
         headers = {
             "Content-Type": "application/json",
@@ -65,54 +74,25 @@ class DeepSeekClient:
         }
 
         target_url = f"{self.base_url}/chat/completions"
-        # region agent log
-        agent_log(
-            location="deepseek_client.py:chat:before_post",
-            message="DeepSeek chat request",
-            data={"target_url": target_url, "caller": _debug_caller, "max_tokens": max_tokens},
-            hypothesis_id="A-B",
-        )
-        # endregion
         timeout_obj = httpx.Timeout(self.timeout, connect=10.0)
-        try:
-            async with httpx.AsyncClient(timeout=timeout_obj) as client:
-                response = await client.post(target_url, json=payload, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-        except httpx.ConnectTimeout as exc:
-            # region agent log
-            agent_log(
-                location="deepseek_client.py:chat:connect_timeout",
-                message="DeepSeek ConnectTimeout",
-                data={"target_url": target_url, "caller": _debug_caller, "exc": str(exc)},
-                hypothesis_id="A-B",
-            )
-            # endregion
-            raise
-        except httpx.HTTPError as exc:
-            # region agent log
-            agent_log(
-                location="deepseek_client.py:chat:http_error",
-                message="DeepSeek HTTP error",
-                data={
-                    "target_url": target_url,
-                    "caller": _debug_caller,
-                    "exc_type": type(exc).__name__,
-                    "exc": str(exc),
-                },
-                hypothesis_id="A-B",
-            )
-            # endregion
-            raise
+        async with httpx.AsyncClient(timeout=timeout_obj) as client:
+            response = await client.post(target_url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
         choices: Optional[List[Mapping[str, object]]] = data.get("choices")  # type: ignore[arg-type]
         if not choices:
             raise RuntimeError("DeepSeek returned no choices")
         message = choices[0].get("message", {})
         content = message.get("content") if isinstance(message, dict) else None
-        if not content or not isinstance(content, str):
+        tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+        if (not content or not isinstance(content, str)) and not tool_calls:
             raise RuntimeError("DeepSeek returned empty content")
         usage: dict = data.get("usage") or {}
-        return ChatResult(content=content.strip(), usage=usage)
+        return ChatResult(
+            content=content.strip() if isinstance(content, str) else "",
+            usage=usage,
+            tool_calls=tool_calls,
+        )
 
     async def list_models(self) -> list[str]:
         """Best-effort probe for available models (if endpoint is exposed)."""
