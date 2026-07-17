@@ -6,6 +6,8 @@ from typing import Any
 
 import pytest
 
+from app.infra.deepseek_client import ChatResult
+from app.services import app_chat_stream_service
 from app.services.app_chat_stream_service import (
     _history_messages_from_turns,
     _strip_usage_comment,
@@ -13,6 +15,7 @@ from app.services.app_chat_stream_service import (
     run_app_chat_once,
     stream_app_chat,
 )
+from app.tools.types import ToolContext, ToolManifest, ToolResult
 
 
 class _FakeChunk:
@@ -192,6 +195,166 @@ async def test_stream_app_chat_yields_error_event_on_graph_failure() -> None:
 
     assert collected == [{"type": "error", "message": "Interner Fehler"}]
     assert talks.created == []
+
+
+class _FakeAppToolRegistry:
+    """Minimal AppToolRegistry stand-in: always offers one tool, invoke()
+    returns pre-baked ToolResults keyed by tool_id."""
+
+    def __init__(self, results: dict[str, ToolResult]) -> None:
+        self._results = results
+        self.invoked: list[tuple[str, dict]] = []
+
+    def list_tools(self, *, mode: str | None = None, linked_document_id: str | None = None):
+        return [
+            ToolManifest(
+                id="update_document",
+                label="Arbeitsdokument aktualisieren",
+                description="...",
+                category="app-document",
+                execution="client",
+                result_key="suggested_document_update",
+                schema={"type": "object", "properties": {}},
+            )
+        ]
+
+    def schemas_for_llm(self, available):
+        return [{"type": "function", "function": {"name": m.id, "description": m.description, "parameters": m.schema}} for m in available]
+
+    async def invoke(self, tool_id: str, ctx: ToolContext, args: dict) -> ToolResult:
+        self.invoked.append((tool_id, args))
+        result = self._results[tool_id]
+        result.tool_id = tool_id
+        return result
+
+
+class _FakeDeepSeekChat:
+    """Returns queued ChatResult objects in order, one per .chat() call."""
+
+    def __init__(self, results: list[ChatResult]) -> None:
+        self._results = list(results)
+        self.calls = 0
+
+    async def chat(self, messages, *, tools=None, tool_choice=None, **kwargs):
+        self.calls += 1
+        return self._results.pop(0)
+
+
+def _tool_call(call_id: str, name: str, arguments: str) -> dict:
+    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+
+
+@pytest.mark.asyncio
+async def test_stream_app_chat_no_tool_call_leaves_empty_tool_results(monkeypatch) -> None:
+    fake_deepseek = _FakeDeepSeekChat([ChatResult(content="", tool_calls=None)])
+    monkeypatch.setattr(app_chat_stream_service, "get_deepseek_chat", lambda: fake_deepseek)
+
+    graph = _FakeGraph(_happy_path_events())
+    talks = _FakeTalks()
+    registry = _FakeAppToolRegistry(results={})
+
+    collected = []
+    async for sse in stream_app_chat(
+        graph,
+        talks,
+        user_id="u1",
+        user_name="User",
+        message="Hi",
+        personality="philo",
+        linked_document_id="note-1",
+        app_tool_registry=registry,
+    ):
+        collected.append(json.loads(sse["data"]))
+
+    done = collected[-1]
+    assert done["tool_results"] == []
+    assert fake_deepseek.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_app_chat_update_document_tool_call(monkeypatch) -> None:
+    update_result = ToolResult(
+        result_key="suggested_document_update",
+        payload={"document_id": "note-1", "operation": "update_paragraph"},
+    )
+    fake_deepseek = _FakeDeepSeekChat([
+        ChatResult(
+            content="",
+            tool_calls=[_tool_call("call-1", "update_document", '{"paragraph_id": "ch1.p1", "content": "Neu."}')],
+        ),
+    ])
+    monkeypatch.setattr(app_chat_stream_service, "get_deepseek_chat", lambda: fake_deepseek)
+
+    graph = _FakeGraph(_happy_path_events())
+    talks = _FakeTalks()
+    registry = _FakeAppToolRegistry(results={"update_document": update_result})
+
+    collected = []
+    async for sse in stream_app_chat(
+        graph,
+        talks,
+        user_id="u1",
+        user_name="User",
+        message="Kürze Kapitel 1",
+        personality="philo",
+        linked_document_id="note-1",
+        app_tool_registry=registry,
+    ):
+        collected.append(json.loads(sse["data"]))
+
+    done = collected[-1]
+    assert done["tool_results"] == [
+        {
+            "tool_id": "update_document",
+            "result_key": "suggested_document_update",
+            "payload": {"document_id": "note-1", "operation": "update_paragraph"},
+        }
+    ]
+    assert registry.invoked == [("update_document", {"paragraph_id": "ch1.p1", "content": "Neu."})]
+    assert fake_deepseek.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_app_chat_read_blocks_then_update_document_respects_max_rounds(monkeypatch) -> None:
+    read_result = ToolResult(result_key="document_blocks", payload={"blocks": [{"paragraph_id": "ch1.p1", "content": "Alt."}]})
+    update_result = ToolResult(
+        result_key="suggested_document_update",
+        payload={"document_id": "note-1", "operation": "update_paragraph"},
+    )
+    fake_deepseek = _FakeDeepSeekChat([
+        ChatResult(
+            content="",
+            tool_calls=[_tool_call("call-1", "read_blocks", '{"addresses": [{"paragraph_id": "ch1.p1"}]}')],
+        ),
+        ChatResult(
+            content="",
+            tool_calls=[_tool_call("call-2", "update_document", '{"paragraph_id": "ch1.p1", "content": "Neu."}')],
+        ),
+    ])
+    monkeypatch.setattr(app_chat_stream_service, "get_deepseek_chat", lambda: fake_deepseek)
+
+    graph = _FakeGraph(_happy_path_events())
+    talks = _FakeTalks()
+    registry = _FakeAppToolRegistry(results={"read_blocks": read_result, "update_document": update_result})
+
+    collected = []
+    async for sse in stream_app_chat(
+        graph,
+        talks,
+        user_id="u1",
+        user_name="User",
+        message="Kürze Kapitel 1",
+        personality="philo",
+        linked_document_id="note-1",
+        app_tool_registry=registry,
+    ):
+        collected.append(json.loads(sse["data"]))
+
+    done = collected[-1]
+    assert [r["tool_id"] for r in done["tool_results"]] == ["read_blocks", "update_document"]
+    # max_rounds=2 respected: exactly 2 DeepSeek calls, no 3rd round even though
+    # the 2nd round's tool call (update_document) doesn't request more reading.
+    assert fake_deepseek.calls == 2
 
 
 @pytest.mark.asyncio

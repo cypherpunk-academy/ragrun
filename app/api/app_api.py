@@ -83,6 +83,9 @@ class ChatRequest(BaseModel):
     model: str | None = None
     context_mode: str | None = None
     context_ids: ChatContextIds | None = None
+    linked_document_id: str | None = None
+    document_outline: dict[str, Any] | None = None
+    linked_document_content: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -197,6 +200,10 @@ async def app_chat(
             model=body.model,
             context_mode=body.context_mode,
             context_ids=body.context_ids.model_dump() if body.context_ids else None,
+            linked_document_id=body.linked_document_id,
+            document_outline=body.document_outline,
+            linked_document_content=body.linked_document_content,
+            app_tool_registry=request.app.state.app_tool_registry,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -232,6 +239,10 @@ async def app_chat_stream(
         model=body.model,
         context_mode=body.context_mode,
         context_ids=body.context_ids.model_dump() if body.context_ids else None,
+        linked_document_id=body.linked_document_id,
+        document_outline=body.document_outline,
+        linked_document_content=body.linked_document_content,
+        app_tool_registry=request.app.state.app_tool_registry,
     )
     return EventSourceResponse(generator)
 

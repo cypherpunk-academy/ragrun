@@ -26,6 +26,10 @@ async def send_app_chat(
     model: str | None = None,
     context_mode: str | None = None,
     context_ids: dict[str, Any] | None = None,
+    linked_document_id: str | None = None,
+    document_outline: dict[str, Any] | None = None,
+    linked_document_content: str | None = None,
+    app_tool_registry: Any = None,
 ) -> dict[str, str]:
     return await run_app_chat_once(
         graph,
@@ -39,6 +43,10 @@ async def send_app_chat(
         model=model,
         context_mode=context_mode,
         context_ids=context_ids,
+        linked_document_id=linked_document_id,
+        document_outline=document_outline,
+        linked_document_content=linked_document_content,
+        app_tool_registry=app_tool_registry,
     )
 
 
