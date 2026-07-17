@@ -27,7 +27,7 @@ import re
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Mapping
 
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -51,7 +51,7 @@ from app.retrieval.chains.authentic_concept_explain import run_authentic_concept
 from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_usage
 from app.services.pricing_service import calculate_cost
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
-from app.retrieval.utils.retrievers import build_context, hybrid_retrieve, hybrid_retrieve_quote_parallel
+from app.retrieval.utils.retrievers import build_context_numbered, hybrid_retrieve, hybrid_retrieve_quote_parallel
 from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ def _make_llm(
         openai_api_key=settings.deepseek_api_key,
         openai_api_base=f"{str(settings.deepseek_base_url).rstrip('/')}/",
         temperature=0.3,
-        max_tokens=1200,
+        max_tokens=2200,
         streaming=streaming,
         # deepseek-v4-flash defaults to thinking "enabled" if omitted — always set
         # explicitly so non-thinking callers (e.g. App-Chat-Modus "chat") don't pay
@@ -153,6 +153,7 @@ class ChatState(_ChatStateRequired, total=False):
     retrieval_plan: list[str]
     context_text: str
     context_refs: list[str]
+    context_index_map: list[dict]  # [N] -> {chunk_id, text, meta, score}, built by build_context_numbered
     retrieved_snippets: list[dict]  # serializable dicts for evaluate_chunk_relevance
     retrieval_mode: str
     sufficiency: str
@@ -372,13 +373,7 @@ async def return_begriff_chunk(state: ChatState, config: RunnableConfig) -> dict
         return {"retrieval_plan": ["book", "talk", "chapter_summary"], "begriff_fallback": True}
 
     meta = chunk.get("metadata") or {}
-    citation = {
-        "chunk_id":      chunk.get("chunk_id", ""),
-        "source_title":  meta.get("source_title", ""),
-        "segment_title": meta.get("segment_title", ""),
-        "segment_index": meta.get("segment_index"),
-        "lecture_date":  meta.get("lecture_date", ""),
-    }
+    citation = _citation_from_meta(chunk.get("chunk_id", ""), meta, text=chunk.get("text"))
     return {
         "messages": [AIMessage(content=chunk["text"])],
         "citations": [citation],
@@ -431,20 +426,23 @@ async def run_authentic_concept_explain(state: ChatState, config: RunnableConfig
         async with async_session() as session:
             rows = await session.execute(
                 text(
-                    "SELECT chunk_id, metadata FROM vector_chunks "
+                    "SELECT chunk_id, source_id, chunk_type, text, metadata FROM vector_chunks "
                     "WHERE chunk_id = ANY(:ids)"
                 ),
                 {"ids": chunk_ids},
             )
             for row in rows:
                 meta = row.metadata or {}
-                citations.append({
-                    "chunk_id":      row.chunk_id,
-                    "source_title":  meta.get("source_title", ""),
-                    "segment_title": meta.get("segment_title", ""),
-                    "segment_index": meta.get("segment_index"),
-                    "lecture_date":  meta.get("lecture_date", ""),
-                })
+                citations.append(
+                    _citation_from_meta(
+                        row.chunk_id,
+                        meta,
+                        text=row.text,
+                        source_id=row.source_id,
+                        chunk_type=row.chunk_type,
+                    )
+                )
+        await _fill_missing_paragraph_ids(citations)
 
     return {
         "messages": [AIMessage(content=result.lexicon_entry)],
@@ -503,7 +501,11 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
         )
 
     sufficiency = _compute_sufficiency(chunks)
-    context_text, context_refs = build_context(chunks)
+    context_text, context_refs, raw_index_map = build_context_numbered(chunks, start_index=1)
+    context_index_map = [
+        {"index": num, "chunk_id": cid, "text": txt, "meta": dict(meta), "score": score}
+        for num, cid, txt, meta, score in raw_index_map
+    ]
     retrieval_mode = "hybrid" if settings.use_hybrid_retrieval else "dense"
 
     # Serialize snippets for state (evaluate_chunk_relevance needs RetrievedSnippet later)
@@ -519,6 +521,7 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
     return {
         "context_text": context_text,
         "context_refs": context_refs,
+        "context_index_map": context_index_map,
         "retrieved_snippets": retrieved_snippets,
         "retrieval_mode": retrieval_mode,
         "sufficiency": sufficiency,
@@ -544,7 +547,18 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
 
     messages_in: list[BaseMessage] = [SystemMessage(content=persona)]
     if context_text:
-        messages_in.append(SystemMessage(content=f"Quellen-Kontext:\n{context_text}"))
+        messages_in.append(
+            SystemMessage(
+                content=(
+                    "Quellen-Kontext (jede Quelle ist mit [1], [2], [3] usw. nummeriert):\n"
+                    f"{context_text}\n\n"
+                    "Belege deine Aussagen, wo sinnvoll, direkt im Text mit den passenden "
+                    "Nummern in eckigen Klammern (z. B. „…wie an anderer Stelle beschrieben [2].“ "
+                    "oder „…in dieser Hinsicht [1][3].“). Verwende ausschließlich Nummern, die "
+                    "oben im Quellen-Kontext vorkommen. Erfinde keine Nummern."
+                )
+            )
+        )
     messages_in.extend(recent_messages)
     messages_in.append(HumanMessage(content=state["user_message"]))
 
@@ -590,6 +604,85 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
 # Node 5: attach_citations
 # ---------------------------------------------------------------------------
 
+_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
+
+# Chunk types for which navigation resolves to a paragraph (mirrors
+# app_search_service._NAVIGATION_CHUNK_TYPES) — used to fill in paragraph_id
+# when it's missing from a chunk's own metadata.
+_CITATION_NAV_CHUNK_TYPES = frozenset({"book", "secondary_book", "talk", "quote", "quote_explanation"})
+
+
+def _citation_from_meta(
+    chunk_id: str,
+    meta: Mapping[str, object],
+    *,
+    text: str | None = None,
+    score: float | None = None,
+    source_id: str | None = None,
+    chunk_type: str | None = None,
+    index: int | None = None,
+) -> dict:
+    """Build a citation dict with all fields the ragapp needs for card rendering
+    and navigation (badge/title/body via entityKindFromSearchResult/buildSearchHitCard).
+
+    `index`, when given, is the literal [N] marker number the LLM used for this chunk
+    in `compose_answer`'s response — required so in-text citation taps resolve to the
+    right card (see ragapp `TurnMetaLine`/`onCitationPress` + `citationIndexToListIndex`)."""
+    citation = {
+        "chunk_id":      chunk_id,
+        "source_id":     source_id or meta.get("source_id", ""),
+        "source_title":  meta.get("source_title", ""),
+        "segment_title": meta.get("segment_title", ""),
+        "segment_index": meta.get("segment_index"),
+        "lecture_date":  meta.get("lecture_date", ""),
+        "chunk_type":    chunk_type or meta.get("chunk_type", ""),
+        "source_type":   meta.get("source_type", ""),
+        "author":        meta.get("author", ""),
+        "book_title":    meta.get("book_title", ""),
+        "venue":         meta.get("venue", ""),
+        "vortragstitel": meta.get("vortragstitel", ""),
+        "paragraph_id":  meta.get("paragraph_id", ""),
+    }
+    if text is not None:
+        citation["text"] = text
+    if score is not None:
+        citation["score"] = score
+    if index is not None:
+        citation["index"] = index
+    return citation
+
+
+async def _fill_missing_paragraph_ids(citations: list[dict]) -> None:
+    """Resolves paragraph_id for navigable chunk types that don't carry it directly
+    in their metadata (mirrors app_search_service._lookup_paragraph_ids)."""
+    missing_ids = [
+        c["chunk_id"] for c in citations
+        if not c.get("paragraph_id") and c.get("chunk_type") in _CITATION_NAV_CHUNK_TYPES
+    ]
+    if not missing_ids:
+        return
+    async_session = get_async_sessionmaker()
+    async with async_session() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT DISTINCT ON (apc.chunk_id)
+                    apc.chunk_id, apc.paragraph_id
+                FROM app_paragraph_chunk apc
+                JOIN rag_paragraphs rp ON rp.id = apc.paragraph_id
+                WHERE apc.chunk_id = ANY(:ids)
+                  AND rp.deprecated_at IS NULL
+                ORDER BY apc.chunk_id, rp.paragraph_number ASC
+                """
+            ),
+            {"ids": missing_ids},
+        )
+        pid_map = {str(r.chunk_id): str(r.paragraph_id) for r in rows}
+    for c in citations:
+        if not c.get("paragraph_id") and c["chunk_id"] in pid_map:
+            c["paragraph_id"] = pid_map[c["chunk_id"]]
+
+
 def _snippets_from_state(raw: list[dict]) -> list[RetrievedSnippet]:
     """Reconstruct RetrievedSnippet list from serialized state."""
     out: list[RetrievedSnippet] = []
@@ -617,52 +710,99 @@ async def attach_citations(state: ChatState, config: RunnableConfig) -> dict:
         (m for m in reversed(list(state.get("messages") or [])) if isinstance(m, AIMessage)),
         None,
     )
-    generated_text = (last_ai.content or "").strip() if last_ai else ""
+    raw_content = last_ai.content or "" if last_ai else ""
+    generated_text = raw_content.strip()
 
-    # Evaluate which chunks actually support the answer
-    raw_snippets = state.get("retrieved_snippets") or []
-    chunk_ids_to_cite = context_refs  # fallback: all
+    # Preferred path: LLM followed the [N]-citation instructions from compose_answer —
+    # resolve cited numbers directly against the numbered context built in retrieve_chunks,
+    # in the order they first appear in the text. The raw numbers come from the full
+    # retrieval context (e.g. [1], [8], [9], with gaps) — renumber them 1..K in
+    # first-appearance order so both the displayed markers and the citation list are
+    # consistent and easy to follow.
+    index_map = state.get("context_index_map") or []
+    by_index = {int(e["index"]): e for e in index_map if "index" in e}
 
-    if generated_text and raw_snippets:
-        snippets = _snippets_from_state(raw_snippets)
-        if snippets:
-            try:
-                llm = get_deepseek_chat()
-                refs = await evaluate_chunk_relevance(
-                    generated_text=generated_text,
-                    retrieved_chunks=snippets,
-                    llm=llm,
-                    max_chunks=20,
+    cited_indices: list[int] = []
+    seen_idx: set[int] = set()
+    for m in _CITATION_MARKER_RE.finditer(generated_text):
+        n = int(m.group(1))
+        if n in by_index and n not in seen_idx:
+            seen_idx.add(n)
+            cited_indices.append(n)
+
+    citations: list[dict] = []
+    if cited_indices:
+        renumber_map = {old: new for new, old in enumerate(cited_indices, start=1)}
+        for old_n in cited_indices:
+            entry = by_index[old_n]
+            citations.append(
+                _citation_from_meta(
+                    entry["chunk_id"],
+                    entry.get("meta") or {},
+                    text=entry.get("text"),
+                    score=entry.get("score"),
+                    index=renumber_map[old_n],
                 )
-                threshold = settings.citation_relevance_threshold
-                chunk_ids_to_cite = [
-                    r["chunk_id"] for r in refs if float(r.get("relevance", 0.0)) >= threshold
-                ]
-                if not chunk_ids_to_cite:
-                    # Keep top 3 by relevance if all below threshold
-                    chunk_ids_to_cite = [r["chunk_id"] for r in refs[:3]]
-            except Exception:
-                logger.warning("Citation evaluation failed; using all context_refs", exc_info=True)
+            )
 
-    async_session = get_async_sessionmaker()
-    async with async_session() as session:
-        rows = await session.execute(
-            text(
-                "SELECT chunk_id, metadata FROM vector_chunks "
-                "WHERE chunk_id = ANY(:ids)"
-            ),
-            {"ids": chunk_ids_to_cite},
-        )
-        citations = []
-        for row in rows:
-            meta = row.metadata or {}
-            citations.append({
-                "chunk_id":      row.chunk_id,
-                "source_title":  meta.get("source_title", ""),
-                "segment_title": meta.get("segment_title", ""),
-                "segment_index": meta.get("segment_index"),
-                "lecture_date":  meta.get("lecture_date", ""),
-            })
+        def _renumber(match: "re.Match[str]") -> str:
+            old = int(match.group(1))
+            new = renumber_map.get(old)
+            return f"[{new}]" if new is not None else match.group(0)
+
+        if last_ai is not None:
+            last_ai.content = _CITATION_MARKER_RE.sub(_renumber, raw_content)
+            await _fill_missing_paragraph_ids(citations)
+            return {"citations": citations, "messages": [last_ai]}
+    else:
+        # Fallback: no [N] markers found in the answer — re-evaluate relevance
+        # against context_refs (legacy behaviour for non-compliant generations).
+        raw_snippets = state.get("retrieved_snippets") or []
+        chunk_ids_to_cite = context_refs
+
+        if generated_text and raw_snippets:
+            snippets = _snippets_from_state(raw_snippets)
+            if snippets:
+                try:
+                    llm = get_deepseek_chat()
+                    refs = await evaluate_chunk_relevance(
+                        generated_text=generated_text,
+                        retrieved_chunks=snippets,
+                        llm=llm,
+                        max_chunks=20,
+                    )
+                    threshold = settings.citation_relevance_threshold
+                    chunk_ids_to_cite = [
+                        r["chunk_id"] for r in refs if float(r.get("relevance", 0.0)) >= threshold
+                    ]
+                    if not chunk_ids_to_cite:
+                        # Keep top 3 by relevance if all below threshold
+                        chunk_ids_to_cite = [r["chunk_id"] for r in refs[:3]]
+                except Exception:
+                    logger.warning("Citation evaluation failed; using all context_refs", exc_info=True)
+
+        async_session = get_async_sessionmaker()
+        async with async_session() as session:
+            rows = await session.execute(
+                text(
+                    "SELECT chunk_id, source_id, chunk_type, text, metadata FROM vector_chunks "
+                    "WHERE chunk_id = ANY(:ids)"
+                ),
+                {"ids": chunk_ids_to_cite},
+            )
+            for row in rows:
+                meta = row.metadata or {}
+                citations.append(
+                    _citation_from_meta(
+                        row.chunk_id,
+                        meta,
+                        text=row.text,
+                        source_id=row.source_id,
+                        chunk_type=row.chunk_type,
+                    )
+                )
+
+    await _fill_missing_paragraph_ids(citations)
     return {"citations": citations}
 
 
