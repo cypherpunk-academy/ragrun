@@ -448,6 +448,7 @@ async def run_authentic_concept_explain(state: ChatState, config: RunnableConfig
                         chunk_type=row.chunk_type,
                     )
                 )
+        await _resolve_quote_explanation_citations(citations)
         await _fill_missing_paragraph_ids(citations)
 
     return {
@@ -675,6 +676,7 @@ def _citation_from_meta(
         "venue":         meta.get("venue", ""),
         "vortragstitel": meta.get("vortragstitel", ""),
         "paragraph_id":  meta.get("paragraph_id", ""),
+        "parent_id":     meta.get("parent_id", ""),
     }
     if text is not None:
         citation["text"] = text
@@ -683,6 +685,47 @@ def _citation_from_meta(
     if index is not None:
         citation["index"] = index
     return citation
+
+
+async def _resolve_quote_explanation_citations(citations: list[dict]) -> None:
+    """Swap quote_explanation citations for parent quote text — explanations are
+    retrieval-only and must never be shown themselves (mirrors
+    app_search_service._resolve_quote_explanations for the chat-citation path)."""
+    expl = [c for c in citations if c.get("chunk_type") == "quote_explanation" and c.get("parent_id")]
+    if not expl:
+        return
+
+    parent_ids = list(dict.fromkeys(str(c["parent_id"]) for c in expl))
+    async_session = get_async_sessionmaker()
+    async with async_session() as session:
+        rows = await session.execute(
+            text(
+                "SELECT chunk_id, source_id, chunk_type, text, metadata FROM vector_chunks "
+                "WHERE chunk_id = ANY(:ids)"
+            ),
+            {"ids": parent_ids},
+        )
+        parents = {str(r.chunk_id): r for r in rows}
+
+    for c in expl:
+        parent = parents.get(str(c["parent_id"]))
+        if parent is None or parent.chunk_type != "quote":
+            logger.warning(
+                "dropping quote_explanation citation swap %s — parent quote %s not found",
+                c.get("chunk_id"), c.get("parent_id"),
+            )
+            continue
+        parent_meta = parent.metadata or {}
+        c["chunk_id"] = str(parent.chunk_id)
+        c["chunk_type"] = "quote"
+        c["text"] = parent.text
+        if parent.source_id:
+            c["source_id"] = str(parent.source_id)
+        for key in ("segment_title", "author", "book_title", "source_title", "paragraph_id"):
+            val = parent_meta.get(key)
+            if val is not None and str(val).strip():
+                c[key] = val
+        c.pop("parent_id", None)
 
 
 async def _fill_missing_paragraph_ids(citations: list[dict]) -> None:
@@ -785,6 +828,7 @@ async def attach_citations(state: ChatState, config: RunnableConfig) -> dict:
 
         if last_ai is not None:
             last_ai.content = _CITATION_MARKER_RE.sub(_renumber, raw_content)
+            await _resolve_quote_explanation_citations(citations)
             await _fill_missing_paragraph_ids(citations)
             return {"citations": citations, "messages": [last_ai]}
     else:
@@ -835,6 +879,7 @@ async def attach_citations(state: ChatState, config: RunnableConfig) -> dict:
                     )
                 )
 
+    await _resolve_quote_explanation_citations(citations)
     await _fill_missing_paragraph_ids(citations)
     return {"citations": citations}
 
