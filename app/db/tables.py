@@ -5,6 +5,7 @@ from sqlalchemy import (
     ARRAY,
     JSON,
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -127,6 +128,10 @@ rag_talks_table = Table(
     Column("kontext_paragraph_id", Text, nullable=True),
     Column("kontext_paragraph", Text, nullable=True),
     Column("publishing_status", String(16), nullable=False, server_default="draft"),
+    Column("pinned", Boolean, nullable=False, server_default=text("false")),
+    Column("mode", Text, nullable=False, server_default="chat"),
+    Column("compressed_up_to_turn_index", Integer, nullable=True),
+    Column("compressed_summary", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )

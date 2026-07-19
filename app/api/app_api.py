@@ -15,7 +15,7 @@ from app.core.providers import get_sync_engine
 from app.db.session import get_engine
 from app.retrieval.services.action_prompt_service import list_actions, load_assistant_name
 from app.services.app_catalog_repository import PostgresCatalogRepository
-from app.services.app_chat_service import send_app_chat, summarize_app_talk
+from app.services.app_chat_service import compress_app_talk, send_app_chat, summarize_app_talk
 from app.services.app_chat_stream_service import stream_app_chat
 from app.services.app_search_service import app_search
 from app.services.app_sync_service import pull_changes, push_changes
@@ -83,6 +83,7 @@ class ChatRequest(BaseModel):
     model: str | None = None
     context_mode: str | None = None
     context_ids: ChatContextIds | None = None
+    context_paragraph_text: str | None = None
     linked_document_id: str | None = None
     document_outline: dict[str, Any] | None = None
     linked_document_content: str | None = None
@@ -96,6 +97,16 @@ class ChatResponse(BaseModel):
 
 class ChatSummarizeResponse(BaseModel):
     summary: str
+
+
+class ChatCompressResponse(BaseModel):
+    summary: str
+    compressed_up_to_turn_index: int
+
+
+class TalkSettingsUpdate(BaseModel):
+    pinned: bool | None = None
+    mode: str | None = None
 
 
 class SyncPullRequest(BaseModel):
@@ -200,6 +211,7 @@ async def app_chat(
             model=body.model,
             context_mode=body.context_mode,
             context_ids=body.context_ids.model_dump() if body.context_ids else None,
+            context_paragraph_text=body.context_paragraph_text,
             linked_document_id=body.linked_document_id,
             document_outline=body.document_outline,
             linked_document_content=body.linked_document_content,
@@ -239,6 +251,7 @@ async def app_chat_stream(
         model=body.model,
         context_mode=body.context_mode,
         context_ids=body.context_ids.model_dump() if body.context_ids else None,
+        context_paragraph_text=body.context_paragraph_text,
         linked_document_id=body.linked_document_id,
         document_outline=body.document_outline,
         linked_document_content=body.linked_document_content,
@@ -257,6 +270,47 @@ async def app_summarize(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return ChatSummarizeResponse(summary=summary)
+
+
+@router.post("/chat/{talk_id}/compress", response_model=ChatCompressResponse)
+async def app_compress(
+    talk_id: str,
+    _user: Annotated[AuthUser, Depends(get_current_user)],
+) -> ChatCompressResponse:
+    try:
+        result = await compress_app_talk(_talks(), talk_id=talk_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return ChatCompressResponse(**result)
+
+
+@router.patch("/chat/{talk_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def app_update_talk(
+    talk_id: str,
+    body: TalkSettingsUpdate,
+    _user: Annotated[AuthUser, Depends(get_current_user)],
+) -> Response:
+    """Welle 5a/5c — pinned & mode sind nicht Teil des generischen Sync-Pfads
+
+    (`push_changes` verarbeitet nur `notes`/`bookmarks`), daher eigener Endpoint.
+    """
+    await _talks().set_talk_settings(talk_id, pinned=body.pinned, mode=body.mode)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/chat/{talk_id}/turns", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def app_delete_turns(
+    talk_id: str,
+    _user: Annotated[AuthUser, Depends(get_current_user)],
+    after_index: int = Query(..., ge=0),
+) -> Response:
+    """Welle 5d — Turn-Aktionen (Bearbeiten/Wiederholen/Truncate).
+
+    Loescht alle Turns ab `after_index` server-seitig, damit `load_talk_turns`
+    (naechster Chat-Aufruf) den bearbeiteten/verworfenen Verlauf nicht mehr sieht.
+    """
+    await _talks().delete_turns_from(talk_id, after_index)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/sync/pull")

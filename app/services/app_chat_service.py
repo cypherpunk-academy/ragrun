@@ -26,6 +26,7 @@ async def send_app_chat(
     model: str | None = None,
     context_mode: str | None = None,
     context_ids: dict[str, Any] | None = None,
+    context_paragraph_text: str | None = None,
     linked_document_id: str | None = None,
     document_outline: dict[str, Any] | None = None,
     linked_document_content: str | None = None,
@@ -43,6 +44,7 @@ async def send_app_chat(
         model=model,
         context_mode=context_mode,
         context_ids=context_ids,
+        context_paragraph_text=context_paragraph_text,
         linked_document_id=linked_document_id,
         document_outline=document_outline,
         linked_document_content=linked_document_content,
@@ -76,3 +78,40 @@ async def summarize_app_talk(talks: TalksPort, *, talk_id: str) -> str:
     summary = result.content.strip()
     await talks.save_talk_summary(talk_id, summary)
     return summary
+
+
+async def compress_app_talk(talks: TalksPort, *, talk_id: str) -> dict[str, Any]:
+    """Welle 5b — „Verdichten": fasst alle Turns außer den letzten beiden zusammen
+    und persistiert `compressed_summary`/`compressed_up_to_turn_index`, um den
+    angezeigten Kontextverbrauch zu reduzieren."""
+    rows = await talks.load_talk_turns(talk_id)
+    if len(rows) < 3:
+        raise ValueError("talk too short to compress")
+
+    to_compress = rows[:-2]
+    up_to_turn_index = to_compress[-1]["turn_index"]
+
+    transcript_lines: list[str] = []
+    for row in to_compress:
+        transcript_lines.append(f"User: {row['user_message']}")
+        transcript_lines.append(f"Assistant: {row['assistant_message']}")
+    transcript = "\n".join(transcript_lines)
+
+    chat_client = get_deepseek_chat()
+    result = await chat_client.chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Fasse den folgenden Gesprächsverlauf knapp auf Deutsch zusammen, "
+                    "damit er als Kontext-Gedächtnis für die Fortsetzung des Gesprächs dient."
+                ),
+            },
+            {"role": "user", "content": transcript},
+        ],
+        temperature=0.2,
+        max_tokens=600,
+    )
+    summary = result.content.strip()
+    await talks.save_compressed_summary(talk_id, summary, up_to_turn_index)
+    return {"summary": summary, "compressed_up_to_turn_index": up_to_turn_index}

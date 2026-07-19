@@ -51,17 +51,19 @@ class PostgresTalksRepository(TalksPort):
                         text(
                             """
                             INSERT INTO rag_talks
-                              (collection, user_id, user_name, title, personality,
+                              (talk_id, collection, user_id, user_name, title, personality,
                                kontext_source_id, kontext_paragraph_id, kontext_paragraph,
                                publishing_status, updated_at)
                             VALUES
-                              (:collection, :user_id, :user_name, :title, :personality,
+                              (COALESCE(CAST(:talk_id AS uuid), gen_random_uuid()),
+                               :collection, :user_id, :user_name, :title, :personality,
                                :kontext_source_id, :kontext_paragraph_id, :kontext_paragraph,
                                'personal', now())
                             RETURNING talk_id::text
                             """
                         ),
                         {
+                            "talk_id": talk_id,
                             "collection": collection,
                             "user_id": user_id,
                             "user_name": user_name,
@@ -134,6 +136,62 @@ class PostgresTalksRepository(TalksPort):
 
         return await asyncio.to_thread(_read)
 
+    async def set_talk_settings(
+        self, talk_id: str, *, pinned: bool | None = None, mode: str | None = None
+    ) -> None:
+        set_clauses: list[str] = []
+        params: dict[str, Any] = {"talk_id": talk_id}
+        if pinned is not None:
+            set_clauses.append("pinned = :pinned")
+            params["pinned"] = pinned
+        if mode is not None:
+            set_clauses.append("mode = :mode")
+            params["mode"] = mode
+        if not set_clauses:
+            return
+        set_clauses.append("updated_at = now()")
+
+        def _write() -> None:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(f"UPDATE rag_talks SET {', '.join(set_clauses)} WHERE talk_id = :talk_id"),
+                    params,
+                )
+
+        await asyncio.to_thread(_write)
+
+    async def delete_stale_unpinned(self, *, older_than_days: int = 7) -> int:
+        def _write() -> int:
+            with self._engine.begin() as conn:
+                result = conn.execute(
+                    text(
+                        """
+                        DELETE FROM rag_talks
+                        WHERE pinned = false
+                          AND updated_at < now() - make_interval(days => :older_than_days)
+                        """
+                    ),
+                    {"older_than_days": older_than_days},
+                )
+                return result.rowcount or 0
+
+        return await asyncio.to_thread(_write)
+
+    async def delete_turns_from(self, talk_id: str, after_index: int) -> int:
+        """Welle 5d — loescht alle Turns mit turn_index >= after_index (Bearbeiten/Wiederholen)."""
+
+        def _write() -> int:
+            with self._engine.begin() as conn:
+                result = conn.execute(
+                    text(
+                        "DELETE FROM rag_turns WHERE talk_id = :talk_id AND turn_index >= :after_index"
+                    ),
+                    {"talk_id": talk_id, "after_index": after_index},
+                )
+                return result.rowcount or 0
+
+        return await asyncio.to_thread(_write)
+
     async def save_talk_summary(self, talk_id: str, summary: str) -> None:
         def _write() -> None:
             with self._engine.begin() as conn:
@@ -142,6 +200,30 @@ class PostgresTalksRepository(TalksPort):
                         "UPDATE rag_talks SET summary = :summary, updated_at = now() WHERE talk_id = :talk_id"
                     ),
                     {"talk_id": talk_id, "summary": summary},
+                )
+
+        await asyncio.to_thread(_write)
+
+    async def save_compressed_summary(
+        self, talk_id: str, summary: str, up_to_turn_index: int
+    ) -> None:
+        def _write() -> None:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE rag_talks
+                        SET compressed_summary = :summary,
+                            compressed_up_to_turn_index = :up_to_turn_index,
+                            updated_at = now()
+                        WHERE talk_id = :talk_id
+                        """
+                    ),
+                    {
+                        "talk_id": talk_id,
+                        "summary": summary,
+                        "up_to_turn_index": up_to_turn_index,
+                    },
                 )
 
         await asyncio.to_thread(_write)

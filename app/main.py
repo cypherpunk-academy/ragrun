@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, AsyncGenerator, Dict
 
 # Configure root logger early so all app loggers emit at INFO by default.
@@ -43,10 +43,34 @@ from .retrieval.graphs.assistant_chat_graph import build_chat_graph
 from .core.providers import (
     get_deepseek_reasoner_client,
 )
+from .db.session import get_engine
+from .services.app_talks_repository import PostgresTalksRepository
 from .services.pricing_service import update_pricing
 from .tools.index import register_all_tools
 
 logger = logging.getLogger(__name__)
+
+_TALK_CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
+_TALK_CLEANUP_RETENTION_DAYS = 7
+
+
+async def _talk_cleanup_loop() -> None:
+    """Welle 5a — loescht unpinned Talks (und via ON DELETE CASCADE ihre Turns)
+
+    aelter als 7 Tage. In-Process-Task statt externem Scheduler (kein neues
+    Deployment-Artefakt fuer eine einzelne taegliche Aufraeum-Query).
+    """
+    talks = PostgresTalksRepository(get_engine())
+    while True:
+        try:
+            await asyncio.sleep(_TALK_CLEANUP_INTERVAL_SECONDS)
+            deleted = await talks.delete_stale_unpinned(older_than_days=_TALK_CLEANUP_RETENTION_DAYS)
+            if deleted:
+                logger.info("Talk cleanup: removed %d stale unpinned talks", deleted)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Talk cleanup loop failed; will retry after next interval")
 
 
 @asynccontextmanager
@@ -65,7 +89,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await update_pricing()
 
+    cleanup_task = asyncio.create_task(_talk_cleanup_loop())
+    logger.info("Talk cleanup background task started (every %ds)", _TALK_CLEANUP_INTERVAL_SECONDS)
+
     yield
+
+    cleanup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await cleanup_task
 
 
 app = FastAPI(

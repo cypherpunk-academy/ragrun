@@ -20,41 +20,71 @@ from app.db.ports import TalksPort
 from app.retrieval.services.action_prompt_service import load_assistant_rag_collection
 from app.retrieval.services.providers import get_deepseek_chat
 from app.retrieval.services.usage_recorder import UsageRecorder
+from app.retrieval.utils.token_estimate import (
+    DEEPSEEK_CONTEXT_LIMIT_TOKENS,
+    estimate_context_tokens,
+)
 from app.tools.prompts import DOCUMENT_EDITOR_SYSTEM_PROMPT
 from app.tools.types import ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
 
-_DEBUG_LOG_PATH = "/Users/michael/Reniets/Ai/ragrun/ragkeep/.cursor/debug-e82145.log"
-_DEBUG_SESSION = "e82145"
-
-
-def _agent_debug(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    # #region agent log
-    try:
-        import time
-
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": _DEBUG_SESSION,
-                        "hypothesisId": hypothesis_id,
-                        "location": location,
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-    except OSError:
-        pass
-    # #endregion
-
 _MAX_HISTORY_TURNS = 8
 _USAGE_COMMENT_RE = re.compile(r"\n?<!-- usage \{.*?\} -->\s*$")
+
+
+async def _resolve_context_paragraph_text(
+    *,
+    explicit: str | None,
+    context_ids: dict[str, Any] | None,
+) -> str:
+    """Absatztext für „Philo fragen“: Client-Text bevorzugt, sonst Lookup in rag_paragraphs."""
+    text = (explicit or "").strip()
+    if text:
+        return text
+    pid = str((context_ids or {}).get("paragraph_id") or "").strip()
+    if not pid:
+        return ""
+    try:
+        import asyncio
+
+        from sqlalchemy import text as sql_text
+
+        from app.db.session import get_engine
+
+        def _read() -> str:
+            with get_engine().connect() as conn:
+                row = conn.execute(
+                    sql_text(
+                        """
+                        SELECT text_raw, segment_title, paragraph_number
+                        FROM rag_paragraphs
+                        WHERE id = CAST(:id AS uuid)
+                          AND deprecated_at IS NULL
+                        LIMIT 1
+                        """
+                    ),
+                    {"id": pid},
+                ).mappings().first()
+            if not row:
+                return ""
+            body = str(row["text_raw"] or "").strip()
+            if not body:
+                return ""
+            number = row.get("paragraph_number")
+            title = str(row.get("segment_title") or "").strip()
+            header_parts: list[str] = []
+            if number is not None:
+                header_parts.append(f"Absatz {number}")
+            if title:
+                header_parts.append(title)
+            header = " · ".join(header_parts)
+            return f"{header}\n\n{body}" if header else body
+
+        return await asyncio.to_thread(_read)
+    except Exception:
+        logger.exception("Failed to load paragraph context for %s", pid)
+        return ""
 
 
 def _strip_usage_comment(text: str) -> str:
@@ -225,6 +255,7 @@ async def stream_app_chat(
     model: str | None = None,
     context_mode: str | None = None,
     context_ids: dict[str, Any] | None = None,
+    context_paragraph_text: str | None = None,
     usage_recorder: Any = None,
     linked_document_id: str | None = None,
     document_outline: dict[str, Any] | None = None,
@@ -236,6 +267,8 @@ async def stream_app_chat(
     Yields sse-starlette-kompatible dicts: {"data": json.dumps(...)}.
     Contract §5/§6: status / token / thinking / done / error.
     """
+    # context_mode reserved for future retrieval scoping (paragraph/segment/free).
+    _ = context_mode
     usage_recorder = usage_recorder or UsageRecorder()
     msg = message.strip()
     if not msg:
@@ -251,28 +284,12 @@ async def stream_app_chat(
     history_rows = await talks.load_talk_turns(talk_id) if talk_id else []
     history_messages = _history_messages_from_turns(history_rows)
 
-    outline_headings: list[str] = []
-    if isinstance(document_outline, dict):
-        for sec in document_outline.get("sections") or []:
-            if isinstance(sec, dict) and sec.get("heading"):
-                outline_headings.append(str(sec["heading"]))
-    _agent_debug(
-        "H1-H2",
-        "app_chat_stream_service.py:stream_app_chat:entry",
-        "app chat stream request",
-        {
-            "talk_id": talk_id,
-            "has_linked_document_id": bool(linked_document_id),
-            "linked_content_len": len(linked_document_content or ""),
-            "outline_section_count": len(outline_headings),
-            "outline_headings_sample": outline_headings[:12],
-            "history_turn_rows": len(history_rows),
-            "user_message_preview": msg[:120],
-        },
-    )
-
     ctx = context_ids or {}
     kontext_meta = ctx if ctx else None
+    paragraph_text = await _resolve_context_paragraph_text(
+        explicit=context_paragraph_text,
+        context_ids=context_ids,
+    )
 
     initial_state: dict[str, Any] = {
         "assistant_slug":   assistant_slug,
@@ -296,6 +313,10 @@ async def stream_app_chat(
         # turn_id/talk_id-Verknüpfung) — unterdrückt die graph-interne,
         # thread_id-only Buchung in compose_answer/finalize.
         "skip_usage":       True,
+        # Arbeitstext für compose_answer (nicht nur Tool-Loop) — Contract: ≤50k.
+        "linked_document_content": linked_document_content or "",
+        # Bezugstext aus „Philo fragen“ (Absatz).
+        "context_paragraph_text": paragraph_text,
     }
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
@@ -313,18 +334,6 @@ async def stream_app_chat(
 
             elif k == "final":
                 final_response = ev["final_response"]
-                _agent_debug(
-                    "H1-H5",
-                    "app_chat_stream_service.py:stream_app_chat:graph_final",
-                    "RAG graph final (no Arbeitstext in graph state)",
-                    {
-                        "intent": ev.get("intent", ""),
-                        "sufficiency": ev.get("sufficiency", ""),
-                        "final_len": len(final_response or ""),
-                        "final_preview": (final_response or "")[:280],
-                        "citations_count": len(ev.get("citations") or []),
-                    },
-                )
                 resolved_model = model or settings.deepseek_chat_model or "deepseek-v4-flash"
                 usage_meta = ev.get("usage") or {}
                 usage_payload = (
@@ -354,6 +363,16 @@ async def stream_app_chat(
                 citations = ev.get("citations") or []
                 if citations:
                     await talks.save_turn_references(saved["turn_id"], citations)
+
+                used_tokens = estimate_context_tokens(
+                    history_rows=[
+                        *history_rows,
+                        {"user_message": msg, "assistant_message": final_response},
+                    ],
+                    citations=citations,
+                    linked_document_content=linked_document_content,
+                    context_paragraph_text=paragraph_text,
+                )
 
                 tool_results: list[ToolResult] = []
                 if app_tool_registry is not None:
@@ -389,22 +408,6 @@ async def stream_app_chat(
                             tool_results = await _run_tool_loop(
                                 app_tool_registry, tool_ctx, tools_schema, seed_messages
                             )
-                            _agent_debug(
-                                "H4",
-                                "app_chat_stream_service.py:stream_app_chat:tool_loop",
-                                "post-RAG tool loop finished",
-                                {
-                                    "tool_count": len(tool_results),
-                                    "tools": [
-                                        {
-                                            "tool_id": r.tool_id,
-                                            "operation": (r.payload or {}).get("operation"),
-                                            "content_len": len((r.payload or {}).get("content") or ""),
-                                        }
-                                        for r in tool_results
-                                    ],
-                                },
-                            )
                     except Exception:
                         logger.warning(
                             "App tool loop failed (talk_id=%s)", saved["talk_id"], exc_info=True
@@ -435,6 +438,10 @@ async def stream_app_chat(
                         "confidence_score":  ev.get("confidence_score", 0.0),
                         "intent":            ev.get("intent", ""),
                         "sufficiency":       ev.get("sufficiency", ""),
+                        "context_meta":      {
+                            "used_tokens":  used_tokens,
+                            "limit_tokens": DEEPSEEK_CONTEXT_LIMIT_TOKENS,
+                        },
                         "tool_results":      [
                             {"tool_id": r.tool_id, "result_key": r.result_key, "payload": r.payload}
                             for r in tool_results
@@ -459,6 +466,7 @@ async def run_app_chat_once(
     model: str | None = None,
     context_mode: str | None = None,
     context_ids: dict[str, Any] | None = None,
+    context_paragraph_text: str | None = None,
     usage_recorder: Any = None,
     linked_document_id: str | None = None,
     document_outline: dict[str, Any] | None = None,
@@ -481,6 +489,7 @@ async def run_app_chat_once(
         model=model,
         context_mode=context_mode,
         context_ids=context_ids,
+        context_paragraph_text=context_paragraph_text,
         usage_recorder=usage_recorder,
         linked_document_id=linked_document_id,
         document_outline=document_outline,

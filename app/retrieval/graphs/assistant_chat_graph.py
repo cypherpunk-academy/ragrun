@@ -180,6 +180,12 @@ class ChatState(_ChatStateRequired, total=False):
     skip_usage: bool
     usage_metadata: dict | None
 
+    # App-Chat: verknüpfter Arbeitstext (vollständiger Markdown, ≤50k) — für compose_answer
+    linked_document_content: str
+
+    # App-Chat: Bezugstext aus „Philo fragen“ (Absatz) — für compose_answer / finalize
+    context_paragraph_text: str
+
 
 # ---------------------------------------------------------------------------
 # Pydantic schema for structured LLM output
@@ -543,9 +549,36 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
     )
 
     context_text = state.get("context_text", "")
+    arbeitstext = (state.get("linked_document_content") or "").strip()
+    paragraph_text = (state.get("context_paragraph_text") or "").strip()
     recent_messages = list(state.get("messages") or [])[-6:]  # last 3 turns
 
     messages_in: list[BaseMessage] = [SystemMessage(content=persona)]
+    if paragraph_text:
+        messages_in.append(
+            SystemMessage(
+                content=(
+                    "Bezugstext — der Absatz, zu dem der Nutzer dieses Gespräch gestartet hat. "
+                    "Wenn der Nutzer von „dem Absatz“, „diesem Absatz“, „dem Text“ spricht "
+                    "oder ohne weitere Angabe um eine Zusammenfassung bittet, bezieht er sich "
+                    "auf DIESES Zitat:\n\n"
+                    f"{paragraph_text}"
+                )
+            )
+        )
+    if arbeitstext:
+        messages_in.append(
+            SystemMessage(
+                content=(
+                    "Verknüpfter Arbeitstext des Nutzers (Markdown). "
+                    "Wenn der Nutzer von „Arbeitstext“, „Kapitel“, „Absatz“ oder Überschriften "
+                    "wie „## 4“ / „## 5“ spricht, bezieht er sich auf DIESES Dokument — "
+                    "nicht auf Kapitel in den Steiner-Quellen. "
+                    "Arbeite an diesem Text; die Quellen unten dienen nur als Belege.\n\n"
+                    f"{arbeitstext}"
+                )
+            )
+        )
     if context_text:
         messages_in.append(
             SystemMessage(
@@ -824,13 +857,34 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
             thinking_type=state.get("thinking_type"),
         )
         persona = load_system_prompt()
-        msg = await llm.ainvoke(
-            [
-                SystemMessage(content=persona),
-                HumanMessage(content=state["user_message"]),
-            ],
-            config,
-        )
+        skip_messages: list[BaseMessage] = [SystemMessage(content=persona)]
+        paragraph_text = (state.get("context_paragraph_text") or "").strip()
+        if paragraph_text:
+            skip_messages.append(
+                SystemMessage(
+                    content=(
+                        "Bezugstext — der Absatz, zu dem der Nutzer dieses Gespräch gestartet hat. "
+                        "Wenn der Nutzer von „dem Absatz“, „diesem Absatz“, „dem Text“ spricht "
+                        "oder ohne weitere Angabe um eine Zusammenfassung bittet, bezieht er sich "
+                        "auf DIESES Zitat:\n\n"
+                        f"{paragraph_text}"
+                    )
+                )
+            )
+        arbeitstext = (state.get("linked_document_content") or "").strip()
+        if arbeitstext:
+            skip_messages.append(
+                SystemMessage(
+                    content=(
+                        "Verknüpfter Arbeitstext des Nutzers (Markdown). "
+                        "Wenn der Nutzer von „Arbeitstext“ oder „Kapitel“ spricht, "
+                        "bezieht er sich auf DIESES Dokument.\n\n"
+                        f"{arbeitstext}"
+                    )
+                )
+            )
+        skip_messages.append(HumanMessage(content=state["user_message"]))
+        msg = await llm.ainvoke(skip_messages, config)
         response = msg.content
         _skip_usage = msg.usage_metadata or {}
         usage_metadata_out = _skip_usage or None
