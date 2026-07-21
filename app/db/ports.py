@@ -51,3 +51,13 @@ class TalksPort(Protocol):
     async def delete_stale_unpinned(self, *, older_than_days: int = 7) -> int: ...
 
     async def delete_turns_from(self, talk_id: str, after_index: int) -> int: ...
+
+    async def search_talks(
+        self,
+        user_id: str,
+        *,
+        q: str | None = None,
+        paragraph_id: str | None = None,
+        pinned_only: bool = True,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]: ...

@@ -228,6 +228,50 @@ class PostgresTalksRepository(TalksPort):
 
         await asyncio.to_thread(_write)
 
+    async def search_talks(
+        self,
+        user_id: str,
+        *,
+        q: str | None = None,
+        paragraph_id: str | None = None,
+        pinned_only: bool = True,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        def _read() -> list[dict[str, Any]]:
+            conditions = ["user_id = :user_id"]
+            params: dict[str, Any] = {"user_id": user_id, "limit": max(1, min(limit, 100))}
+
+            if paragraph_id:
+                conditions.append("kontext_paragraph_id = :paragraph_id")
+                params["paragraph_id"] = paragraph_id
+            else:
+                conditions.append("kontext_paragraph_id IS NULL")
+                if pinned_only:
+                    conditions.append("pinned = true")
+
+            if q:
+                conditions.append("(title ILIKE :q OR summary ILIKE :q)")
+                params["q"] = f"%{q}%"
+
+            where = " AND ".join(conditions)
+            with self._engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        f"""
+                        SELECT talk_id::text, title, pinned, mode, updated_at, summary,
+                               kontext_paragraph_id, kontext_source_id, kontext_paragraph
+                        FROM rag_talks
+                        WHERE {where}
+                        ORDER BY pinned DESC, updated_at DESC
+                        LIMIT :limit
+                        """
+                    ),
+                    params,
+                ).mappings().all()
+            return [dict(r) for r in rows]
+
+        return await asyncio.to_thread(_read)
+
     async def save_turn_references(
         self, turn_id: str, references: Sequence[dict[str, Any]]
     ) -> None:

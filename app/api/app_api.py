@@ -109,6 +109,10 @@ class TalkSettingsUpdate(BaseModel):
     mode: str | None = None
 
 
+class TalksListResponse(BaseModel):
+    talks: list[dict[str, Any]]
+
+
 class SyncPullRequest(BaseModel):
     last_pulled_at: int | None = None
     schema_version: int | None = None
@@ -190,6 +194,29 @@ async def app_chunk(
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="chunk not found")
     return ChunkTextResponse(**row)
+
+
+@router.get("/chat/talks", response_model=TalksListResponse)
+async def app_list_talks(
+    user: Annotated[AuthUser, Depends(get_current_user)],
+    q: str | None = Query(None, description="Textsuche in Titel/Zusammenfassung"),
+    paragraph_id: str | None = Query(None, description="Absatz-UUID; wenn gesetzt: nur Talks dieses Absatzes"),
+    pinned_only: bool = Query(True, description="Nur angepinnte Talks (nur ohne paragraph_id wirksam)"),
+    limit: int = Query(30, ge=1, le=100),
+) -> TalksListResponse:
+    """Kontextbasierte Gesprächssuche für den CHAT-Tab.
+
+    - Mit paragraph_id: alle Talks für diesen Absatz (unabhängig von pinned).
+    - Ohne paragraph_id: allgemeine Talks; default pinned_only=true.
+    """
+    talks = await _talks().search_talks(
+        user.user_id,
+        q=q or None,
+        paragraph_id=paragraph_id or None,
+        pinned_only=pinned_only,
+        limit=limit,
+    )
+    return TalksListResponse(talks=talks)
 
 
 @router.post("/chat", response_model=ChatResponse)
