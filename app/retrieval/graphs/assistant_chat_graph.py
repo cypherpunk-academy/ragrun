@@ -51,6 +51,7 @@ from app.retrieval.chains.authentic_concept_explain import run_authentic_concept
 from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_usage
 from app.services.pricing_service import calculate_cost
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
+from app.retrieval.utils.embedding_budget import trim_to_embedding_budget
 from app.retrieval.utils.retrievers import build_context_numbered, hybrid_retrieve, hybrid_retrieve_quote_parallel, filter_snippets_by_typology_source
 from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
@@ -189,6 +190,39 @@ class ChatState(_ChatStateRequired, total=False):
     # App-Chat: Korpus-Scope für Absatz-Gespräche (aus context_ids)
     context_source_id: str
     context_paragraph_id: str
+
+
+def _build_retrieval_query(state: "ChatState") -> str:
+    """Enrich the retrieval query with paragraph context and last AI response.
+
+    Dense/sparse retrieval embeds only `user_message` today — short follow-up
+    questions like „ähnliche Textstellen?" miss thematic tokens.  Adding the
+    paragraph body and the previous AI turn improves recall significantly.
+
+    Budget: each optional block trimmed independently to ≤400 chars so the
+    combined query stays well within the embedding model's token limit.
+    """
+    parts: list[str] = [state["user_message"]]
+
+    paragraph_text = (state.get("context_paragraph_text") or "").strip()
+    if paragraph_text:
+        # Strip the "Absatz X · Kapiteltitel\n\n" header line if present.
+        body = paragraph_text.split("\n\n", 1)[-1].strip()
+        if body:
+            snippet = trim_to_embedding_budget(body, max_chars=400)
+            parts.append(f"Bezugstext:\n{snippet}")
+
+    last_ai = next(
+        (m for m in reversed(state.get("messages") or []) if isinstance(m, AIMessage)),
+        None,
+    )
+    if last_ai:
+        ai_text = (last_ai.content or "").strip()
+        if ai_text:
+            snippet = trim_to_embedding_budget(ai_text, max_chars=400)
+            parts.append(f"Vorherige Antwort:\n{snippet}")
+
+    return "\n\n".join(parts)
 
 
 def _paragraph_context_system_message(paragraph_text: str) -> str:
@@ -500,9 +534,11 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
     # On retry: widen to all chunk types (no filter)
     book_types: list[str] = [] if retry >= 1 else list(state.get("retrieval_plan") or [])
 
+    retrieval_query = _build_retrieval_query(state)
+
     if state.get("intent") == "quelle_suchen" and retry == 0:
         chunks = await hybrid_retrieve_quote_parallel(
-            query=state["user_message"],
+            query=retrieval_query,
             k_per_branch=8,
             k_fused=12,
             collection=collection,
@@ -512,7 +548,7 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
         )
     else:
         chunks = await hybrid_retrieve(
-            query=state["user_message"],
+            query=retrieval_query,
             k_dense=15 + retry * 10,
             k_sparse=15 + retry * 10,
             k_fused=10 + retry * 5,
