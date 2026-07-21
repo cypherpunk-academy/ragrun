@@ -51,7 +51,7 @@ from app.retrieval.chains.authentic_concept_explain import run_authentic_concept
 from app.retrieval.services.usage_recorder import UsageRecorder, enqueue_record_usage
 from app.services.pricing_service import calculate_cost
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
-from app.retrieval.utils.retrievers import build_context_numbered, hybrid_retrieve, hybrid_retrieve_quote_parallel
+from app.retrieval.utils.retrievers import build_context_numbered, hybrid_retrieve, hybrid_retrieve_quote_parallel, filter_snippets_by_typology_source
 from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
 logger = logging.getLogger(__name__)
@@ -185,6 +185,23 @@ class ChatState(_ChatStateRequired, total=False):
 
     # App-Chat: Bezugstext aus „Philo fragen“ (Absatz) — für compose_answer / finalize
     context_paragraph_text: str
+
+    # App-Chat: Korpus-Scope für Absatz-Gespräche (aus context_ids)
+    context_source_id: str
+    context_paragraph_id: str
+
+
+def _paragraph_context_system_message(paragraph_text: str) -> str:
+    return (
+        "Bezugstext — der konkrete Absatz, zu dem der Nutzer dieses Gespräch gestartet hat "
+        "(Absatznummer, Kapitel und Buch stehen im Kopf). "
+        "Wenn der Nutzer von „dem Absatz“, „diesem Absatz“, der genannten Absatznummer "
+        "oder ohne weitere Quellenangabe um eine Zusammenfassung bittet, antworte "
+        "ausschließlich auf Basis DIESES Bezugstexts — verwechsle ihn nicht mit anderen "
+        "Absätzen gleicher Nummer in den Quellen [1][2]… unten. Die nummerierten Quellen "
+        "sind nur Ergänzung, wenn der Nutzer ausdrücklich weiterführende Belege wünscht.\n\n"
+        f"{paragraph_text}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +524,14 @@ async def retrieve_chunks(state: ChatState, config: RunnableConfig) -> dict:
             query_prefix=query_prefix,
         )
 
+    context_source_id = (state.get("context_source_id") or "").strip()
+    if context_source_id:
+        chunks = filter_snippets_by_typology_source(
+            chunks,
+            chunk_types=None,
+            source_ids=[context_source_id],
+        )
+
     sufficiency = _compute_sufficiency(chunks)
     context_text, context_refs, raw_index_map = build_context_numbered(chunks, start_index=1)
     context_index_map = [
@@ -556,17 +581,7 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
 
     messages_in: list[BaseMessage] = [SystemMessage(content=persona)]
     if paragraph_text:
-        messages_in.append(
-            SystemMessage(
-                content=(
-                    "Bezugstext — der Absatz, zu dem der Nutzer dieses Gespräch gestartet hat. "
-                    "Wenn der Nutzer von „dem Absatz“, „diesem Absatz“, „dem Text“ spricht "
-                    "oder ohne weitere Angabe um eine Zusammenfassung bittet, bezieht er sich "
-                    "auf DIESES Zitat:\n\n"
-                    f"{paragraph_text}"
-                )
-            )
-        )
+        messages_in.append(SystemMessage(content=_paragraph_context_system_message(paragraph_text)))
     if arbeitstext:
         messages_in.append(
             SystemMessage(
@@ -575,7 +590,9 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
                     "Wenn der Nutzer von „Arbeitstext“, „Kapitel“, „Absatz“ oder Überschriften "
                     "wie „## 4“ / „## 5“ spricht, bezieht er sich auf DIESES Dokument — "
                     "nicht auf Kapitel in den Steiner-Quellen. "
-                    "Arbeite an diesem Text; die Quellen unten dienen nur als Belege.\n\n"
+                    "Arbeite an diesem Text über die Dokument-Werkzeuge (nach der Chat-Antwort); "
+                    "schreibe den neuen Kapiteltext NICHT vollständig in die Chat-Antwort — "
+                    "dort nur eine kurze Bestätigung. Die Quellen unten dienen nur als Belege.\n\n"
                     f"{arbeitstext}"
                 )
             )
@@ -905,17 +922,7 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
         skip_messages: list[BaseMessage] = [SystemMessage(content=persona)]
         paragraph_text = (state.get("context_paragraph_text") or "").strip()
         if paragraph_text:
-            skip_messages.append(
-                SystemMessage(
-                    content=(
-                        "Bezugstext — der Absatz, zu dem der Nutzer dieses Gespräch gestartet hat. "
-                        "Wenn der Nutzer von „dem Absatz“, „diesem Absatz“, „dem Text“ spricht "
-                        "oder ohne weitere Angabe um eine Zusammenfassung bittet, bezieht er sich "
-                        "auf DIESES Zitat:\n\n"
-                        f"{paragraph_text}"
-                    )
-                )
-            )
+            skip_messages.append(SystemMessage(content=_paragraph_context_system_message(paragraph_text)))
         arbeitstext = (state.get("linked_document_content") or "").strip()
         if arbeitstext:
             skip_messages.append(
@@ -956,7 +963,7 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
     else:
         response = last_ai.content
         usage_metadata_out = state.get("usage_metadata")
-        if state.get("sufficiency") == "insufficient":
+        if state.get("sufficiency") == "insufficient" and not (state.get("context_paragraph_text") or "").strip():
             response = (
                 "Zu diesem Thema finde ich in meinen Quellen keinen ausreichenden Beleg.\n\n"
                 + response

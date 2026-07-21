@@ -178,10 +178,12 @@ async def _run_tool_loop(
     seed_messages: list[dict[str, Any]],
     *,
     max_rounds: int = 2,
+    forced_first_round: bool = False,
 ) -> list[ToolResult]:
     """Runs the App-Tool function-calling loop (Contract §6) after the RAG
     response. `read_blocks` results are fed back as tool messages for a
-    follow-up round; any other tool call ends the loop."""
+    follow-up round; any other tool call ends the loop. If
+    `forced_first_round` is set, the first completion must emit a tool call."""
     if not tools_schema:
         return []
 
@@ -190,11 +192,12 @@ async def _run_tool_loop(
     deepseek = get_deepseek_chat()
 
     for round_index in range(max_rounds):
+        tool_choice = "required" if forced_first_round and round_index == 0 else "auto"
         completion = await deepseek.chat(
             messages,
             max_tokens=2200,
             tools=tools_schema,
-            tool_choice="auto",
+            tool_choice=tool_choice,
             _debug_caller="app_tool_loop",
         )
         tool_calls = completion.tool_calls
@@ -317,6 +320,8 @@ async def stream_app_chat(
         "linked_document_content": linked_document_content or "",
         # Bezugstext aus „Philo fragen“ (Absatz).
         "context_paragraph_text": paragraph_text,
+        "context_source_id": str(ctx.get("source_id") or "").strip(),
+        "context_paragraph_id": str(ctx.get("paragraph_id") or "").strip(),
     }
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
@@ -391,22 +396,42 @@ async def stream_app_chat(
                                 document_content=linked_document_content,
                                 document_outline=document_outline,
                             )
-                            seed_messages = [
+                            seed_messages: list[dict[str, Any]] = [
                                 {"role": "system", "content": _tool_loop_system_prompt(document_outline)},
+                            ]
+                            if paragraph_text:
+                                seed_messages.append({
+                                    "role": "system",
+                                    "content": (
+                                        "Bezugstext (der Absatz, auf den sich der Nutzer bezieht):\n\n"
+                                        + paragraph_text
+                                    ),
+                                })
+                            # Recent history (last 2 turns) so the tool loop can resolve
+                            # cross-turn references like „das" (= summary from previous turn).
+                            for hm in history_messages[-4:]:
+                                role = "user" if isinstance(hm, HumanMessage) else "assistant"
+                                seed_messages.append({"role": role, "content": hm.content})
+                            seed_messages += [
                                 {"role": "user", "content": msg},
                                 {
                                     "role": "system",
                                     "content": (
-                                        "Deine Antwort an den Nutzer im Chat (bereits gesendet):\n\n"
+                                        "Deine Antwort an den Nutzer (bereits gesendet):\n\n"
                                         + final_response
-                                        + "\n\nPrüfe jetzt anhand der Werkzeug-Regeln oben, ob eine "
-                                        "Änderung am Arbeitstext nötig ist, und rufe bei Bedarf das "
-                                        "passende Werkzeug auf."
+                                        + "\n\nEin Arbeitstext ist verknüpft. Entscheide jetzt per "
+                                        "Werkzeugaufruf: Soll etwas eingetragen oder geändert werden? "
+                                        "Dann `update_document` aufrufen. Nur lesen oder nichts ändern? "
+                                        "Dann `read_blocks` aufrufen. Du MUSST jetzt ein Werkzeug aufrufen."
                                     ),
                                 },
                             ]
                             tool_results = await _run_tool_loop(
-                                app_tool_registry, tool_ctx, tools_schema, seed_messages
+                                app_tool_registry,
+                                tool_ctx,
+                                tools_schema,
+                                seed_messages,
+                                forced_first_round=bool(linked_document_id),
                             )
                     except Exception:
                         logger.warning(
