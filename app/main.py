@@ -27,6 +27,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from fastapi import Depends
 
@@ -35,6 +38,7 @@ from .api import app_api as app_api_router
 from .api import rag as rag_router
 from .api import admin as admin_router
 from .api.internal_auth import require_internal_key
+from .api.limiter import limiter
 from .api.chat import router as chat_router
 from .api.action_prompt import router as action_prompt_router
 from .api.problem_solver import router as problem_solver_router
@@ -105,6 +109,10 @@ app = FastAPI(
     summary="LangChain + Qdrant orchestration service",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 
 async def _probe(client: httpx.AsyncClient, url: str) -> Dict[str, Any]:

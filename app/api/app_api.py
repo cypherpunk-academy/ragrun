@@ -9,7 +9,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from sqlalchemy import text
 
-from app.api.auth import AuthUser, get_current_user
+from app.api.auth import AuthUser, get_current_user, get_optional_user
+from app.api.limiter import limiter
 from app.config import settings
 from app.core.providers import get_sync_engine
 from app.db.session import get_engine
@@ -153,9 +154,11 @@ async def app_personalities() -> PersonalitiesResponse:
 
 
 @router.post("/search", response_model=SearchResponse)
+@limiter.limit("20/hour")
 async def app_search_endpoint(
+    request: Request,
     body: SearchRequest,
-    _user: Annotated[AuthUser, Depends(get_current_user)],
+    _user: Annotated[AuthUser | None, Depends(get_optional_user)],
 ) -> SearchResponse:
     results = await app_search(
         query=body.query,

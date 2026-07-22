@@ -131,3 +131,15 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return parse_bearer_token(credentials.credentials)
+
+
+async def get_optional_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> AuthUser | None:
+    """Like get_current_user but returns None instead of raising 401."""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    try:
+        return parse_bearer_token(credentials.credentials)
+    except HTTPException:
+        return None
