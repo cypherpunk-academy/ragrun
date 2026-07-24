@@ -28,6 +28,7 @@ class PostgresTalksRepository(TalksPort):
         talk_id: str | None = None,
         kontext_meta: dict[str, Any] | None = None,
         usage: dict[str, Any] | None = None,
+        chunk_index_map: list[dict[str, Any]] | None = None,
     ) -> dict[str, str]:
         km = kontext_meta or {}
         kontext_source_id = km.get("sourceId") or km.get("source_id")
@@ -83,7 +84,7 @@ class PostgresTalksRepository(TalksPort):
                         ),
                         {"talk_id": talk_id_val},
                     ).scalar()
-                    turn_index = int(max_idx or -1) + 1
+                    turn_index = int(max_idx) + 1  # COALESCE garantiert non-NULL; kein `or -1` (0 wäre falsy)
                     conn.execute(
                         text("UPDATE rag_talks SET updated_at = now() WHERE talk_id = :talk_id"),
                         {"talk_id": talk_id_val},
@@ -94,10 +95,11 @@ class PostgresTalksRepository(TalksPort):
                         """
                         INSERT INTO rag_turns
                           (talk_id, turn_index, personality, user_message, assistant_message,
-                           usage, collection, kontext_meta)
+                           usage, collection, kontext_meta, chunk_index_map)
                         VALUES
                           (:talk_id, :turn_index, :personality, :user_message, :assistant_message,
-                           CAST(:usage AS jsonb), :collection, CAST(:kontext_meta AS jsonb))
+                           CAST(:usage AS jsonb), :collection, CAST(:kontext_meta AS jsonb),
+                           CAST(:chunk_index_map AS jsonb))
                         RETURNING turn_id::text
                         """
                     ),
@@ -110,6 +112,7 @@ class PostgresTalksRepository(TalksPort):
                         "usage": json.dumps(usage) if usage else None,
                         "collection": collection,
                         "kontext_meta": json.dumps(kontext_meta) if kontext_meta else None,
+                        "chunk_index_map": json.dumps(chunk_index_map) if chunk_index_map else None,
                     },
                 ).first()
                 turn_id_val = str(turn_row[0])
@@ -279,8 +282,17 @@ class PostgresTalksRepository(TalksPort):
             return
 
         def _write() -> None:
+            chunk_index_map: list[dict[str, Any]] = []
             with self._engine.begin() as conn:
                 for idx, ref in enumerate(references):
+                    # Zitat-[N] im Antworttext ist 1-basiert; ref.get("index") bevorzugt.
+                    raw_index = ref.get("index")
+                    ref_index = (
+                        int(raw_index)
+                        if isinstance(raw_index, (int, float)) and int(raw_index) >= 1
+                        else idx + 1
+                    )
+                    chunk_id = ref.get("chunk_id")
                     conn.execute(
                         text(
                             """
@@ -292,12 +304,53 @@ class PostgresTalksRepository(TalksPort):
                         ),
                         {
                             "turn_id": turn_id,
-                            "ref_index": idx,
-                            "chunk_id": ref.get("chunk_id"),
-                            "relevance": ref.get("relevance"),
+                            "ref_index": ref_index,
+                            "chunk_id": chunk_id,
+                            "relevance": ref.get("relevance") if ref.get("relevance") is not None else ref.get("score"),
                             "source_title": ref.get("source_title"),
                             "segment_title": ref.get("segment_title"),
                         },
                     )
+                    # Volle Citation-Payload für Sync → KI-Treffer-Karten + Navigation
+                    entry: dict[str, Any] = {
+                        "index": ref_index,
+                        "chunk_id": chunk_id,
+                    }
+                    for key in (
+                        "text",
+                        "source_id",
+                        "source_title",
+                        "segment_title",
+                        "segment_index",
+                        "lecture_date",
+                        "chunk_type",
+                        "source_type",
+                        "author",
+                        "book_title",
+                        "venue",
+                        "vortragstitel",
+                        "paragraph_id",
+                        "parent_id",
+                        "score",
+                    ):
+                        val = ref.get(key)
+                        if val is not None and val != "":
+                            entry[key] = val
+                    chunk_index_map.append(entry)
+
+                conn.execute(
+                    text(
+                        """
+                        UPDATE rag_turns
+                        SET chunk_index_map = CAST(:chunk_index_map AS jsonb),
+                            updated_at = now()
+                        WHERE turn_id = :turn_id
+                        """
+                    ),
+                    {
+                        "turn_id": turn_id,
+                        "chunk_index_map": json.dumps(chunk_index_map),
+                    },
+                )
 
         await asyncio.to_thread(_write)

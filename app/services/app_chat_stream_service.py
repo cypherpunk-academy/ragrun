@@ -366,6 +366,8 @@ async def stream_app_chat(
                     else None
                 )
 
+                citations = ev.get("citations") or []
+
                 saved = await talks.create_talk_turn(
                     user_id=user_id,
                     user_name=user_name or user_id,
@@ -377,9 +379,9 @@ async def stream_app_chat(
                     talk_id=talk_id,
                     kontext_meta=kontext_meta,
                     usage=usage_payload,
+                    chunk_index_map=citations or None,
                 )
 
-                citations = ev.get("citations") or []
                 if citations:
                     await talks.save_turn_references(saved["turn_id"], citations)
 

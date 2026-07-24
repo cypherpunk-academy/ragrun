@@ -628,7 +628,10 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
                     "nicht auf Kapitel in den Steiner-Quellen. "
                     "Arbeite an diesem Text über die Dokument-Werkzeuge (nach der Chat-Antwort); "
                     "schreibe den neuen Kapiteltext NICHT vollständig in die Chat-Antwort — "
-                    "dort nur eine kurze Bestätigung. Die Quellen unten dienen nur als Belege.\n\n"
+                    "dort nur eine kurze Bestätigung. "
+                    "Wenn die nummerierten Quellen unten inhaltliche Angaben enthalten (Listen, "
+                    "Begriffe, Zitate), haben diese VORRANG vor dem bisherigen Dokumentinhalt "
+                    "und vor deinem eigenen Wissen — übernimm sie ohne Rückfrage.\n\n"
                     f"{arbeitstext}"
                 )
             )
@@ -637,8 +640,13 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         messages_in.append(
             SystemMessage(
                 content=(
-                    "Quellen-Kontext (jede Quelle ist mit [1], [2], [3] usw. nummeriert):\n"
+                    "Quellen-Kontext aus den Steiner-Werken "
+                    "(jede Quelle ist mit [1], [2], [3] usw. nummeriert):\n"
                     f"{context_text}\n\n"
+                    "Diese Quellen haben VORRANG vor deinem eigenen Wissen. "
+                    "Wenn eine Quelle inhaltliche Angaben macht (z. B. eine Liste von Begriffen), "
+                    "verwende ausschließlich diese — auch wenn sie von deinem Vorwissen abweichen. "
+                    "Drücke keine Unsicherheit aus, wenn Quellen vorhanden sind; nutze sie direkt. "
                     "Belege deine Aussagen, wo sinnvoll, direkt im Text mit den passenden "
                     "Nummern in eckigen Klammern (z. B. „…wie an anderer Stelle beschrieben [2].“ "
                     "oder „…in dieser Hinsicht [1][3].“). Verwende ausschließlich Nummern, die "
@@ -1009,10 +1017,12 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
         "final_response": response,
         "confidence_score": state.get("intent_confidence") or 0.0,
         # Pass through for SSE done-event
-        "citations":  list(state.get("citations") or []),
-        "intent":     state.get("intent", ""),
-        "sufficiency": state.get("sufficiency", ""),
+        "citations":    list(state.get("citations") or []),
+        "intent":       state.get("intent", ""),
+        "sufficiency":  state.get("sufficiency", ""),
         "usage_metadata": usage_metadata_out,
+        # Pass retrieval context to the tool loop (app_chat_stream_service)
+        "context_text": state.get("context_text") or "",
     }
 
 

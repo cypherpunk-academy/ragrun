@@ -17,7 +17,7 @@ INTENT_LABELS: list[str] = [
 INTENT_CHUNK_TYPE_MAP: dict[str, list[str]] = {
     "begriff_definieren": ["begriff"],
     "quelle_suchen":      ["quote", "book", "talk"],
-    "erklaerung":         ["book", "talk", "chapter_summary", "secondary_book"],
+    "erklaerung":         ["book", "talk", "chapter_summary", "secondary_book", "typology"],
     "sonstiges":          [],   # leere Liste → kein chunk_type-Filter
 }
 
