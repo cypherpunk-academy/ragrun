@@ -32,6 +32,18 @@ logger = logging.getLogger(__name__)
 _MAX_HISTORY_TURNS = 8
 _USAGE_COMMENT_RE = re.compile(r"\n?<!-- usage \{.*?\} -->\s*$")
 
+# Erkennt Chat-Antworten, die eine Arbeitstext-Änderung ankündigen.
+_WRITE_ANNOUNCEMENT_RE = re.compile(
+    r"(im Arbeitstext umgesetzt|in den Arbeitstext|"
+    r"habe .{0,40}(geändert|angepasst|eingetragen|überarbeitet|ergänzt)|"
+    r"Änderung ist|lautet nun|neue[rn]? .{0,25} lautet|neuer Satz)",
+    re.IGNORECASE,
+)
+
+
+def _announces_write(text: str) -> bool:
+    return bool(_WRITE_ANNOUNCEMENT_RE.search(text))
+
 
 async def _resolve_context_paragraph_text(
     *,
@@ -168,6 +180,7 @@ async def _run_graph_events(graph: Any, initial_state: dict, config: dict) -> As
                 "intent":           output.get("intent", ""),
                 "sufficiency":      output.get("sufficiency", ""),
                 "usage":            output.get("usage_metadata"),
+                "context_text":     output.get("context_text") or "",
             }
 
 
@@ -195,7 +208,7 @@ async def _run_tool_loop(
         tool_choice = "required" if forced_first_round and round_index == 0 else "auto"
         completion = await deepseek.chat(
             messages,
-            max_tokens=2200,
+            max_tokens=4000,
             tools=tools_schema,
             tool_choice=tool_choice,
             _debug_caller="app_tool_loop",
@@ -339,6 +352,7 @@ async def stream_app_chat(
 
             elif k == "final":
                 final_response = ev["final_response"]
+                retrieval_context_text = ev.get("context_text") or ""
                 resolved_model = model or settings.deepseek_chat_model or "deepseek-v4-flash"
                 usage_meta = ev.get("usage") or {}
                 usage_payload = (
@@ -407,11 +421,40 @@ async def stream_app_chat(
                                         + paragraph_text
                                     ),
                                 })
+                            if retrieval_context_text:
+                                seed_messages.append({
+                                    "role": "system",
+                                    "content": (
+                                        "Quellen-Kontext aus den Steiner-Werken "
+                                        "(jede Quelle ist mit [1], [2], [3] usw. nummeriert). "
+                                        "Wenn der Nutzer bittet, eine Liste, Aufzählung oder "
+                                        "inhaltliche Passage in den Arbeitstext zu schreiben, "
+                                        "entnimm die Inhalte AUSSCHLIESSLICH diesen Quellen — "
+                                        "erfinde keine Namen, Begriffe oder Kategorien:\n\n"
+                                        + retrieval_context_text
+                                    ),
+                                })
                             # Recent history (last 2 turns) so the tool loop can resolve
                             # cross-turn references like „das" (= summary from previous turn).
                             for hm in history_messages[-4:]:
                                 role = "user" if isinstance(hm, HumanMessage) else "assistant"
                                 seed_messages.append({"role": role, "content": hm.content})
+                            if _announces_write(final_response):
+                                tool_loop_instruction = (
+                                    "Deine Antwort an den Nutzer kündigt eine Änderung am Arbeitstext an. "
+                                    "Rufe jetzt zwingend `update_document` auf — NICHT `read_blocks`. "
+                                    "Die neue Formulierung steht bereits in deiner Antwort oben; "
+                                    "übernimm sie direkt als `content`."
+                                )
+                            else:
+                                tool_loop_instruction = (
+                                    "Ein Arbeitstext ist verknüpft. "
+                                    "Rufe jetzt `read_blocks` auf, um den aktuellen Inhalt zu lesen. "
+                                    "`update_document` darfst du NUR aufrufen, wenn der Nutzer "
+                                    "ausdrücklich darum gebeten hat, etwas in den Arbeitstext zu "
+                                    "schreiben, einzutragen oder zu ändern. "
+                                    "Du MUSST jetzt ein Werkzeug aufrufen."
+                                )
                             seed_messages += [
                                 {"role": "user", "content": msg},
                                 {
@@ -419,10 +462,8 @@ async def stream_app_chat(
                                     "content": (
                                         "Deine Antwort an den Nutzer (bereits gesendet):\n\n"
                                         + final_response
-                                        + "\n\nEin Arbeitstext ist verknüpft. Entscheide jetzt per "
-                                        "Werkzeugaufruf: Soll etwas eingetragen oder geändert werden? "
-                                        "Dann `update_document` aufrufen. Nur lesen oder nichts ändern? "
-                                        "Dann `read_blocks` aufrufen. Du MUSST jetzt ein Werkzeug aufrufen."
+                                        + "\n\n"
+                                        + tool_loop_instruction
                                     ),
                                 },
                             ]
