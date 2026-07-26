@@ -19,6 +19,7 @@ RUN rm -rf /app/app/assistants
 # Clone assistants from public ragkeep repo (shallow, no history).
 RUN git clone --depth=1 --no-tags \
       https://github.com/cypherpunk-academy/ragkeep.git /tmp/ragkeep && \
+    mkdir -p ./ragkeep && \
     cp -r /tmp/ragkeep/assistants ./ragkeep/assistants && \
     rm -rf /tmp/ragkeep
 
