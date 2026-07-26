@@ -20,7 +20,7 @@ if [[ -z "$DATABASE_URL" ]]; then
   exit 1
 fi
 
-MIGRATIONS_DIR="$(cd "$(dirname "$0")/../" && pwd)/../../ragapp/supabase/migrations"
+MIGRATIONS_DIR="$(cd "$(dirname "$0")/../" && pwd)/../ragapp/supabase/migrations"
 
 if [[ ! -d "$MIGRATIONS_DIR" ]]; then
   echo "ERROR: Migrations directory not found: $MIGRATIONS_DIR" >&2
