@@ -1,10 +1,23 @@
 fastapi==0.104.1
+slowapi>=0.1.9
 uvicorn[standard]==0.24.0
 httpx==0.25.2
-pydantic==2.5.0
+pydantic>=2.7.4,<3.0.0
 pydantic-settings==2.1.0
+PyJWT>=2.8.0
+cryptography>=42.0.0
 alembic==1.14.0
 SQLAlchemy==2.0.44
 psycopg[binary]==3.3.1
 PyYAML==6.0.1
 rich>=13.0.0
+fastembed>=0.3.0
+
+# Chat (LangGraph + Streaming) – hinzugefuegt Iter. 1
+langgraph>=0.2
+langchain-openai>=0.2
+langchain-core>=0.3
+sse-starlette>=2.0
+
+# Iter. 2: persistente Threads via Postgres
+# langgraph-checkpoint-postgres>=2.0

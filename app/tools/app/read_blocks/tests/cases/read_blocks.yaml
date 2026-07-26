@@ -1,0 +1,39 @@
+cases:
+  - name: paragraph_id_lookup
+    addresses:
+      - paragraph_id: "ch1.p2"
+    expected_blocks:
+      - paragraph_id: "ch1.p2"
+        content: "**Gesundheit:** Das Rechtsleben respektiert die Freiheit des Geisteslebens und schafft Rahmenbedingungen, ohne inhaltlich einzugreifen."
+
+  - name: heading_path_subsection_kapitel1
+    addresses:
+      - heading_path: ["## Kapitel 1: Die Grundidee", "### Feld 1 — Geist → Recht"]
+    expected_blocks:
+      - heading_path: ["## Kapitel 1: Die Grundidee", "### Feld 1 — Geist → Recht"]
+        content: |-
+          **Gesundheit:** Das Rechtsleben respektiert die Freiheit des Geisteslebens und schafft Rahmenbedingungen, ohne inhaltlich einzugreifen.
+
+          **Krankheit:** Der Staat schreibt Lehrpläne, Wahrheiten oder Weltanschauungen vor.
+
+  - name: heading_path_disambiguation_kapitel2
+    addresses:
+      - heading_path: ["## Kapitel 2: Die drei Glieder im Einzelnen", "### Feld 1 — Geist → Recht"]
+    expected_blocks:
+      - heading_path: ["## Kapitel 2: Die drei Glieder im Einzelnen", "### Feld 1 — Geist → Recht"]
+        content: |-
+          **Gesundheit:** Individuelle Fähigkeiten werden anerkannt, unabhängig von Gleichheitsnormen.
+
+          **Krankheit:** Alle Menschen werden formal gleich behandelt, obwohl ihre Fähigkeiten verschieden sind.
+
+  - name: heading_path_section_level
+    addresses:
+      - heading_path: ["## Kapitel 1: Die Grundidee"]
+    expected_blocks:
+      - heading_path: ["## Kapitel 1: Die Grundidee"]
+        content: "Krank wird der Organismus, wenn ein Glied der Dreigliederung die Aufgaben eines anderen Gliedes übernimmt."
+
+  - name: unknown_paragraph_id_returns_no_block
+    addresses:
+      - paragraph_id: "ch9.p9"
+    expected_blocks: []

@@ -1,0 +1,21 @@
+Formatiere den folgenden Gesprächsverlauf als sauberes Markdown-Dokument.
+
+Gesprächsverlauf:
+{conversation_context}
+
+---
+
+Teilnehmer (falls angegeben): {user_prompt}
+
+---
+
+Regeln:
+- Verwende `#` für den Titel des Dialogs (leite ihn aus dem Thema des Gesprächs ab)
+- Verwende `##` als Überschrift vor jedem Beitrag, gefolgt vom Namen des Gesprächspartners
+- Im Gesprächsverlauf steht „Assistant:" für den Assistenten namens „{assistant_name}" – verwende diesen Namen als Überschrift
+- Der menschliche Gesprächspartner heißt „Mensch" – es sei denn, unter „Teilnehmer" ist ein anderer Name angegeben
+- Beiträge, die im Verlauf mit „[Problemlöser]" beginnen, werden unter der Überschrift `## Problemlöser` formatiert
+- Beiträge, die im Verlauf mit „[Sokrates]" beginnen, werden unter der Überschrift `## Sokrates` formatiert
+- Übernimm den Inhalt aller Beiträge vollständig und wortgetreu
+- Keine Zusammenfassung, keine Auslassungen, keine Kommentare
+- Gib ausschließlich das fertige Markdown-Dokument zurück

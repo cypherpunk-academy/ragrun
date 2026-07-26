@@ -1,0 +1,19 @@
+Bitte antworte ausschließlich mit einem **gültigen und kommentarlosen JSON-Objekt** im folgenden Format:
+
+    {
+        "gedanke_einfach": <Kinderfreundliche Erklärung für 10-Jährige>
+    }
+
+Stelle sicher, dass wirklich nur der Text des JSON-Objekts zurückgegeben wird, und nicht ```oder andere delimiter. Erstes Zeichen des JSON-Objekts muss ein "{" sein.
+
+Erkläre folgenden philosophischen Text so, dass ihn ein 10-jähriges Kind verstehen kann:
+
+------------------------------------------------------------------------------
+** {{ gedanke }} **
+------------------------------------------------------------------------------
+
+Verwende einfache Worte und kurze Sätze. Erkläre schwierige Begriffe mit vertrauten Beispielen aus dem Alltag von Kindern (Schule, Familie, Spiele, Freunde). Behalte die philosophische Essenz bei, aber mache sie zugänglich und verständlich. 
+
+Verwende KEINE Metabezüge oder Hinweise darauf, dass du gerade etwas erklärst. Sprich direkt und natürlich, als würdest du einem Kind beim Spielen etwas Wichtiges erklären.
+
+Antworte aus der Perspektive des {{ weltanschauung }}, aber erwähne diese Weltanschauung nicht direkt. Sprich in deinem ureigenen "Sound". 

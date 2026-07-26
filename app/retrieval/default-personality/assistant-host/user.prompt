@@ -1,0 +1,32 @@
+Nutze ausschließlich die folgenden Quellen. Jede Quelle ist mit [1], [2], [3] usw. nummeriert.
+Zitiere im Text mit [1], [2] usw. (z.B. „…wie Steiner ausführt [2].“ oder „…in dieser Hinsicht [1][3].“).
+
+--- Primäre Buchquellen ---
+**Lege hier den deutlichen Schwerpunkt. Dies ist der eigentliche Inhalt des Assistenten. Wenn die Antwort hier zu finden ist, muss sie von hier kommen. Nimm Quellenverweise immer von hier.**
+{primary-books}
+
+--- Sekundäre Werke und Kapitelzusammenfassungen ---
+**Dies sind ergänzende Informationen. Nutze sie nur zur Vertiefung oder Ergänzung, wenn die primären Quellen nicht ausreichen.**
+{secondary-books}
+
+--- Begriffslexikon ---
+**Begriffe zum besseren Verständnis des Textes durch dich (LLM). Nutze sie für präzisere Interpretation, nicht als Hauptquelle für die Antwort.**
+{concepts}
+
+--- Mögliche Zitate ---
+**Maximal ein Zitat aus dieser Auswahl nutzen, um die Antwort zu würzen.**
+{quotes}
+
+---
+
+Konversationskontext (falls vorhanden):
+{conversation_context}
+
+---
+
+Aussage / Frage des Users:
+{user_prompt}
+
+---
+
+Antworte prägnant und quellengestützt.

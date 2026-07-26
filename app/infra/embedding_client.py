@@ -48,12 +48,13 @@ class EmbeddingClient:
         resolved_model = model_name
         dimensions = 0
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=10.0)) as client:
             for chunk in _chunk_list(texts, resolved_batch_size):
                 payload: dict[str, object] = {"texts": chunk}
                 if model_name:
                     payload["model"] = model_name
-                response = await client.post(f"{self.base_url}/api/v1/embeddings", json=payload)
+                target_url = f"{self.base_url}/api/v1/embeddings"
+                response = await client.post(target_url, json=payload)
                 response.raise_for_status()
                 data = response.json()
                 chunk_embeddings = data.get("embeddings")

@@ -52,64 +52,18 @@ class AuthenticConceptExplainResult:
 
 
 @dataclass(slots=True)
+class TypologyExplainResult:
+    name: str
+    members: List[str]
+    explanation: str
+    aliases: List[str]
+    references: Optional[List[Mapping[str, Any]]] = None
+    graph_event_id: str | None = None
+
+
+@dataclass(slots=True)
 class TranslateToWorldviewResult:
     input_text: str
     worldviews: List[WorldviewAnswer]
-    graph_event_id: str | None = None
-
-
-@dataclass(slots=True)
-class EssayCreateStepInfo:
-    step: int
-    prompt_file: str
-
-
-@dataclass(slots=True)
-class EssayCreateResult:
-    assistant: str
-    essay_slug: str
-    essay_title: str
-    final_text: str
-    steps: List[EssayCreateStepInfo]
-
-
-@dataclass(slots=True)
-class EssayFinetuneResult:
-    assistant: str
-    essay_slug: str
-    essay_title: str
-    revised_text: str
-
-
-@dataclass(slots=True)
-class EssayCompletionResult:
-    assistant: str
-    essay_slug: str
-    essay_title: str
-    mood_index: int
-    mood_name: str
-    header: str
-    draft_header: str
-    draft_text: str
-    revised_header: str
-    revised_text: str
-    verify_refs: List[str]  # Primary book references
-    all_books_refs: List[str]  # Combined primary + secondary references
-    references: Optional[List[Mapping[str, Any]]] = None
-    verification_report: str = ""  # Deprecated: No longer used in new pipeline
-    graph_event_id: str | None = None
-
-
-@dataclass(slots=True)
-class EssayEvaluationResult:
-    assistant: str
-    essay_slug: str
-    essay_title: str
-    mood_index: int | None
-    mood_name: str | None
-    overall_score: int
-    criteria_scores: Mapping[str, int]
-    issues: List[str]
-    instruction: str
     graph_event_id: str | None = None
 

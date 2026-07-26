@@ -11,14 +11,11 @@ CHUNK_TYPE_ENUM = (
     "book",
     "secondary_book",
     "chapter_summary",
-    "begriff_list",
+    "begriff",
     "talk",
     "talk_summary",
-    "essay",
-    "essay_summary",
     "quote",
-    "explanation",
-    "explanation_summary",
+    "quote_explanation",
     "typology",
 )
 
@@ -66,13 +63,49 @@ class ChunkMetadata(BaseModel):
     updated_at: datetime = Field(..., description="ISO timestamp when metadata was last modified.")
     source_type: Optional[str] = Field(
         None,
-        description="Optional container type (book, begriff_list, essay, etc.).",
+        description="Optional container type (book, begriff, etc.).",
+    )
+    book_title: Optional[str] = Field(None, description="Full work title for search cards.")
+    venue: Optional[str] = Field(None, description="Lecture venue or city.")
+    lecture_date: Optional[str] = Field(None, description="Lecture date (ISO YYYY-MM-DD preferred).")
+    vortragstitel: Optional[str] = Field(
+        None,
+        description="Catalog topic title for lectures; shown below phase5 H1 segment_title on cards.",
+    )
+    lecture_id: Optional[str] = Field(
+        None,
+        description="Readable catalog lecture id (e.g. 19190525); not rag_chunks source_id.",
+    )
+    paragraph: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Paragraph number in source segment (1-based), e.g. quote anchor.",
+    )
+    body_source_id: Optional[str] = Field(
+        None,
+        description="Body chunk source_id (book-id or lecture uuid) for paragraph lookup.",
+    )
+    paragraph_id: Optional[str] = Field(
+        None,
+        description="rag_paragraphs.id for quote navigation.",
+    )
+    quote_span: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Character offsets {start,end} of quote text in paragraph text_raw.",
+    )
+    quote_verified: Optional[bool] = Field(
+        None,
+        description="True when quote_span was verified against paragraph text_raw.",
     )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")
     references: Optional[List[Dict[str, Any]]] = Field(
         None,
         description="References to chunks that influenced this chunk's generation.",
+    )
+    aliases: List[str] = Field(
+        default_factory=list,
+        description="Synonyme / Suchbegriffe, die diesen Chunk semantisch triggern (z. B. Typologien).",
     )
 
     @classmethod
@@ -120,6 +153,8 @@ class ChunkMetadata(BaseModel):
             raise ValueError("chunk_type is required")
         payload["chunk_type"] = cls.validate_chunk_type(chunk_type)
         cls._normalize_worldviews(payload)
+        if payload.get("aliases") is None:
+            payload.pop("aliases", None)
         return cls(**payload)
 
 

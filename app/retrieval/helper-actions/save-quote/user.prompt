@@ -1,0 +1,7 @@
+Formuliere das folgende Zitat als prägnanten, eigenständigen Satz oder Absatz – bereinigt, aber inhaltlich exakt. Gib ausschließlich den finalen Zitattext zurück, ohne Anführungszeichen, ohne Kommentar.
+
+Zitat (Rohfassung):
+{user_prompt}
+
+Gesprächskontext (falls hilfreich zur Einordnung):
+{conversation_context}

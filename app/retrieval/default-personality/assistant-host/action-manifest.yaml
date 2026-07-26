@@ -1,0 +1,35 @@
+id: assistant-host
+label: "{assistant_name}"
+description: Breite Erklärung, Vergleich, Vertiefung zu einem Thema.
+category: primary
+
+requires_retrieval: true
+requires_prompt: true
+
+position-in-chat: [start, continue]
+
+queries:
+  - name: primary-books
+    chunk_types: [book]
+    k: 8
+    method: dense+sparse
+
+  - name: secondary-books
+    chunk_types: [secondary_book, chapter_summary, talk]
+    k: 8
+    method: dense
+
+  - name: concepts
+    chunk_types: [begriff,typology]
+    method: lemma-lookup
+
+  - name: quotes
+    chunk_types: [quote]
+    k: 5
+    method: dense+sparse
+
+follow_ups:
+  - action_id: socrates
+  - action_id: summarize
+    condition: "turn_count >= 3"
+  - action_id: give-feedback

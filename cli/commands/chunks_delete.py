@@ -10,8 +10,8 @@ from sqlalchemy import select, text
 
 from app.config import settings
 from app.db.session import get_engine
-from app.db.tables import chunks_table
-from app.ingestion.repositories import ChunkMirrorRepository
+from app.db.tables import vector_chunks_table
+from app.ingestion.repositories import RagChunksRepository, VectorChunksRepository
 from app.infra.qdrant_client import QdrantClient
 
 
@@ -33,11 +33,10 @@ def _resolve_assistant(assistant: str) -> str:
 
 
 def _map_chunk_types(user_types: list[str]) -> list[str]:
-    """Map user-facing chunk types (book, essay, concept) to DB chunk_type values."""
+    """Map user-facing chunk types (book, concept) to DB chunk_type values."""
     mapping = {
         "book": ["book", "chapter_summary", "secondary_book"],
-        "essay": ["essay"],
-        "concept": ["begriff_list"],
+        "concept": ["begriff"],
     }
     result: list[str] = []
     for t in user_types:
@@ -54,7 +53,7 @@ def _list_books(engine, collection: str) -> list[tuple[str, str, int, str | None
         SELECT source_id, chunk_type, COUNT(*) as cnt,
                MAX(COALESCE(metadata->>'source_title', metadata->>'book_title')) as source_title,
                MAX(metadata->>'author') as author
-        FROM rag_chunks
+        FROM vector_chunks
         WHERE collection = :coll AND chunk_type IN ('book', 'secondary_book')
         GROUP BY source_id, chunk_type
         ORDER BY source_title, source_id
@@ -82,19 +81,19 @@ def _get_chunk_ids(
         return [cid for cid in chunk_ids if isinstance(cid, str) and cid.strip()]
 
     db_type = _CHUNK_TYPE_MAP.get(chunk_type, chunk_type) if chunk_type else None
-    filters: list = [chunks_table.c.collection == collection]
+    filters: list = [vector_chunks_table.c.collection == collection]
 
     if book_dir:
-        filters.append(chunks_table.c.source_id == book_dir)
+        filters.append(vector_chunks_table.c.source_id == book_dir)
     if chunk_type:
-        filters.append(chunks_table.c.chunk_type == db_type)
+        filters.append(vector_chunks_table.c.chunk_type == db_type)
     elif chunk_types:
-        filters.append(chunks_table.c.chunk_type.in_(chunk_types))
+        filters.append(vector_chunks_table.c.chunk_type.in_(chunk_types))
 
     if not book_dir and not chunk_type and not chunk_types:
         return []
 
-    q = select(chunks_table.c.chunk_id).where(*filters)
+    q = select(vector_chunks_table.c.chunk_id).where(*filters)
 
     with engine.connect() as conn:
         rows = conn.execute(q).fetchall()
@@ -114,8 +113,13 @@ async def _delete_chunks(collection: str, chunk_ids: list[str]) -> None:
     point_uuids = [str(uuid5(NAMESPACE_DNS, cid)) for cid in chunk_ids]
     await client.delete_points(collection, point_uuids)
 
-    mirror = ChunkMirrorRepository(get_engine())
+    engine = get_engine()
+    mirror = VectorChunksRepository(engine)
     await mirror.delete_chunks(collection, chunk_ids)
+    try:
+        await RagChunksRepository(engine).delete_chunks(collection, chunk_ids)
+    except Exception:
+        pass
 
 
 def run_chunks_delete(

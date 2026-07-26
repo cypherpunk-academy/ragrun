@@ -1,0 +1,16 @@
+id: create_document
+label: Arbeitsdokument erstellen
+description: >
+  Legt einen neuen Arbeitstext (Markdown) an, wenn noch kein Dokument
+  verknüpft ist. Nur # / ## / ### und Absätze — keine Tabellen.
+category: app-document
+execution: client
+
+availability:
+  requires_linked_document: false
+  modes: [chat, nachdenken]
+
+result_key: suggested_document
+
+tests:
+  - cases/create_document.yaml

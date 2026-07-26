@@ -14,13 +14,17 @@ from app.infra.qdrant_client import QdrantClient
 from app.retrieval.models import RetrievedSnippet
 from app.retrieval.utils.reference_evaluator import evaluate_chunk_relevance
 from app.retrieval.utils.retrievers import build_context, dense_retrieve
+from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes
 
 logger = logging.getLogger(__name__)
 
 K_BOOKS = 4
 K_LECTURES = 4
 K_TOTAL = 8
-MAX_EXPLANATION_TOKENS = 400
+# Explanation is stored as its own chunk (Chunk B), quote as separate Chunk A.
+# 420 LLM output tokens × ~3.7 chars/token ≈ 1550 chars → ~422 e5-tokens incl.
+# "passage: " prefix, safely under 512 embedding token limit.
+MAX_EXPLANATION_TOKENS = 420
 
 
 def _resolve_assistant_dir(assistant: str) -> Path:
@@ -40,16 +44,51 @@ def _load_manifest(assistant: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _load_quote_explain_prompt() -> str:
-    prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "quote_explain.prompt"
+def _load_quote_explain_prompt(*, language: str = "de-DE") -> str:
+    prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
+    if language.startswith("en"):
+        prompt_path = prompts_dir / "quote_explain_en.prompt"
+    else:
+        prompt_path = prompts_dir / "quote_explain.prompt"
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
-def _build_quote_explain_prompt(*, quote: str, context: str) -> list[Mapping[str, str]]:
-    template = _load_quote_explain_prompt()
+def _build_system_content(*, writing_style: str, language: str = "de-DE") -> str:
+    """Sprache, Länge und optional writing-style aus dem Assistant-Manifest."""
+    base = (
+        "Du erklärst Zitate aus philosophischen und geisteswissenschaftlichen Texten."
+    )
+    if language.startswith("en"):
+        lang_rule = (
+            "Das Zitat bleibt im Original (Englisch); die Erklärung schreibst du auf Deutsch "
+            "(ca. 200–300 Wörter)."
+        )
+    else:
+        lang_rule = (
+            "Antworte auf Deutsch. Halte die Erklärung prägnant (ca. 200–300 Wörter)."
+        )
+    parts: list[str] = []
+    style = writing_style.strip()
+    if style:
+        parts.append(style)
+    parts.extend([base, lang_rule])
+    return "\n\n".join(parts)
+
+
+def _build_quote_explain_prompt(
+    *,
+    quote: str,
+    context: str,
+    language: str = "de-DE",
+    writing_style: str = "",
+) -> list[Mapping[str, str]]:
+    template = _load_quote_explain_prompt(language=language)
     user_content = template.format(quote=quote.strip(), context=context)
+    system_content = _build_system_content(
+        writing_style=writing_style, language=language
+    )
     return [
-        {"role": "system", "content": "Antworte auf Deutsch. Halte die Erklärung prägnant (ca. 200–300 Wörter)."},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": user_content},
     ]
 
@@ -58,6 +97,7 @@ async def explain_quote(
     *,
     quote: str,
     assistant: str = "philo-von-freisinn",
+    language: str = "de-DE",
     embedding_client: EmbeddingClient,
     qdrant_client: QdrantClient,
     chat_client: DeepSeekClient,
@@ -75,6 +115,11 @@ async def explain_quote(
     collection = manifest.get("rag-collection") or assistant
     if not isinstance(collection, str):
         collection = assistant
+    writing_style = manifest.get("writing-style")
+    if not isinstance(writing_style, str):
+        writing_style = ""
+
+    _prefix_passage, query_prefix = load_assistant_embedding_prefixes(assistant)
 
     # Retrieve: 4 from primary books, 4 from lectures (talk/talk_summary)
     hits_books = await dense_retrieve(
@@ -85,6 +130,7 @@ async def explain_quote(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
     hits_lectures = await dense_retrieve(
         query=quote,
@@ -94,6 +140,7 @@ async def explain_quote(
         collection=collection,
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
+        query_prefix=query_prefix,
     )
 
     all_hits: list[RetrievedSnippet] = list(hits_books) + list(hits_lectures)
@@ -104,22 +151,25 @@ async def explain_quote(
     if not context_str.strip():
         context_str = "(Kein Kontext verfügbar.)"
 
-    messages = _build_quote_explain_prompt(quote=quote, context=context_str)
+    messages = _build_quote_explain_prompt(
+        quote=quote,
+        context=context_str,
+        language=language,
+        writing_style=writing_style,
+    )
     explanation = await chat_client.chat(
         messages,
         temperature=0.3,
         max_tokens=MAX_EXPLANATION_TOKENS,
+        _debug_caller="quote_explain_main",
     )
-    explanation = explanation.strip()
-
-    # Combined output: quote + "Erklärung:" + explanation
-    combined_text = f"{quote}\n\nErklärung:\n\n{explanation}"
+    explanation = explanation.content.strip()
 
     # Evaluate chunk relevance
     references: list[dict[str, Any]] = []
     if all_hits:
         references = await evaluate_chunk_relevance(
-            generated_text=combined_text,
+            generated_text=explanation,
             retrieved_chunks=all_hits,
             llm=chat_client,
             max_chunks=K_TOTAL,
@@ -151,7 +201,8 @@ async def explain_quote(
                     metadata[key] = val
 
     return {
-        "text": combined_text,
+        "text": quote,
+        "explanation": explanation,
         "metadata": metadata,
         "chunk_ids": chunk_ids,
         "collection": collection,

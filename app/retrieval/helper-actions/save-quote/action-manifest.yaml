@@ -1,0 +1,10 @@
+id: save-quote
+label: Zitat speichern
+description: Speichert ein Zitat aus dem Dialog in ragkeep und die Zwischenablage.
+category: helper
+
+requires_retrieval: false
+requires_prompt: true
+allows-empty-prompt: false
+
+position-in-chat: [continue, end]

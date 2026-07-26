@@ -1,0 +1,106 @@
+# ChromaDB Local Vector Database Configuration
+# This file contains settings for the local vector database setup
+
+# Database Configuration
+database:
+    type: 'chromadb'
+    name: 'philosophical_rag_db'
+
+# Collections Configuration
+collections:
+    default:
+        name: 'philosophical_768'
+        embedding_dimension: 768
+        embedding_model: 'T-Systems-onsite/cross-en-de-roberta-sentence-transformer'
+        description: 'Main collection for philosophical texts with 768-dimensional embeddings'
+
+    # Future collections for different embedding models or purposes
+    multilingual:
+        name: 'multilingual_768'
+        embedding_dimension: 768
+        description: 'Multilingual philosophical texts'
+
+    experimental:
+        name: 'experimental_1024'
+        embedding_dimension: 1024
+        description: 'Experimental collection for testing larger embeddings'
+
+# Storage Configuration
+storage:
+    persist_directory: './data/vector_db'
+    backup_directory: './data/backups'
+    logs_directory: './data/logs'
+    embeddings_cache_directory: './data/embeddings_cache'
+
+# ChromaDB Settings
+chromadb:
+    anonymized_telemetry: false
+    allow_reset: true
+
+# Performance Settings
+performance:
+    batch_size: 32
+    max_concurrent_requests: 10
+    query_timeout: 30
+    embedding_cache_size: 10000
+
+# Metadata Schema Configuration
+metadata_schema:
+    required_fields:
+        - 'document_id'
+        - 'category'
+        - 'text'
+
+    optional_fields:
+        - 'author'
+        - 'title'
+        - 'book_title'
+        - 'year'
+        - 'chapter'
+        - 'section'
+        - 'page_number'
+        - 'language'
+        - 'source_type'
+        - 'worldview'
+        - 'tags'
+        - 'filename'
+        - 'file_path'
+        - 'chunk_index'
+        - 'created_at'
+        - 'updated_at'
+
+# Weltanschauungen (Categories)
+categories:
+    - 'Idealismus'
+    - 'Materialismus'
+    - 'Realismus'
+    - 'Spiritualismus'
+    - 'Rationalismus'
+    - 'Sensualismus'
+    - 'Phänomenalismus'
+    - 'Pneumatismus'
+    - 'Psychismus'
+    - 'Mathematismus'
+    - 'Dynamismus'
+    - 'Individualismus'
+
+# Embeddings Service Configuration
+embeddings_service:
+    url: 'http://localhost:8001'
+    timeout: 30
+    retry_attempts: 3
+    retry_delay: 1.0
+
+# Backup Configuration
+backup:
+    enabled: true
+    schedule: 'daily'
+    retention_days: 30
+    compress: true
+
+# Logging Configuration
+logging:
+    level: 'INFO'
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    max_file_size: '10MB'
+    backup_count: 5

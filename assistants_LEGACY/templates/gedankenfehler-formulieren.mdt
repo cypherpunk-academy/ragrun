@@ -1,0 +1,19 @@
+Bitte antworte ausschließlich mit einem **gültigen und kommentarlosen JSON-Objekt** im folgenden Format:
+
+    {
+        "gedanke": <der Text mit etwa 300 Wörter, den du selbst findest>
+    }
+
+Stelle sicher, dass wirklich nur der Text des JSON-Objekts zurückgegeben wird, und nicht ```oder andere delimiter. Erstes Zeichen des JSON-Objekts muss ein "{" sein.
+
+Korrigiere folgenden kulturgewordenen Gedankenfehler:
+
+------------------------------------------------------------------------------
+** {{ gedanke_in_weltanschauung }} **
+------------------------------------------------------------------------------
+
+Bitte antworte mit einem Text, der etwa 300 Wörter lang ist, auf einfache, verständliche Art, in deiner ureigenen Weise, in deinem typischen "Sound", aus der Perspektive des {{ weltanschauung }}. {{ aspekte }} Achte darauf, dass die sprachlich, logische Folge immer klar und verständlich ist. Wähle eher einfachere Worte, die leichter zu verstehen sind, aber erwähne nicht den {{ weltanschauung}} selbst.
+
+Zitiere nicht, verweise nicht auf andere, sondern sprich aus dir selbst heraus. Zeige keine Verweise an. Sprich in deinem ureigenen Sound.
+
+Falls verfügbar, nutze die Dateisuche (File Search / Vector Store), um deine Antwort mit spezifischen Quellen zu untermauern. Falls keine Dateien verfügbar sind, antworte basierend auf deinem philosophischen Verständnis des {{ weltanschauung }}. 

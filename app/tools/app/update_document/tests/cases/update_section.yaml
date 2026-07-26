@@ -1,0 +1,13 @@
+linked_document_id: "11111111-1111-1111-1111-111111111111"
+args:
+  operation: update_section
+  heading_path: ["## Kapitel 1: Die Grundidee", "### Feld 1 — Geist → Recht"]
+  content: "**Gesundheit:** Neuer Text.\n\n**Krankheit:** Neuer Text."
+  summary_for_chat: "Abschnitt Feld 1 überarbeitet."
+expected_payload:
+  document_id: "11111111-1111-1111-1111-111111111111"
+  operation: update_section
+  paragraph_id: null
+  heading_path: ["## Kapitel 1: Die Grundidee", "### Feld 1 — Geist → Recht"]
+  content: "**Gesundheit:** Neuer Text.\n\n**Krankheit:** Neuer Text."
+  summary_for_chat: "Abschnitt Feld 1 überarbeitet."

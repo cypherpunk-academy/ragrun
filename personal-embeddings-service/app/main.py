@@ -1,15 +1,25 @@
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
 import logging
-from app.services.embedding_service import embedding_service
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
 from app.api.router import api_router
 from app.config import settings
+from app.services.embedding_service import embedding_service
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_log_level_str = (
+    os.environ.get("EMBEDDINGS_LOG_LEVEL")
+    or os.environ.get("LOG_LEVEL", "INFO")
 )
+_log_level = getattr(logging, _log_level_str.upper(), logging.INFO)
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager

@@ -1,0 +1,14 @@
+id: summarize
+label: Zusammenfassung speichern
+description: Fasst das Gespräch zusammen (Konsens, Lernkurve, offene Fragen, Titelvorschläge).
+category: helper
+
+requires_retrieval: false
+requires_prompt: true
+
+position-in-chat: [continue, end]
+allows-empty-prompt: true
+
+follow_ups:
+  - action_id: save-dialog
+  - action_id: give-feedback

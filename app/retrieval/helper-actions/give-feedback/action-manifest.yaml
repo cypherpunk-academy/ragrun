@@ -1,0 +1,13 @@
+id: give-feedback
+label: Dein Kommentar
+description: Kein Retrieval; Reinforcement-Feedback zur Antwortqualität.
+category: helper
+
+requires_retrieval: false
+requires_prompt: false
+
+position-in-chat: [continue, end]
+
+reinforcement_evaluation:
+  prompt_ref: evaluate_feedback.prompt
+  output_schema: feedback_scores

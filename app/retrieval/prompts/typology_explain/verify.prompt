@@ -1,0 +1,15 @@
+Prüfe, ob jedes Mitglied der Typologie „{name}“ durch die folgenden Quelltexte gestützt ist.
+
+Mitglieder (zu prüfen):
+{members_block}
+
+Quelltexte:
+{chunks}
+
+Gib NUR ein JSON-Objekt zurück:
+{
+  "unsupported_members": ["…"],
+  "notes": "Kurzbegründung auf Deutsch"
+}
+
+Trage nur Mitglieder in `unsupported_members` ein, die in den Ausschnitten nicht belegt sind oder frei erfunden wirken.

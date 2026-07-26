@@ -1,0 +1,308 @@
+openapi: 3.0.3
+info:
+    title: Personal Embeddings Service API
+    description: |
+        Self-hosted cross-en-de-roberta-sentence-transformer embedding service for RAG applications
+
+        Model: T-Systems-onsite/cross-en-de-roberta-sentence-transformer
+    version: 1.0.0
+    contact:
+        name: API Support
+servers:
+    - url: /
+      description: Root
+    - url: /api/v1
+      description: API v1
+
+components:
+    schemas:
+        EmbeddingRequest:
+            type: object
+            properties:
+                texts:
+                    oneOf:
+                        - type: string
+                        - type: array
+                          items:
+                              type: string
+                    description: Text or list of texts to embed
+            required:
+                - texts
+
+        EmbeddingResponse:
+            type: object
+            properties:
+                embeddings:
+                    type: array
+                    items:
+                        type: array
+                        items:
+                            type: number
+                            format: float
+                dimensions:
+                    type: integer
+                model:
+                    type: string
+                processing_time:
+                    type: number
+                    format: float
+                count:
+                    type: integer
+            required:
+                - embeddings
+                - dimensions
+                - model
+                - processing_time
+                - count
+
+        BatchRequest:
+            type: object
+            properties:
+                texts:
+                    type: array
+                    items:
+                        type: string
+                    description: List of texts to process
+                chunk_size:
+                    type: integer
+                    default: 32
+                    description: Chunk size for batch processing
+            required:
+                - texts
+
+        SimilaritySearchRequest:
+            type: object
+            properties:
+                query:
+                    type: string
+                    description: Search query
+                documents:
+                    type: array
+                    items:
+                        type: string
+                    description: Documents to search
+                top_k:
+                    type: integer
+                    default: 5
+                    description: Number of top results to return
+            required:
+                - query
+                - documents
+
+        SimilaritySearchResponse:
+            type: object
+            properties:
+                results:
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: true
+                processing_time:
+                    type: number
+                    format: float
+                query:
+                    type: string
+            required:
+                - results
+                - processing_time
+                - query
+
+paths:
+    /:
+        get:
+            summary: Root endpoint with service information
+            operationId: root
+            tags:
+                - status
+            responses:
+                '200':
+                    description: Service information
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    message:
+                                        type: string
+                                    model:
+                                        type: string
+                                    version:
+                                        type: string
+                                    docs:
+                                        type: string
+                                    health:
+                                        type: string
+
+    /status:
+        get:
+            summary: Quick status endpoint
+            operationId: status
+            tags:
+                - status
+            responses:
+                '200':
+                    description: Service status
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    service:
+                                        type: string
+                                    status:
+                                        type: string
+                                    model_ready:
+                                        type: boolean
+
+    /api/v1/embeddings:
+        post:
+            summary: Generate embeddings for provided texts
+            operationId: create_embeddings
+            tags:
+                - embeddings
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/EmbeddingRequest'
+            responses:
+                '200':
+                    description: Embeddings successfully generated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmbeddingResponse'
+                '500':
+                    description: Embedding generation failed
+                '503':
+                    description: Embedding service not ready
+
+    /api/v1/embeddings/batch:
+        post:
+            summary: Generate embeddings for a large batch of texts
+            operationId: create_batch_embeddings
+            tags:
+                - embeddings
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BatchRequest'
+            responses:
+                '200':
+                    description: Batch embeddings successfully generated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmbeddingResponse'
+                '400':
+                    description: No texts provided
+                '500':
+                    description: Batch embedding generation failed
+                '503':
+                    description: Embedding service not ready
+
+    /api/v1/search:
+        post:
+            summary: Perform similarity search using embeddings
+            operationId: similarity_search
+            tags:
+                - embeddings
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SimilaritySearchRequest'
+            responses:
+                '200':
+                    description: Similarity search results
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SimilaritySearchResponse'
+                '400':
+                    description: No documents provided
+                '500':
+                    description: Similarity search failed
+                '503':
+                    description: Embedding service not ready
+
+    /api/v1/info:
+        get:
+            summary: Get information about the embedding service
+            operationId: get_service_info
+            tags:
+                - embeddings
+            responses:
+                '200':
+                    description: Service information
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+                '500':
+                    description: Failed to get service info
+
+    /api/v1/health/health:
+        get:
+            summary: Health check endpoint with detailed service status
+            operationId: health_check
+            tags:
+                - health
+            responses:
+                '200':
+                    description: Health check result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    error:
+                                        type: string
+
+    /api/v1/health/simple:
+        get:
+            summary: Simple health check endpoint that returns basic status
+            operationId: simple_health_check
+            tags:
+                - health
+            responses:
+                '200':
+                    description: Simple health check result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                        enum: [healthy, loading, unhealthy]
+
+    /api/v1/ready:
+        get:
+            summary: Readiness check endpoint to verify if the service is ready to accept requests
+            operationId: readiness_check
+            tags:
+                - health
+            responses:
+                '200':
+                    description: Service is ready
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    model:
+                                        type: string
+                                    device:
+                                        type: string
+                '503':
+                    description: Service not ready

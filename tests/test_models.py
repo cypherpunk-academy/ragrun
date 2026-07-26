@@ -71,3 +71,22 @@ def test_chunk_record_requires_metadata(base_metadata_dict):
     }
     with pytest.raises(ValueError):
         ChunkRecord.from_dict(chunk_dict)
+
+
+def test_chunk_metadata_lecture_quote_fields(base_metadata_dict):
+    payload = base_metadata_dict.copy()
+    payload["chunk_type"] = "quote"
+    payload["lecture_id"] = "19190525"
+    payload["paragraph"] = 7
+    payload["body_source_id"] = "a1b2c3d4-e5f6-4789-a012-3456789abcde"
+    payload["paragraph_id"] = "para-uuid-1"
+    payload["quote_span"] = {"start": 10, "end": 42}
+    payload["quote_verified"] = True
+    metadata = ChunkMetadata.from_payload(payload)
+    dumped = metadata.model_dump(mode="json")
+    assert dumped["lecture_id"] == "19190525"
+    assert dumped["paragraph"] == 7
+    assert dumped["body_source_id"] == "a1b2c3d4-e5f6-4789-a012-3456789abcde"
+    assert dumped["paragraph_id"] == "para-uuid-1"
+    assert dumped["quote_span"] == {"start": 10, "end": 42}
+    assert dumped["quote_verified"] is True

@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "operation": {
+      "type": "string",
+      "enum": [
+        "update_paragraph",
+        "update_section",
+        "update_heading",
+        "insert_paragraph_after",
+        "delete_paragraph"
+      ],
+      "description": "Welche Änderung ausgeführt werden soll."
+    },
+    "paragraph_id": {
+      "type": "string",
+      "description": "Ziel-Absatz, z. B. \"ch1.p2\" — für update_paragraph, insert_paragraph_after, delete_paragraph."
+    },
+    "heading_path": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ziel-Abschnitt/Überschrift, z. B. [\"## Kapitel 1\", \"### Feld 1\"] — für update_section, update_heading."
+    },
+    "content": {
+      "type": "string",
+      "description": "Neuer Text — nicht nötig für delete_paragraph."
+    },
+    "summary_for_chat": {
+      "type": "string",
+      "description": "Kurze Zusammenfassung der Änderung fürs Chat-Protokoll."
+    }
+  },
+  "required": ["operation"]
+}

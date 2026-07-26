@@ -1,0 +1,27 @@
+Verdichte das bisherige Gespräch in vier klar getrennte Abschnitte und drei allgemeine Titelvorschläge.
+
+Konversationskontext:
+{conversation_context}
+
+---
+
+Schreibe genau diese vier Abschnitte mit diesen Überschriften (Markdown mit **…**):
+
+**Konsens**
+Fließtext (200–300 Tokens, keine Aufzählungszeichen): Was sehen alle Gesprächspartner ähnlich oder übereinstimmend? Welche Einsichten oder Thesen sind tragfähig und geteilt?
+
+**Lernkurve**
+Fließtext (200–300 Tokens, keine Aufzählungszeichen): Was hat mindestens ein Gesprächspartner gelernt, neu eingeordnet oder präzisiert – im Unterschied zu vorher?
+
+**Offene Fragen**
+Fließtext (200–300 Tokens, keine Aufzählungszeichen): Was bleibt offen? Welche nächsten Schritte, Prüfungen oder Klärungen würden sich anbieten?
+
+**Titelvorschläge**
+Genau drei Zeilen, nummeriert 1–3. Jede Zeile beginnt mit „1. “, „2. “, „3. “ (Ziffer, Punkt, Leerzeichen) gefolgt von einem prägnanten, allgemeinen Titel. Keine Unterüberschriften in diesem Block.
+
+---
+
+Regeln:
+- Keine Erwähnung von Essays, Essay-Themen, Research-Grundlagen oder ähnlichen Metaphern.
+- Kein neues Retrieval. Nur aus dem Konversationskontext destillieren.
+- Kein Bezug auf „dieses Gespräch“, „im Chat“, „die Unterhaltung“ – keine Dialogmeta-Sätze; Inhalte sollen eigenständig lesbar sein.

@@ -7,8 +7,8 @@ from uuid import uuid5, NAMESPACE_DNS
 
 import pytest
 
-from app.services.embedding_client import EmbeddingBatchResult
-from app.services.ingestion_service import IngestionService
+from app.infra.embedding_client import EmbeddingBatchResult
+from app.ingestion.services.ingestion_service import IngestionService
 from app.services.mirror_repository import ChunkMirrorRepository
 from app.shared.models import ChunkRecord
 
@@ -78,8 +78,20 @@ class FakeQdrantClient:
         self.payload_updates: list[dict[str, object]] = []
         self.scrolls: list[dict[str, object]] = []
 
-    async def ensure_collection(self, name: str, *, vector_size: int) -> None:
+    async def ensure_collection(
+        self,
+        name: str,
+        *,
+        vector_size: int,
+        sparse_vector_name: str | None = None,
+    ) -> None:
         self.ensure_calls.append({"name": name, "vector_size": vector_size})
+
+    async def ensure_text_index(self, collection: str, *, field_name: str = "text") -> None:
+        return None
+
+    async def ensure_sparse_config(self, collection: str) -> bool:
+        return False
 
     async def upsert_points(
         self,
@@ -181,7 +193,7 @@ def _service(
     service = IngestionService(
         embedding_client=embedding_client,
         qdrant_client=qdrant_client,
-        mirror_repository=mirror,
+        vector_chunks_repository=mirror,
         telemetry_client=telemetry,
         default_batch_size=2,
     )
@@ -256,3 +268,162 @@ def test_chunk_record_requires_worldviews_list_of_strings():
 
     with pytest.raises(ValueError):
         ChunkRecord.from_dict(payload)
+
+
+def test_prepare_embedding_text_strips_soft_hyphens():
+    text = "Entwicklungs\u00adkräfte der neueren Menschheit."
+    assert IngestionService._prepare_embedding_text(text) == (
+        "Entwicklungskräfte der neueren Menschheit."
+    )
+
+
+@pytest.mark.asyncio
+async def test_upload_chunks_strips_soft_hyphens_before_embedding():
+    service, embedding_client, *_ = _service()
+    chunk = _chunk_record("chunk-soft-hyphen", "hash-soft")
+    chunk.text = "Wieder\u00aderkennung ist wichtig."
+
+    await service.upload_chunks(collection="books", chunks=[chunk])
+
+    assert embedding_client.calls
+    assert embedding_client.calls[0]["texts"] == ["Wiedererkennung ist wichtig."]
+
+
+def test_classify_chunks_detects_parent_id_change_as_payload_only():
+    service, *_ = _service()
+    chunk = _chunk_record("chunk-1", "hash-1")
+    chunk.metadata.parent_id = "band-uuid-new"
+    chunk.metadata.lecture_id = "19200514"
+    chunk.metadata.body_source_id = "lecture-uuid"
+    existing = chunk.metadata.model_dump(mode="json")
+    existing["parent_id"] = "band-uuid-old"
+
+    unchanged, changed_embed, changed_payload_only, new = service._classify_chunks(
+        [chunk],
+        {"chunk-1": existing},
+    )
+
+    assert unchanged == []
+    assert changed_embed == []
+    assert changed_payload_only == [chunk]
+    assert new == []
+
+
+@pytest.mark.asyncio
+async def test_cleanup_stale_deletes_only_same_chunk_type():
+    service, _, qdrant_client, mirror, _ = _service()
+
+    quote = _chunk_record("quote-new", "hash-q")
+    quote.metadata.source_id = "book:quotes"
+    quote.metadata.chunk_type = "quote"
+
+    async def scroll_points(collection, **kwargs):
+        qdrant_client.scrolls.append({"collection": collection, **kwargs})
+        if kwargs.get("filter_") == IngestionService._qdrant_filter_for_source_and_type(
+            "book:quotes", "quote"
+        ):
+            return [
+                {"payload": {"chunk_id": "quote-old"}},
+                {"payload": {"chunk_id": "quote-new"}},
+            ]
+        return []
+
+    qdrant_client.scroll_all_points = scroll_points  # type: ignore[method-assign]
+
+    groups, stale_deleted = await service._cleanup_stale(
+        "books",
+        [quote],
+        active_ids_by_source_type={("book:quotes", "quote"): {"quote-new"}},
+    )
+
+    assert groups == 1
+    assert stale_deleted == 1
+    assert qdrant_client.deletes[0]["ids"] == [str(uuid5(NAMESPACE_DNS, "quote-old"))]
+    assert mirror.deletes[0]["chunk_ids"] == ["quote-old"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_stale_uses_full_active_set_for_partial_batch():
+    service, _, qdrant_client, mirror, _ = _service()
+
+    quote = _chunk_record("quote-2", "hash-2")
+    quote.metadata.source_id = "book:quotes"
+    quote.metadata.chunk_type = "quote"
+
+    async def scroll_points(collection, **kwargs):
+        return [
+            {"payload": {"chunk_id": "quote-1"}},
+            {"payload": {"chunk_id": "quote-2"}},
+            {"payload": {"chunk_id": "quote-legacy"}},
+        ]
+
+    qdrant_client.scroll_all_points = scroll_points  # type: ignore[method-assign]
+
+    _, stale_deleted = await service._cleanup_stale(
+        "books",
+        [quote],
+        active_ids_by_source_type={
+            ("book:quotes", "quote"): {"quote-1", "quote-2"},
+        },
+    )
+
+    assert stale_deleted == 1
+    assert mirror.deletes[0]["chunk_ids"] == ["quote-legacy"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_stale_deletes_all_when_active_set_empty():
+    service, _, qdrant_client, mirror, _ = _service()
+
+    class _ScopeChunk:
+        def __init__(self, source_id: str, chunk_type: str) -> None:
+            self.metadata = type(
+                "Meta",
+                (),
+                {"source_id": source_id, "chunk_type": chunk_type, "chunk_id": ""},
+            )()
+
+    scope = _ScopeChunk("removed:quotes", "quote")
+
+    async def scroll_points(collection, **kwargs):
+        return [
+            {"payload": {"chunk_id": "orphan-1"}},
+            {"payload": {"chunk_id": "orphan-2"}},
+        ]
+
+    qdrant_client.scroll_all_points = scroll_points  # type: ignore[method-assign]
+
+    _, stale_deleted = await service._cleanup_stale(
+        "books",
+        [scope],
+        active_ids_by_source_type={("removed:quotes", "quote"): set()},
+    )
+
+    assert stale_deleted == 2
+    assert set(mirror.deletes[0]["chunk_ids"]) == {"orphan-1", "orphan-2"}
+
+
+@pytest.mark.asyncio
+async def test_upload_chunks_updates_payload_when_parent_id_changes():
+    service, embedding_client, qdrant_client, mirror, _ = _service()
+    chunk = _chunk_record("chunk-1", "hash-1")
+    chunk.metadata.parent_id = "band-uuid-new"
+    chunk.metadata.lecture_id = "19200514"
+    existing = chunk.metadata.model_dump(mode="json")
+    existing["parent_id"] = "band-uuid-old"
+    existing["text"] = chunk.text
+    point_uuid = str(uuid5(NAMESPACE_DNS, "chunk-1"))
+
+    async def retrieve_existing(*_args, **_kwargs):
+        return [{"id": point_uuid, "payload": existing}]
+
+    qdrant_client.retrieve_points = retrieve_existing  # type: ignore[method-assign]
+
+    result = await service.upload_chunks(collection="books", chunks=[chunk])
+
+    assert result.payload_changed == 1
+    assert result.ingested == 1
+    assert result.unchanged == 0
+    assert embedding_client.calls == []
+    assert len(qdrant_client.payload_updates) == 1
+    assert mirror.upserts and len(mirror.upserts[0]["chunks"]) == 1

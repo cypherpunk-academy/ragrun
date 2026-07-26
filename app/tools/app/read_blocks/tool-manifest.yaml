@@ -1,0 +1,17 @@
+id: read_blocks
+label: Arbeitsdokument-Ausschnitt lesen
+description: >
+  Liest den vollen Text einzelner Absätze oder Abschnitte aus dem
+  verknüpften Arbeitsdokument (nach paragraph_id oder heading_path).
+  Schreibt nicht in die Datenbank — nur interner Kontext fürs Modell.
+category: app-document
+execution: client
+
+availability:
+  requires_linked_document: true
+  modes: [chat, nachdenken]
+
+result_key: document_blocks
+
+tests:
+  - cases/read_blocks.yaml

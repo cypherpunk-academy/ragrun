@@ -1,16 +1,4 @@
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: ragrun-postgres
-    environment:
-      POSTGRES_USER: ragrun
-      POSTGRES_PASSWORD: ragrun
-      POSTGRES_DB: ragrun
-    ports:
-      - "15432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
   qdrant:
     image: qdrant/qdrant:v1.11.0
     container_name: ragrun-qdrant
@@ -22,15 +10,17 @@ services:
 
   embedding-service:
     build:
-      context: .
-      dockerfile: personal-embeddings-service/Dockerfile
-      args:
-        RAGKEEP_PROJECT_ROOT: ragkeep
+      context: personal-embeddings-service
+      dockerfile: Dockerfile
     container_name: ragrun-embeddings
     environment:
       USE_HALF_PRECISION: "false"
+      EMBEDDINGS_MODEL_NAME: "intfloat/multilingual-e5-large"
+      EMBEDDINGS_ALLOWED_MODELS: '["T-Systems-onsite/cross-en-de-roberta-sentence-transformer","intfloat/multilingual-e5-large","BAAI/bge-m3"]'
     ports:
       - "8001:8001"
+    volumes:
+      - embeddings-model-cache:/app/models
     depends_on:
       - qdrant
 
@@ -43,18 +33,22 @@ services:
     env_file:
       - .env
     environment:
-      RAGRUN_APP_ENV: docker
+      RAGRUN_APP_ENV: development
       RAGRUN_QDRANT_URL: http://qdrant:6333
-      RAGRUN_POSTGRES_DSN: postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun
+      RAGRUN_POSTGRES_DSN: ${RAGRUN_POSTGRES_DSN}
       RAGRUN_EMBEDDINGS_BASE_URL: http://embedding-service:8001
-      RAGRUN_DEEPSEEK_API_KEY: sk-008222804107459782197d95e06905e7
+      RAGRUN_DEEPSEEK_API_KEY: ${RAGRUN_DEEPSEEK_API_KEY}
+      RAGRUN_PERSONALITIES_ROOT: /personalities
     ports:
       - "8000:8000"
+    volumes:
+      - /Users/michael/Reniets/Ai/ragrun-personalities:/personalities:ro
+      - fastembed-cache:/tmp/fastembed_cache
     depends_on:
-      - postgres
       - qdrant
       - embedding-service
 
 volumes:
-  postgres-data:
   qdrant-data:
+  embeddings-model-cache:
+  fastembed-cache:

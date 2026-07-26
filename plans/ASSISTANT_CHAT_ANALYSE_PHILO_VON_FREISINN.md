@@ -72,58 +72,55 @@ ohne eigene Logging-Logik.
 
 ---
 
-## 3. Architekturvarianten
+## 3. Architekturentscheidung: LangGraph (Variante B) ✅ Beschlossen
 
-### Variante A: Einfacher LCEL-Flow + RouterChain
+**Entscheidung (Maerz 2026):** Der Chat-Graph wird von Anfang an mit der offiziellen
+`langgraph`-Library gebaut. Spike-Ergebnisse haben alle Kernfragen positiv beantwortet.
+
+### Begruendung
+
+| Kriterium | Bewertung |
+|---|---|
+| Streaming out-of-the-box | `graph.astream_events(version="v2")` liefert Token-Events direkt aus LLM-Nodes – kein Umbau noetig |
+| Persistence out-of-the-box | `MemorySaver` → `AsyncPostgresSaver` ist ein Drop-in; keine Alembic-Konflikte |
+| Konditionaler Routing | `add_conditional_edges()` sauber und transparent |
+| Retry-Loops | Native LangGraph-Feature, kein eigener asyncio-Boilerplate |
+| Lernkurve einmalig | Nach Spike bereits bekannt; zahlt sich fuer alle kuenftigen Graphen aus |
+
+### Spike-Ergebnisse (Maerz 2026)
+
+Der Spike unter `spike/` hat folgende Fragen positiv beantwortet:
+
+- **Graph-Struktur:** `StateGraph` mit `TypedDict`-State, 3 Nodes und konditionalen Edges laeuft stabil.
+- **DeepSeek + langchain-openai:** `ChatOpenAI` mit `openai_api_base=deepseek_url` funktioniert.
+  Hinweis: `with_structured_output()` muss mit `method="json_mode"` aufgerufen werden –
+  DeepSeek unterstuetzt `json_schema`-Format noch nicht.
+- **Token-Streaming:** `astream_events(version="v2")` gibt `on_chat_model_stream`-Events
+  Token fuer Token aus – direkt als SSE nutzbar.
+- **MemorySaver Persistence:** `aget_state()` gibt Thread-State nach dem ersten Turn korrekt
+  zurueck (`Messages: 1`).
+- **Boilerplate:** 3 Nodes + State + konditionaler Edge = ~130 Zeilen sauberer Code.
+
+### Technischer Stack
 
 ```
-UserMessage
-    → IntentChain (LLM-Klassifikation)
-    → RouterChain (waehlt Retriever nach Intent)
-    → RetrievalChain (dense/hybrid)
-    → AnswerChain (DeepSeek)
-    → CitationAttacher
-    → Response
+langchain-openai   →  ChatOpenAI (DeepSeek-kompatibel, Streaming)
+langgraph          →  StateGraph, TypedDict-State, add_conditional_edges
+langgraph-checkpoint-postgres  →  AsyncPostgresSaver (Produktion)
+langgraph          →  MemorySaver (Tests / Spike)
 ```
 
-| | Wert |
-|---|---|
-| **Aufwand** | gering (~1-2 Tage) |
-| **Vorteile** | schnell, linearer Datenfluss, kein Framework-Overhead |
-| **Nachteile** | Multi-Intent, Retry-Logik und Verifikations-Loops werden unuebersichtlich |
-| **Einsatz** | MVP-Iteration 1, wenn Time-to-Value dominiert |
+### DeepSeek-Besonderheit
 
-### Variante B: Voller LangGraph (offizielle `langgraph`-Library)
+```python
+# So (funktioniert):
+llm.with_structured_output(MyModel, method="json_mode")
 
-State-Machine mit expliziten Nodes, Edges und konditionalen Branches. Jeder Node ist
-eine Python-Funktion, die den `GraphState` veraendert.
+# Nicht so (400 Bad Request von DeepSeek):
+llm.with_structured_output(MyModel)  # default: json_schema
+```
 
-| | Wert |
-|---|---|
-| **Aufwand** | mittel (~3-5 Tage Setup + Lernkurve) |
-| **Vorteile** | Branching, Retry-Loops, Multi-Tool, Streaming-Support, gute Langfuse-Integration |
-| **Nachteile** | Neue Abhaengigkeit (`langgraph`), initiales Designaufwand |
-| **Einsatz** | Ab Iteration 2, sobald Verifikations-Node und Multi-Intent benoetigt werden |
-
-### Variante C: Eigener Async-Graph (analog bisherigem Stil) + LCEL intern ✅ Empfohlen
-
-Das Repo hat bereits eine eigenstaendige "Graph"-Konvention in
-`app/retrieval/graphs/concept_explain_worldviews.py`: async-Funktionen mit `asyncio.Semaphore`,
-explizitem State-Dataclass, `GraphEventRecorder` und `_chat_with_retry`.
-
-Vorschlag: denselben Stil fuer den Chat-Graph weiterfuehren und **intern** LCEL-Chains fuer
-einzelne Nodes verwenden. Das vermeidet eine weitere Framework-Abhaengigkeit und bleibt
-konsistent mit dem bestehenden Code.
-
-| | Wert |
-|---|---|
-| **Aufwand** | gering-mittel (~2-3 Tage) |
-| **Vorteile** | konsistenter Stil, alle Hilfsfunktionen wiederverwendbar, kein neues Framework |
-| **Nachteile** | Kein offiziales LangGraph-Streaming / Persistence out-of-the-box |
-| **Einsatz** | Gesamte Roadmap (MVP → Produktionsreife) |
-
-**Fazit: Variante C fuer Iteration 1+2, optionaler Umstieg auf echtes LangGraph (Variante B)
-ab Iteration 3 falls Streaming/Persistence benoetigt werden.**
+System-Prompt muss bei `json_mode` explizit auf JSON-Output hinweisen.
 
 ---
 
@@ -133,7 +130,7 @@ ab Iteration 3 falls Streaming/Persistence benoetigt werden.**
 
 | Intent-Label | Beschreibung | Beispiele |
 |---|---|---|
-| `begriff_definieren` | Definition/Erklaerung eines Konzepts | "Was ist Pneumatismus?" |
+| `begriff_definieren` | Definition/Erklaerung eines Konzepts – zweistufig (siehe Abschnitt 5) | "Was ist Pneumatismus?" / "Erklaere den Begriff Aetherleib" |
 | `werk_lokalisieren` | Buch- / Vortragslookup | "In welchem Vortrag spricht Steiner ueber das Aetherleib?" |
 | `zitat_suchen` | Wörtliche oder sinngemaeße Zitate | "Hast du ein Zitat zum Tema Karma?" |
 | `vergleich` | Zwei Konzepte / Weltanschauungen vergleichen | "Unterschied Materialismus vs. Spiritualismus?" |
@@ -155,19 +152,72 @@ ab Iteration 3 falls Streaming/Persistence benoetigt werden.**
 
 | Phase | Methode | Aufwand | Qualitaet |
 |---|---|---|---|
-| Iteration 1 | Zero-shot LLM-Intent via `deepseek-chat` + strukturierter Prompt | gering | gut |
+| Iteration 1 | Zero-shot via `deepseek-chat` + `with_structured_output(method="json_mode")` | gering | gut |
 | Iteration 2 | Embedding + kNN (Cosine auf Few-shot-Beispielen) als schnelle Vorstufe | mittel | sehr gut |
 | Iteration 3 | Hybrid: Embedding-Klassifikator + LLM-Fallback bei Unsicherheit | hoch | optimal |
 
-Fuer Iteration 1 genuegt ein strukturierter Prompt der Form:
+Iteration 1 ist im Spike bewaehrt. Implementierung als LangGraph-Node (kein separater Chain-File):
 
 ```python
-# app/retrieval/chains/intent_classification_chain.py
-INTENT_SYSTEM_PROMPT = """Du klassifizierst Nutzerfragen fuer den Assistenten "Philo von Freisinn".
-Antworte NUR mit einem JSON-Objekt:
-{"labels": ["<label1>", ...], "confidence": {"<label1>": 0.0-1.0, ...}, "reasoning": "<kurz>"}
-Moegliche Labels: {INTENT_LABELS}"""
+# Direkt als Node-Funktion in app/retrieval/graphs/assistant_chat_graph.py
+async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
+    llm = ChatOpenAI(...).with_structured_output(IntentResult, method="json_mode")
+    result = await llm.ainvoke([SystemMessage(INTENT_SYSTEM), HumanMessage(state["user_message"])], config)
+    return {"intent": result.intent, "intent_confidence": result.confidence}
 ```
+
+### Trainingsdaten fuer spaetere Iterationen: `event_content` statt neuer Tabelle
+
+Bereits ab Iteration 1 sollen alle Chat-Anfragen geloggt werden, um daraus spaeter
+(Iteration 2+) einen lokalen Klassifikator zu trainieren.
+
+**Empfehlung: `event_content` verwenden – keine neue Tabelle.**
+
+Der `classify_intent`-Node loggt seinen Output via `GraphEventRecorder`:
+
+```python
+await recorder.record_event(
+    step="classify_intent",
+    query_text=state["user_message"],
+    metadata={
+        "intent": result.intent,
+        "intent_confidence": result.confidence,
+        "extracted_lemma": result.extracted_lemma,
+        "reasoning": result.reasoning,          # hilfreich fuer Label-Review
+        "model": settings.deepseek_chat_model,  # Versionierung
+    },
+)
+```
+
+`event_metadata.metadata` (JSONB) ist **permanent** – nicht von der 7-Tage-Rotation
+betroffen. `event_content` mit `query_text` dreht sich nach 7 Tagen, ist aber fuer
+das Training nicht zwingend noetig (Intent-Label + Nutzerfrage genuegen).
+
+Spaetere Trainings-Abfrage:
+
+```sql
+SELECT
+    ec.query_text,
+    em.metadata->>'intent'            AS label,
+    em.metadata->>'intent_confidence' AS confidence,
+    em.metadata->>'extracted_lemma'   AS lemma
+FROM event_metadata em
+JOIN event_content ec ON ec.event_metadata_id = em.id
+WHERE em.step = 'classify_intent'
+  AND em.graph_name = 'assistant_chat'
+  AND (em.metadata->>'intent_confidence')::float >= 0.75
+ORDER BY em.created_at;
+```
+
+Der Confidence-Filter (`>= 0.75`) stellt sicher, dass nur sichere DeepSeek-Klassifikationen
+als automatische Labels uebernommen werden. Unsichere Faelle werden manuell reviewt.
+
+| | Neue Tabelle | `event_content` |
+|---|---|---|
+| Alembic-Migration noetig | ja | nein |
+| Duplikat-Daten | ja | nein |
+| Permanente Labels | ja | ja (in `event_metadata.metadata`) |
+| **Empfehlung** | | **✅** |
 
 ---
 
@@ -177,7 +227,8 @@ Moegliche Labels: {INTENT_LABELS}"""
 
 | Intent | Primaer chunk_types | Sekundaer chunk_types | Hinweise |
 |---|---|---|---|
-| `begriff_definieren` | `begriff_list`, `chapter_summary` | `book`, `explanation` | Erst schnelle Definition, dann Originalbeleg |
+| `begriff_definieren` (Lemma-Treffer) | `begriff_list` | `explanation` | Lemma exakt in `metadata.segment_title` → Chunks direkt zurueckgeben |
+| `begriff_definieren` (kein Lemma-Treffer) | – | – | Weiterleitung an `concept_explain_worldviews`-Graph |
 | `werk_lokalisieren` | `chapter_summary`, `talk_summary` | `book`, `talk` | Sparse-BM25 gut fuer Titelmatch |
 | `zitat_suchen` | `quote` | `book`, `talk` | `quote`-Chunks direkt; `book` fuer Kontext |
 | `vergleich` | `chapter_summary`, `essay` | `book`, `secondary_book` | Breiter Recall, dann Reranking |
@@ -189,11 +240,75 @@ Moegliche Labels: {INTENT_LABELS}"""
 | `follow_up` | (aus Vorturn erben) | ggf. `book` fuer mehr Kontext | Vorturn-Chunks recyceln |
 | `hypothetisch` | `book`, `secondary_book` | `essay` | Breite Suche, defensive Formulierung |
 
+### Begriff-Lookup: zweistufiger Ablauf fuer `begriff_definieren`
+
+Nach der Intent-Klassifikation als `begriff_definieren` entscheidet ein dedizierter
+**`lemma_lookup`-Node**, welcher Pfad beschritten wird:
+
+**Stufe 1 – Lemma-Check in `rag_chunks`:**
+Postgres-Query prueft, ob der vom LLM extrahierte Begriff als exakter oder normalisierter
+`metadata.segment_title` in einem `begriff_list`-Chunk der Collection vorliegt:
+
+```sql
+SELECT chunk_id, text, metadata
+FROM rag_chunks
+WHERE collection = %(collection)s
+  AND chunk_type = 'begriff_list'
+  AND LOWER(metadata->>'segment_title') = LOWER(%(lemma)s)
+LIMIT 10
+```
+
+- **Treffer:** `begriff_list`-Chunks direkt als `context_text` verwenden.
+  Optional zusaetzlich `explanation`-Chunks fuer denselben `segment_title` nachladen.
+  → normaler `compose_answer`-Node mit diesen Chunks.
+
+- **Kein Treffer:** Weiterleitung an den bestehenden `concept_explain_worldviews`-Graph
+  (`run_concept_explain_worldviews_graph` aus `app/retrieval/graphs/concept_explain_worldviews.py`).
+  Dieser laeuft ausserhalb des Chat-Graphs und liefert ein `ConceptExplainWorldviewsResult`,
+  das dann als Antwort formatiert wird.
+
+**Lemma-Extraktion:** Der Begriff wird vom `classify_intent`-Node als Zusatzfeld
+(`extracted_lemma: str`) mitgeliefert, damit der `lemma_lookup`-Node keine eigene
+LLM-Klassifikation braucht:
+
+```python
+class IntentResult(BaseModel):
+    intent: str
+    confidence: float
+    extracted_lemma: str   # z.B. "Pneumatismus" aus "Was ist Pneumatismus?"
+    reasoning: str
+```
+
+**Erweiterung des `ChatState`:**
+
+```python
+class ChatState(TypedDict):
+    ...
+    extracted_lemma: str          # aus classify_intent
+    lemma_found: bool             # aus lemma_lookup
+    use_concept_explain: bool     # True wenn kein Lemma-Treffer
+```
+
+**Zusaetzlicher Edge:**
+
+```
+classify_intent (intent == "begriff_definieren")
+    → lemma_lookup
+
+lemma_lookup
+    → lemma_found == True  → retrieve_chunks  (chunk_type="begriff_list")
+    → lemma_found == False → concept_explain_worldviews_node
+                              (ruft run_concept_explain_worldviews_graph auf)
+
+concept_explain_worldviews_node → finalize
+```
+
 ### Praktische Filterregel (passt auf `payload_filter` in `retrievers.py`)
 
 ```python
 INTENT_CHUNK_TYPE_MAP: dict[str, list[str]] = {
-    "begriff_definieren":   ["begriff_list", "chapter_summary", "book", "explanation"],
+    # Begriff: nur bei Lemma-Treffer; sonst concept_explain_worldviews (kein Eintrag noetig)
+    "begriff_definieren":   ["begriff_list", "explanation"],
     "werk_lokalisieren":    ["chapter_summary", "talk_summary", "book", "talk"],
     "zitat_suchen":         ["quote", "book", "talk"],
     "vergleich":            ["chapter_summary", "essay", "book", "secondary_book"],
@@ -210,228 +325,249 @@ Die bestehende `payload_filter`-Funktion in `retrievers.py` unterstuetzt bereits
 
 ---
 
-## 6. LangGraph-State / Nodes / Edges (Entwurf)
+## 6. LangGraph-State / Nodes / Edges
 
-### State-Dataclass
+### State (TypedDict – LangGraph-Standard)
 
 ```python
 # app/retrieval/graphs/assistant_chat_graph.py
+from typing import Annotated
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+from typing_extensions import TypedDict
 
-@dataclass(slots=True)
-class ChatState:
+class ChatState(TypedDict):
     # Input
-    assistant_id: str
-    thread_id: str
     user_message: str
-    conversation_history: list[dict]       # letzte N Turns [{"role": ..., "content": ...}]
+    messages: Annotated[list[BaseMessage], add_messages]  # Conversation History, Reducer
 
     # Intent
-    intent_labels: list[str] = field(default_factory=list)
-    intent_confidence: dict[str, float] = field(default_factory=dict)
-    multi_intent: bool = False
+    intent: str
+    intent_confidence: float
 
     # Retrieval
-    retrieval_plan: list[str] = field(default_factory=list)  # chunk_types
-    retrieved_chunks: list[RetrievedSnippet] = field(default_factory=list)
-    context_text: str = ""
-    context_refs: list[str] = field(default_factory=list)
-    retrieval_mode: str = "dense"
-    sufficiency: str = "unknown"           # "high" / "medium" / "low" / "insufficient"
-
-    # Antwort
-    draft_answer: str = ""
-    verified_answer: str = ""
-    confidence_score: float = 0.0
-    needs_retry: bool = False
-    retry_count: int = 0
+    retrieval_plan: list[str]        # chunk_types nach INTENT_CHUNK_TYPE_MAP
+    context_text: str
+    context_refs: list[str]          # chunk_ids der verwendeten Chunks
+    retrieval_mode: str
+    sufficiency: str                 # "high" / "medium" / "low" / "insufficient"
+    retry_count: int
 
     # Output
-    citations: list[dict] = field(default_factory=list)   # [{chunk_id, source_title, page}]
-    final_response: str = ""
-    errors: list[str] = field(default_factory=list)
+    citations: list[dict]            # [{chunk_id, source_title, lecture_date}]
+    final_response: str
+    confidence_score: float
 ```
 
-### Nodes
+`add_messages` ist der LangGraph-Reducer: neue Messages werden angehaengt, nie
+ueberschrieben. Der Checkpointer speichert den State automatisch nach jedem Node.
+
+### Nodes (alle als async-Funktionen in `assistant_chat_graph.py`)
 
 ```
 Node 1: classify_intent
-    Input:  user_message + conversation_history (letzte 4 Turns als Kontext)
-    Output: intent_labels, intent_confidence, multi_intent
-    Impl:   DeepSeek-Chat + strukturierter JSON-Prompt
-    Datei:  app/retrieval/chains/intent_classification_chain.py
+    Input:  user_message + messages (letzte Turns fuer Kontext)
+    Output: intent, intent_confidence
+    Impl:   ChatOpenAI.with_structured_output(IntentResult, method="json_mode")
+            (Spike-bewaehrt: DeepSeek json_schema nicht verfuegbar)
 
 Node 2: route_retrieval_plan
-    Input:  intent_labels, multi_intent
-    Output: retrieval_plan (geordnete Liste von chunk_types)
-    Impl:   Lookup in INTENT_CHUNK_TYPE_MAP, Multi-Intent → Union mit Priorisierung
-    Datei:  app/retrieval/chains/retrieval_plan_chain.py
+    Input:  intent
+    Output: retrieval_plan (chunk_types aus INTENT_CHUNK_TYPE_MAP)
+    Impl:   Reine Python-Funktion, kein LLM-Call
 
 Node 3: retrieve_chunks
-    Input:  user_message + conversation_history, retrieval_plan, assistant_id → collection
-    Output: retrieved_chunks, context_text, context_refs, retrieval_mode
-    Impl:   _retrieve_with_widen (existiert bereits), chunk_type-Filter via payload_filter
-    Datei:  wiederverwendet app/retrieval/utils/retrievers.py
+    Input:  user_message, retrieval_plan, collection (aus assistant_id)
+    Output: context_text, context_refs, retrieval_mode, sufficiency
+    Impl:   _retrieve_with_widen + payload_filter + build_context (alles aus retrievers.py)
 
-Node 4: assess_sufficiency
-    Input:  retrieved_chunks, context_text
-    Output: sufficiency, needs_retry
-    Impl:   _assess_sufficiency (existiert bereits in concept_explain_worldviews.py)
-    Datei:  extrahieren nach app/retrieval/utils/sufficiency.py
+Node 4: compose_answer
+    Input:  user_message, messages (History), context_text, intent
+    Output: messages (neuer AIMessage-Eintrag via add_messages-Reducer)
+    Impl:   ChatOpenAI mit streaming=True; Persona via load_system_prompt()
+            → Token-Events werden via astream_events() direkt nach oben propagiert
 
-Node 5: compose_answer
-    Input:  user_message, conversation_history, context_text, intent_labels
-    Output: draft_answer
-    Impl:   _chat_with_retry (existiert bereits), angepasster Chat-Prompt
-    Datei:  app/retrieval/chains/chat_answer_chain.py
+Node 5: verify_grounding  (Iteration 2)
+    Input:  letzter AIMessage aus messages, context_text
+    Output: confidence_score, retry_count erhoehen bei schlechter Evidenz
+    Impl:   ChatOpenAI.with_structured_output(GroundingResult, method="json_mode")
 
-Node 6: verify_grounding
-    Input:  draft_answer, context_text, context_refs
-    Output: confidence_score, needs_retry
-    Impl:   zweiter LLM-Call: "Widerspricht die Antwort dem Kontext?" + Claim-Coverage-Score
-    Datei:  app/retrieval/chains/grounding_verification_chain.py
+Node 6: attach_citations
+    Input:  context_refs (chunk_ids)
+    Output: citations [{chunk_id, source_title, lecture_date}]
+    Impl:   SELECT aus rag_chunks WHERE chunk_id IN (...)
 
-Node 7: attach_citations
-    Input:  verified_answer, context_refs (chunk_ids)
-    Output: citations [{chunk_id, source_title, lecture_date, page_ref}]
-    Impl:   Lookup in rag_chunks-Tabelle (metadata-Spalte enthaelt Quelleninfos)
-    Datei:  app/retrieval/services/citation_service.py
-
-Node 8: finalize_response
-    Input:  verified_answer, citations, confidence_score, sufficiency
-    Output: final_response (Markdown mit eingebetteten Quellenlinks)
-    Impl:   Template-Rendering + defensiver Modus bei niedrigem confidence_score
+Node 7: finalize
+    Input:  messages, citations, confidence_score, sufficiency
+    Output: final_response (Markdown), defensiver Modus bei confidence < 0.5
 ```
 
-### Edges und Bedingungen
+### Edges und konditionaler Routing
 
 ```
 classify_intent
-    → (intent == "out_of_scope" oder "konversationell") → finalize_response  [Shortcut]
-    → sonst → route_retrieval_plan
+    → intent in {"out_of_scope", "konversationell", "meta_assistent"}
+      → finalize                          [Shortcut ohne RAG]
+    → sonst
+      → route_retrieval_plan
 
 route_retrieval_plan → retrieve_chunks
 
-retrieve_chunks → assess_sufficiency
+retrieve_chunks
+    → sufficiency == "insufficient" und retry_count < 2
+      → retrieve_chunks                   [Widen-Retry, erhoehtes k]
+    → sonst
+      → compose_answer
 
-assess_sufficiency
-    → (sufficiency == "insufficient" und retry_count < 2) → retrieve_chunks  [Widen-Retry]
-    → sonst → compose_answer
-
-compose_answer → verify_grounding
+compose_answer → verify_grounding         [Iteration 2]
+             → finalize                   [Iteration 1, direkt]
 
 verify_grounding
-    → (needs_retry und retry_count < 2) → retrieve_chunks  [Evidence-Retry]
-    → sonst → attach_citations
+    → confidence_score < 0.4 und retry_count < 2
+      → retrieve_chunks                   [Evidence-Retry]
+    → sonst
+      → attach_citations
 
-attach_citations → finalize_response
+attach_citations → finalize
+finalize → END
 ```
 
 ---
 
-## 7. LCEL-Ketten-Vorschlaege (fuer einzelne Nodes)
+## 7. LangGraph-Implementierungshinweise
 
-### Intent-Klassifikation (Node 1)
+### LLM-Instanziierung (einmal pro Graph-Modul)
 
 ```python
-# app/retrieval/chains/intent_classification_chain.py
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
+# app/retrieval/graphs/assistant_chat_graph.py
+from langchain_openai import ChatOpenAI
+from app.config import settings
 
-intent_chain = (
-    ChatPromptTemplate.from_messages([
-        ("system", INTENT_SYSTEM_PROMPT),
-        ("human", "{user_message}"),
-    ])
-    | deepseek_llm
-    | JsonOutputParser()
-    | RunnableLambda(validate_intent_output)
-)
+def _make_llm(streaming: bool = False) -> ChatOpenAI:
+    return ChatOpenAI(
+        model=settings.deepseek_chat_model,
+        openai_api_key=settings.deepseek_api_key,
+        openai_api_base=f"{str(settings.deepseek_base_url).rstrip('/')}/",
+        temperature=0.3,
+        max_tokens=800,
+        streaming=streaming,
+    )
 ```
 
-> Hinweis: `deepseek_llm` kann per `langchain_openai.ChatOpenAI` mit `base_url` auf DeepSeek
-> gesetzt werden – kompatibel mit OpenAI-API-Format.
-
-### Grounding-Verifikation (Node 6)
+### Intent-Node (Structured Output mit json_mode)
 
 ```python
-# app/retrieval/chains/grounding_verification_chain.py
-GROUNDING_PROMPT = """Du pruefst, ob eine Antwort dem folgenden Kontext widerspricht.
-Kontext:
-{context}
+class IntentResult(BaseModel):
+    intent: str
+    confidence: float
+    reasoning: str
 
-Antwort:
-{draft_answer}
-
-Antworte mit JSON: {{"contradicts": bool, "coverage": 0.0-1.0, "issues": [...]}}"""
-
-grounding_chain = (
-    ChatPromptTemplate.from_template(GROUNDING_PROMPT)
-    | deepseek_llm
-    | JsonOutputParser()
-)
+async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
+    llm = _make_llm().with_structured_output(IntentResult, method="json_mode")
+    result = await llm.ainvoke([
+        SystemMessage(INTENT_SYSTEM_PROMPT),
+        HumanMessage(state["user_message"]),
+    ], config)
+    return {"intent": result.intent, "intent_confidence": result.confidence}
 ```
 
-### Chat-Antwort (Node 5)
-
-Der Prompt baut auf der Persona von Philo von Freisinn auf und kombiniert:
-1. System-Prompt mit Assistenten-Charakter (aus `ragkeep/assistants/philo-von-freisinn/`)
-2. Letzten N Turns als `conversation_history`
-3. RAG-Kontext als separater System-Block
+### Antwort-Node (Streaming)
 
 ```python
-# app/retrieval/chains/chat_answer_chain.py
-answer_chain = (
-    ChatPromptTemplate.from_messages([
-        ("system", PHILO_PERSONA_PROMPT),
-        ("system", "Kontext aus den Quellen:\n{context}"),
-        *[(m["role"], m["content"]) for m in conversation_history[-6:]],
-        ("human", "{user_message}"),
-    ])
-    | deepseek_llm
-    | StrOutputParser()
-)
+async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
+    persona = load_system_prompt()   # aus prompts/philo_von_freisinn.py
+    llm = _make_llm(streaming=True)
+    messages = [
+        SystemMessage(persona),
+        SystemMessage(f"Kontext:\n{state['context_text']}"),
+        *state["messages"][-6:],     # letzte 6 Turns aus History
+        HumanMessage(state["user_message"]),
+    ]
+    response = ""
+    async for chunk in llm.astream(messages, config):
+        response += chunk.content
+    # add_messages-Reducer haengt AIMessage an; ersetzt nicht
+    return {"messages": [AIMessage(content=response)]}
+```
+
+### Graph-Aufbau und Checkpointer
+
+```python
+def build_chat_graph(checkpointer=None):
+    builder = StateGraph(ChatState)
+    builder.add_node("classify_intent", classify_intent)
+    builder.add_node("route_retrieval_plan", route_retrieval_plan)
+    builder.add_node("retrieve_chunks", retrieve_chunks)
+    builder.add_node("compose_answer", compose_answer)
+    builder.add_node("attach_citations", attach_citations)
+    builder.add_node("finalize", finalize)
+    builder.set_entry_point("classify_intent")
+    builder.add_conditional_edges("classify_intent", route_after_intent, {...})
+    # ... weitere Edges
+    return builder.compile(checkpointer=checkpointer or MemorySaver())
+
+# Produktion: AsyncPostgresSaver (einmalig setup() im lifespan)
+# Tests/Dev:  MemorySaver (kein DB-Setup noetig)
+```
+
+### SSE-Streaming am FastAPI-Endpunkt
+
+```python
+async def _sse_stream(user_message: str, thread_id: str):
+    config = {"configurable": {"thread_id": thread_id}}
+    async for event in graph.astream_events(initial_state, config, version="v2"):
+        if event["event"] == "on_chat_model_stream":
+            token = event["data"]["chunk"].content
+            yield f'data: {{"type":"token","content":{json.dumps(token)}}}\n\n'
+        elif event["event"] == "on_chain_end" and event["name"] == "finalize":
+            citations = event["data"]["output"].get("citations", [])
+            yield f'data: {{"type":"citations","citations":{json.dumps(citations)}}}\n\n'
+    yield 'data: {"type":"done"}\n\n'
 ```
 
 ---
 
 ## 8. Conversation Memory
 
-### Kurzfristiges Memory (Iteration 1)
+### Kurzfristiges Memory (Iteration 1 – automatisch via LangGraph)
 
-- Die letzten 6-12 Turns (User + Assistent) werden als `conversation_history` im `ChatState`
-  mitgefuehrt.
-- Werden direkt in den Prompt eingebettet (keine externe Datenbank).
-- **Thread-ID** identifiziert den Chat-Session-Kontext.
+Der `add_messages`-Reducer im `ChatState` akkumuliert alle `BaseMessage`-Objekte
+(HumanMessage + AIMessage) ueber mehrere Turns. Der Checkpointer speichert den
+gesamten State nach jedem Node automatisch.
 
-### Persistenz (Iteration 2)
+- **Iteration 1:** `MemorySaver` – kein DB-Setup, alles im RAM
+- **Iteration 2:** Drop-in auf `AsyncPostgresSaver` – kein eigener Migrations-Code
 
-Neue Tabelle `chat_threads` (Alembic-Migration):
+```python
+# app/main.py lifespan:
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-```sql
--- Neue Tabelle fuer Chat-Persistenz
-CREATE TABLE chat_threads (
-    id          BIGSERIAL PRIMARY KEY,
-    thread_id   UUID NOT NULL,
-    assistant_id VARCHAR(128) NOT NULL,
-    turn_index  INTEGER NOT NULL,
-    role        VARCHAR(16) NOT NULL,   -- 'user' | 'assistant'
-    content     TEXT NOT NULL,
-    intent_labels TEXT[],
-    chunk_ids   JSONB,
-    confidence  FLOAT,
-    created_at  TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX ON chat_threads (thread_id, turn_index);
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    checkpointer = AsyncPostgresSaver.from_conn_string(settings.postgres_dsn)
+    await checkpointer.setup()   # legt LangGraph-eigene Tabellen an (einmalig)
+    app.state.chat_graph = build_chat_graph(checkpointer=checkpointer)
+    yield
 ```
 
-Datei: `app/db/migrations/versions/0008_add_chat_threads.py`
+LangGraph legt dabei **eigene Tabellen** an (`checkpoints`, `checkpoint_blobs`,
+`checkpoint_migrations`) – **keine Kollision** mit bestehenden Alembic-Tabellen,
+da `setup()` sein eigenes Schema verwaltet.
+
+Die bisher geplante manuelle `chat_threads`-Alembic-Migration (`0008`) entfaellt.
+
+### Thread-History lesen
+
+```python
+# Thread-State nach dem Gespraech abfragen:
+snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+messages = snapshot.values["messages"]   # alle Turns
+```
 
 ### Mittelfristiges Memory (Iteration 3)
 
-- Nach jeweils N Turns wird ein LLM-Call gemacht, der die wesentlichen "Conversation Facts"
-  des Threads verdichtet (Topics, offene Fragen, erwaehnte Konzepte).
-- Diese Facts werden als `thread_summary` neben dem Rolling-Window gehalten.
+- Nach jeweils N Turns LLM-Call zur Verdichtung der "Conversation Facts"
+  (Topics, offene Fragen, erwaehnte Konzepte) als `thread_summary` im State.
 - Datei: `app/retrieval/services/memory_service.py`
 
 ---
@@ -502,7 +638,106 @@ teuren API-Call fuer die Intent-Klassifikation.
 
 ---
 
-## 12. API-Endpunkt und Dateistruktur
+## 12. Code-Organisation und Lesbarkeit
+
+### Nodes und Edges: alles in einer Datei
+
+Nodes sind async-Funktionen, keine Klassen. Sie in eigene Dateien aufzuteilen wuerde den
+Kontrollfluss ueber mehrere Dateien verteilen und das Lesen erschweren. Der bestehende Stil
+im Repo bestaetigt das: `concept_explain_worldviews.py` enthaelt ~600 Zeilen mit State,
+allen Nodes und dem Graph-Aufbau in einer Datei – gut lesbar, weil der Fluss auf einmal sichtbar ist.
+
+**Grenze:** Wenn einzelne Nodes zu komplex werden (z.B. `lemma_lookup` mit eigener DB-Logik),
+koennen Hilfsfunktionen in `utils/` oder `services/` ausgelagert werden – der Node selbst
+bleibt aber eine Funktion in `assistant_chat_graph.py`.
+
+### Graph-Uebersicht als Mermaid-Diagramm
+
+LangGraph kann den Graphen automatisch als Mermaid-Diagramm ausgeben – immer aktuell,
+nie manuell gepflegt:
+
+```python
+# Einmalig ausfuehren und in Docstring einfuegen:
+print(graph.get_graph().draw_mermaid())
+```
+
+Das Ergebnis kommt als Docstring an den Anfang von `assistant_chat_graph.py`:
+
+```python
+"""
+assistant_chat_graph.py – LangGraph Chat-Graph fuer Philo von Freisinn
+
+Graph-Fluss (generiert via graph.get_graph().draw_mermaid()):
+
+```mermaid
+graph TD
+    __start__ --> classify_intent
+    classify_intent -->|begriffe| lemma_lookup
+    classify_intent -->|shortcut| finalize
+    classify_intent --> route_retrieval_plan
+    lemma_lookup -->|treffer| retrieve_chunks
+    lemma_lookup -->|kein treffer| concept_explain_worldviews_node
+    route_retrieval_plan --> retrieve_chunks
+    retrieve_chunks --> compose_answer
+    compose_answer --> attach_citations
+    attach_citations --> finalize
+    finalize --> __end__
+```
+"""
+```
+
+Kein separates README noetig – das Diagramm liegt direkt neben dem Code.
+
+### Intent-Labels als Konstanten auslagern (`intents.py`)
+
+Die Intent-Labels stehen an drei Stellen gleichzeitig: im System-Prompt, im
+`IntentResult`-Pydantic-Schema und in der Routing-Map. Als Konstante in einer
+separaten Datei gibt es eine einzige Quelle – aendert man ein Label, passt man
+es nur an einer Stelle an.
+
+```python
+# app/retrieval/graphs/intents.py
+
+INTENT_LABELS: list[str] = [
+    "begriff_definieren",
+    "werk_lokalisieren",
+    "zitat_suchen",
+    "vergleich",
+    "erklaerung_vertiefung",
+    "zusammenfassung",
+    "beleg_pruefung",
+    "meta_assistent",
+    "konversationell",
+    "out_of_scope",
+    "follow_up",
+    "hypothetisch",
+]
+
+# chunk_types je Intent (bei lemma_treffer fuer "begriff_definieren")
+INTENT_CHUNK_TYPE_MAP: dict[str, list[str]] = {
+    "begriff_definieren":    ["begriff_list", "explanation"],
+    "werk_lokalisieren":     ["chapter_summary", "talk_summary", "book", "talk"],
+    "zitat_suchen":          ["quote", "book", "talk"],
+    "vergleich":             ["chapter_summary", "essay", "book", "secondary_book"],
+    "erklaerung_vertiefung": ["book", "talk", "essay", "secondary_book"],
+    "zusammenfassung":       ["chapter_summary", "talk_summary", "essay_summary"],
+    "beleg_pruefung":        ["book", "quote", "talk"],
+    "follow_up":             [],   # dynamisch aus Vorturn
+    "hypothetisch":          ["book", "secondary_book", "essay"],
+}
+
+# Intents die kein Retrieval brauchen (direkt zu finalize)
+SKIP_RETRIEVAL_INTENTS: frozenset[str] = frozenset({
+    "out_of_scope", "konversationell", "meta_assistent",
+})
+```
+
+`IntentResult`-Pydantic-Model und `classify_intent`-Node-Funktion bleiben in
+`assistant_chat_graph.py` – sie gehoeren zum Graph-Kontext.
+
+---
+
+## 13. API-Endpunkt und Dateistruktur
 
 ### Neuer FastAPI-Router
 
@@ -532,20 +767,26 @@ Response: {
 
 | Datei | Inhalt |
 |---|---|
-| `app/api/chat.py` | FastAPI-Router fuer Chat-Endpunkt |
-| `app/retrieval/graphs/assistant_chat_graph.py` | Haupt-Graph mit ChatState + Node-Orchestrierung |
-| `app/retrieval/chains/intent_classification_chain.py` | Intent-Klassifikation via LLM |
-| `app/retrieval/chains/retrieval_plan_chain.py` | Intent → chunk_types Mapping |
-| `app/retrieval/chains/chat_answer_chain.py` | RAG-gestuetzte Antwortgenerierung |
-| `app/retrieval/chains/grounding_verification_chain.py` | Answer-vs-Evidence Pruefung |
-| `app/retrieval/services/chat_orchestrator_service.py` | Service-Layer ueber Graph |
-| `app/retrieval/services/citation_service.py` | Chunk-ID → Quellen-Metadaten Lookup |
-| `app/retrieval/services/memory_service.py` | Thread-Summary-Verdichtung (Iter. 3) |
-| `app/retrieval/utils/sufficiency.py` | _assess_sufficiency (aus graph extrahiert) |
-| `app/retrieval/prompts/chat_answer.prompt` | Persona-Prompt fuer Philo von Freisinn |
-| `app/retrieval/prompts/intent_classify.prompt` | Intent-Klassifikations-Prompt |
-| `app/retrieval/prompts/grounding_verify.prompt` | Grounding-Check-Prompt |
-| `app/db/migrations/versions/0008_add_chat_threads.py` | Alembic-Migration fuer chat_threads |
+| `app/api/chat.py` | FastAPI-Router + SSE-Endpunkt |
+| `app/retrieval/graphs/assistant_chat_graph.py` | LangGraph `StateGraph`: ChatState, alle Nodes, Edges, `build_chat_graph()`, Mermaid-Diagramm im Docstring |
+| `app/retrieval/graphs/intents.py` | `INTENT_LABELS`, `INTENT_CHUNK_TYPE_MAP`, `SKIP_RETRIEVAL_INTENTS` – single source of truth |
+| `app/retrieval/services/citation_service.py` | Chunk-ID → Quellen-Metadaten Lookup aus `rag_chunks` |
+| `app/retrieval/services/memory_service.py` | Thread-Summary-Verdichtung (Iteration 3) |
+| `app/retrieval/utils/sufficiency.py` | `_assess_sufficiency` (aus `concept_explain_worldviews.py` extrahiert) |
+| `app/retrieval/prompts/intent_classify.prompt` | Intent-Klassifikations-Prompt (Text-Datei) |
+| `app/retrieval/prompts/grounding_verify.prompt` | Grounding-Check-Prompt (Iteration 2) |
+
+**Kein separater** `chains/`-Layer: Nodes sind direkt async-Funktionen in `assistant_chat_graph.py`.
+**Keine** `0008_add_chat_threads.py`: Persistence via `AsyncPostgresSaver.setup()`.
+
+### Neue Abhaengigkeiten (`requirements.txt`)
+
+```
+langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+```
 
 ### Wiederverwendete Dateien (unveraendert oder minimal angepasst)
 
@@ -579,26 +820,26 @@ Response: {
 
 **Ziel:** Ende-zu-Ende-Chat fuer "Philo von Freisinn" ohne UI.
 
-- [ ] `app/api/chat.py`: POST-Endpunkt mit `thread_id`, `user_message`, `conversation_history`
-- [ ] `app/retrieval/graphs/assistant_chat_graph.py`: ChatState + Nodes 1-5 + 8 (ohne Verifikation)
-- [ ] `app/retrieval/chains/intent_classification_chain.py`: Zero-shot LLM-Klassifikation
-- [ ] `app/retrieval/chains/retrieval_plan_chain.py`: INTENT_CHUNK_TYPE_MAP
-- [ ] `app/retrieval/chains/chat_answer_chain.py`: RAG-Kontext + Chat-History; Persona via `load_system_prompt()` (existiert bereits)
-- [ ] `app/retrieval/services/chat_orchestrator_service.py`: duenner Service-Layer
-- [ ] `app/retrieval/prompts/chat_answer.prompt`: Chat-spezifische User-Prompt-Vorlage (Persona-System-Prompt liegt bereits in ragkeep)
-- [ ] Event-Logging: Chat-Events analog `GraphEventRecorder` loggen
+- [ ] `app/retrieval/graphs/intents.py`: `INTENT_LABELS`, `INTENT_CHUNK_TYPE_MAP`, `SKIP_RETRIEVAL_INTENTS`
+- [ ] `app/retrieval/graphs/assistant_chat_graph.py`: `ChatState` (TypedDict) + Nodes 1-4 + 6-7 + `build_chat_graph()` + Mermaid-Diagramm im Docstring
+- [ ] `app/api/chat.py`: SSE-Endpunkt + `POST /api/v1/agent/{assistant_slug}/chat`
+- [ ] `app/retrieval/prompts/intent_classify.prompt`: Intent-Klassifikations-Prompt
+- [ ] `main.py` lifespan: `MemorySaver` fuer Iteration 1
+- [ ] Event-Logging: Chat-Events via `GraphEventRecorder` loggen
+- [ ] `spike/` als Vorlage verwenden; echtes Qdrant-Retrieval einsetzen
 - [ ] Manueller E2E-Test ueber curl / httpie
 
 ### Iteration 2 – Qualitaet (ca. 3-4 Tage)
 
-**Ziel:** Grounding-Check, Confidence-Score, defensiver Antwortmodus.
+**Ziel:** Grounding-Check, Confidence-Score, defensiver Antwortmodus, persistente Threads.
 
-- [ ] `app/retrieval/chains/grounding_verification_chain.py`: Node 6
+- [ ] `verify_grounding`-Node in `assistant_chat_graph.py`
 - [ ] `app/retrieval/utils/sufficiency.py`: extrahierte Sufficiency-Logik
 - [ ] `app/retrieval/services/citation_service.py`: Chunk-ID → Quellen-Metadaten
-- [ ] Confidence-Score-Berechnung im `finalize_response`-Node
-- [ ] `app/db/migrations/versions/0008_add_chat_threads.py` + Thread-Persistenz
-- [ ] LLM-Reranker als optionaler Node 4b
+- [ ] Confidence-Score-Berechnung im `finalize`-Node
+- [ ] `AsyncPostgresSaver` im `lifespan` aktivieren (Drop-in, kein Migrations-Code)
+- [ ] `langgraph`, `langgraph-checkpoint-postgres`, `langchain-openai` in `requirements.txt`
+- [ ] LLM-Reranker als optionaler Node
 
 ### Iteration 3 – Robustheit (ca. 4-5 Tage)
 
@@ -621,29 +862,36 @@ Response: {
 
 ---
 
-## 15. Offene Entscheidungen
+## 15. Entscheidungen (geschlossen)
 
-1. **Intent-Klassifikation strikt lokal vs. Hybrid mit LLM-Fallback?**
-   Empfehlung: Start mit LLM (Iter. 1), Umstieg auf lokalen Classifier sobald ~50 annotierte
-   Beispiele aus echten Logs vorliegen (Iter. 2).
+1. **Intent-Klassifikation: lokal vs. Hybrid?**
+   ✅ **Entschieden:** Empfehlung umgesetzt – Start mit LLM-Zero-shot (Iter. 1), Umstieg auf
+   lokalen Classifier (Iter. 2) sobald ~50 annotierte Logs vorliegen. Logs werden ab Iter. 1
+   automatisch via `event_content` gesammelt (siehe Abschnitt 4).
 
 2. **Essay-Material bei belegpflichtigen Antworten?**
-   `essay`-Chunks sind Interpretationstext, kein Primaerbeleg. Empfehlung: nur bei
-   `erklaerung_vertiefung` und `vergleich` als Sekundaerquelle; bei `beleg_pruefung` explizit
-   ausschliessen.
+   ✅ **Entschieden:** Empfehlung umgesetzt – `essay`-Chunks nur bei `erklaerung_vertiefung`
+   und `vergleich` als Sekundaerquelle; bei `beleg_pruefung` explizit ausgeschlossen
+   (siehe `INTENT_CHUNK_TYPE_MAP` in Abschnitt 12).
 
-3. **Citation-Tiefe: nur Werk/Vortrag oder bis Chunk-Ebene?**
-   Die `metadata`-Spalte in `rag_chunks` enthaelt bereits Quelleninfos. Empfehlung: Mindest-
-   anforderung = Werk + Datum; optional Kapitel/Seite wenn in Metadaten vorhanden.
+3. **Citation-Tiefe?**
+   ✅ **Entschieden:** Bis Paragraph-Ebene. Die `metadata`-Spalte in `rag_chunks` enthaelt
+   `source_title`, `segment_title` und `segment_index` – diese Felder sind fuer Citations
+   zu verwenden. `segment_title` entspricht dem Kapitel/Abschnitt, `segment_index` dem
+   Paragraph innerhalb des Segments. Der entsprechende Code (`_extract_context_source` in
+   `authentic_concept_explain.py`) ist bereits im Projekt vorhanden und kann wiederverwendet
+   werden.
 
 4. **Maximal-Latenz?**
-   Intent + Retrieval + LLM = realistisch 1.0-2.5s ohne Streaming. Mit Streaming: erste
-   Token nach ~0.5s. Empfehlung: Streaming ab Iteration 3 als Pflicht, Ziel P95 < 3s.
+   ✅ **Entschieden:** Streaming ab Iteration 1 als Pflicht (via SSE), Ziel P95 < 3s.
+   Erste Token nach ~0.5s durch LangGraph `astream_events`.
 
-5. **Wo wird `conversation_history` gehalten – Client oder Server?**
-   Iteration 1: Client haelt History und sendet sie mit. Iteration 2+: Server haelt History
-   in `chat_threads`-Tabelle, Client sendet nur `thread_id`.
+5. **Wo wird `conversation_history` gehalten?**
+   ✅ **Entschieden:** Server haelt History von Anfang an via `AsyncPostgresSaver`
+   (LangGraph-Checkpointer). Client sendet nur `thread_id`. Keine eigene
+   `chat_threads`-Tabelle noetig.
 
 6. **Assistenten-uebergreifend oder Philo-spezifisch?**
-   Der `assistant_slug` im Endpunkt-Pfad (`/agent/{assistant_slug}/chat`) erlaubt von Anfang
-   an Multi-Assistenten-Support. Nur der Persona-Prompt und die Collection-ID aendern sich.
+   ✅ **Entschieden:** Assistenten-uebergreifend von Anfang an. Endpunkt
+   `/api/v1/agent/{assistant_slug}/chat` – nur Persona-Prompt und Collection-ID
+   unterscheiden sich je Assistent.

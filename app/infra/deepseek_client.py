@@ -1,9 +1,19 @@
 """Minimal DeepSeek chat client for server-side calls."""
 from __future__ import annotations
 
-from typing import Iterable, List, Mapping, Optional
+from dataclasses import dataclass, field
+from typing import Iterable, List, Mapping, Optional, Union
 
 import httpx
+
+
+@dataclass
+class ChatResult:
+    """Return value of DeepSeekClient.chat() — content + raw usage dict."""
+
+    content: str
+    usage: dict = field(default_factory=dict)
+    tool_calls: Optional[list] = field(default=None)
 
 
 class DeepSeekClient:
@@ -13,9 +23,10 @@ class DeepSeekClient:
         self,
         api_key: str,
         *,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-flash",
         timeout: float = 120.0,
         base_url: str = "https://api.deepseek.com",
+        thinking: Optional[Mapping[str, str]] = None,
     ) -> None:
         if not api_key:
             raise ValueError("DeepSeek API key is required")
@@ -23,6 +34,10 @@ class DeepSeekClient:
         self.model = model
         self.timeout = timeout
         self.base_url = str(base_url).rstrip("/")
+        # Explicit thinking mode (deepseek-v4-flash defaults to "enabled" server-side
+        # if omitted — pass {"type": "disabled"} to match the old non-reasoning
+        # deepseek-chat behavior). None = let the API use its own default.
+        self.thinking = dict(thinking) if thinking is not None else None
 
     async def chat(
         self,
@@ -30,8 +45,15 @@ class DeepSeekClient:
         *,
         temperature: float = 0.2,
         max_tokens: int = 300,
-    ) -> str:
-        """Call DeepSeek chat completions."""
+        tools: Optional[list] = None,
+        tool_choice: Optional[Union[str, dict]] = None,
+        _debug_caller: str = "unknown",
+    ) -> ChatResult:
+        """Call DeepSeek chat completions. Returns content + token usage.
+
+        If `tools` is provided, the model may return `tool_calls` instead of
+        (or in addition to) `content` — see `ChatResult.tool_calls`.
+        """
 
         payload: dict[str, object] = {
             "model": self.model,
@@ -39,27 +61,38 @@ class DeepSeekClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if self.thinking is not None:
+            payload["thinking"] = self.thinking
+        if tools is not None:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
 
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
 
+        target_url = f"{self.base_url}/chat/completions"
         timeout_obj = httpx.Timeout(self.timeout, connect=10.0)
         async with httpx.AsyncClient(timeout=timeout_obj) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions", json=payload, headers=headers
-            )
+            response = await client.post(target_url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-            choices: Optional[List[Mapping[str, object]]] = data.get("choices")  # type: ignore[arg-type]
-            if not choices:
-                raise RuntimeError("DeepSeek returned no choices")
-            message = choices[0].get("message", {})
-            content = message.get("content") if isinstance(message, dict) else None
-            if not content or not isinstance(content, str):
-                raise RuntimeError("DeepSeek returned empty content")
-            return content.strip()
+        choices: Optional[List[Mapping[str, object]]] = data.get("choices")  # type: ignore[arg-type]
+        if not choices:
+            raise RuntimeError("DeepSeek returned no choices")
+        message = choices[0].get("message", {})
+        content = message.get("content") if isinstance(message, dict) else None
+        tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+        if (not content or not isinstance(content, str)) and not tool_calls:
+            raise RuntimeError("DeepSeek returned empty content")
+        usage: dict = data.get("usage") or {}
+        return ChatResult(
+            content=content.strip() if isinstance(content, str) else "",
+            usage=usage,
+            tool_calls=tool_calls,
+        )
 
     async def list_models(self) -> list[str]:
         """Best-effort probe for available models (if endpoint is exposed)."""

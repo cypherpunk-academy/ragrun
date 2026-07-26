@@ -1,0 +1,67 @@
+# Production overlay for docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  ragrun-api:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+      - BATCH_SIZE=64
+      - EMBEDDING_CACHE_SIZE=20000
+      - MAX_QUERY_RESULTS=50
+      - BACKEND_CORS_ORIGINS=["https://yourdomain.com"]
+    volumes:
+      - vector_data_prod:/app/data/vector_db
+      - backup_data_prod:/app/data/backups
+      - log_data_prod:/app/data/logs
+      - embeddings_cache_prod:/app/data/embeddings_cache
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--workers",
+        "2",
+      ]
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
+    restart: always
+
+  embedding-service:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - USE_HALF_PRECISION=false
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+        reservations:
+          memory: 2G
+          cpus: "1.0"
+    restart: always
+
+volumes:
+  vector_data_prod:
+    driver: local
+  backup_data_prod:
+    driver: local
+  log_data_prod:
+    driver: local
+  embeddings_cache_prod:
+    driver: local
+  embeddings_models_prod:
+    driver: local
+  embeddings_logs_prod:
+    driver: local

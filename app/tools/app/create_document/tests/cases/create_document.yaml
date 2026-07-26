@@ -1,0 +1,11 @@
+args:
+  title: "Meine Dreigliederung-Erklärung"
+  content: |
+    # Meine Dreigliederung-Erklärung
+
+    ## Einleitung
+
+    Der soziale Organismus gliedert sich in drei relativ selbständige Glieder.
+expected_payload:
+  title: "Meine Dreigliederung-Erklärung"
+  summary_for_chat: "Neuer Arbeitstext angelegt."
