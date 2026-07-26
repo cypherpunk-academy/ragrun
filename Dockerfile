@@ -3,11 +3,11 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-ARG RAGKEEP_PROJECT_ROOT=ragkeep
+ARG RAGKEEP_REPO=cypherpunk-academy/ragkeep
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y build-essential git && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
@@ -17,7 +17,13 @@ COPY app ./app
 # Ensure we only ship assistant prompts in one canonical location:
 # `/app/ragkeep/assistants` (matches `settings.assistants_root` default).
 RUN rm -rf /app/app/assistants
-COPY ${RAGKEEP_PROJECT_ROOT}/assistants ./ragkeep/assistants
+
+# Clone assistants from public ragkeep repo (shallow, no history).
+RUN git clone --depth=1 --no-tags \
+      "https://github.com/${RAGKEEP_REPO}.git" /tmp/ragkeep && \
+    cp -r /tmp/ragkeep/assistants ./ragkeep/assistants && \
+    rm -rf /tmp/ragkeep
+
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
