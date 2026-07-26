@@ -3,8 +3,6 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-ARG RAGKEEP_REPO=cypherpunk-academy/ragkeep
-
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y build-essential git && rm -rf /var/lib/apt/lists/*
@@ -20,7 +18,7 @@ RUN rm -rf /app/app/assistants
 
 # Clone assistants from public ragkeep repo (shallow, no history).
 RUN git clone --depth=1 --no-tags \
-      "https://github.com/${RAGKEEP_REPO}.git" /tmp/ragkeep && \
+      https://github.com/cypherpunk-academy/ragkeep.git /tmp/ragkeep && \
     cp -r /tmp/ragkeep/assistants ./ragkeep/assistants && \
     rm -rf /tmp/ragkeep
 
