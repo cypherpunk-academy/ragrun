@@ -1,0 +1,25 @@
+name: Supabase Staging Keepalive
+
+# Supabase free tier pauses projects after 7 days of inactivity.
+# This workflow pings the staging DB every 5 days to prevent that.
+
+on:
+  schedule:
+    - cron: '0 7 */5 * *'  # every 5 days at 07:00 UTC
+  workflow_dispatch:        # allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase staging REST API
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.SUPABASE_STAGING_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_STAGING_ANON_KEY }}" \
+            "https://duhtxxbynkilpxdpcpsk.supabase.co/rest/v1/")
+          echo "Supabase staging responded with HTTP $STATUS"
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 500 ]; then
+            echo "Unexpected status — check if project is paused"
+            exit 1
+          fi
