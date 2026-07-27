@@ -20,21 +20,18 @@ def upgrade() -> None:
     2. Migrate data: convert single worldview string to array
     3. Drop old worldview column
     """
-    # Add the new worldviews column as ARRAY(String)
-    op.add_column(
-        "rag_chunks",
-        sa.Column("worldviews", postgresql.ARRAY(sa.String()), nullable=True),
-    )
-    
-    # Migrate existing data: wrap single worldview value in array
+    # Add the new worldviews column as ARRAY(String) — idempotent
+    op.execute("ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS worldviews VARCHAR[]")
+
+    # Migrate existing data: wrap single worldview value in array (skip if already done)
     op.execute("""
         UPDATE rag_chunks
         SET worldviews = ARRAY[worldview]
-        WHERE worldview IS NOT NULL
+        WHERE worldview IS NOT NULL AND worldviews IS NULL
     """)
-    
-    # Drop the old worldview column
-    op.drop_column("rag_chunks", "worldview")
+
+    # Drop the old worldview column if it still exists
+    op.execute("ALTER TABLE rag_chunks DROP COLUMN IF EXISTS worldview")
 
 
 def downgrade() -> None:
