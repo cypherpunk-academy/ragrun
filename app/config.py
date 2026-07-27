@@ -46,6 +46,25 @@ class Settings(BaseSettings):
 
     embeddings_base_url: AnyHttpUrl = "http://embedding-service:8001"
     embeddings_timeout_seconds: float = 180.0
+    # "http" = personal-embeddings-service; "huggingface" = HF Inference feature-extraction.
+    embeddings_provider: str = "http"
+    hf_token: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "RAGRUN_HF_TOKEN",
+            "HF_TOKEN",
+            "HUGGINGFACE_HUB_TOKEN",
+        ),
+    )
+    embeddings_hf_model: str = "intfloat/multilingual-e5-large"
+    # Override full feature-extraction URL if needed; default is router.huggingface.co.
+    embeddings_hf_api_url: Optional[str] = None
+    embeddings_hf_max_texts_per_request: int = 8
+    embeddings_hf_max_retries: int = 4
+    # Soft client guard: refuse embed_texts batches larger than this on HF.
+    embeddings_hf_max_batch_texts: int = 32
+    # Hard ingest guard: block POST /rag/embed-chunks when provider is huggingface.
+    embeddings_hf_forbid_ingest: bool = True
     deepseek_base_url: AnyHttpUrl = "https://api.deepseek.com"
 
     langfuse_host: Optional[str] = None
