@@ -151,15 +151,33 @@ async def healthz() -> Dict[str, Any]:
     embeddings_health_url = f"{str(settings.embeddings_base_url).rstrip('/')}/api/v1/health/simple"
     langfuse_health_url = f"{str(settings.langfuse_host).rstrip('/')}/api/public/health" if settings.langfuse_host else None
     qdrant_headers = {"api-key": settings.qdrant_api_key} if settings.qdrant_api_key else {}
+    embeddings_provider = (settings.embeddings_provider or "http").strip().lower()
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
         probe_coros = [
             _probe(client, qdrant_health_url, headers=qdrant_headers),
-            _probe(client, embeddings_health_url),
         ]
+        if embeddings_provider not in {"huggingface", "hf"}:
+            probe_coros.append(_probe(client, embeddings_health_url))
         if langfuse_health_url:
             probe_coros.append(_probe(client, langfuse_health_url))
         probes = await asyncio.gather(*probe_coros)
+
+    if embeddings_provider in {"huggingface", "hf"}:
+        if settings.hf_token:
+            embedding_probe: Dict[str, Any] = {
+                "status": "configured",
+                "provider": "huggingface",
+                "model": settings.embeddings_hf_model,
+            }
+        else:
+            embedding_probe = {
+                "status": "unhealthy",
+                "provider": "huggingface",
+                "error": "RAGRUN_HF_TOKEN / HF_TOKEN missing",
+            }
+    else:
+        embedding_probe = probes[1]
 
     deepseek_probe: Dict[str, Any] | None = None
     if settings.deepseek_model_probe and settings.deepseek_api_key:
@@ -177,13 +195,21 @@ async def healthz() -> Dict[str, Any]:
         except Exception as exc:  # pragma: no cover - best effort
             deepseek_probe = {"status": "unhealthy", "error": str(exc)}
 
+    langfuse_probe: Dict[str, Any]
+    if langfuse_health_url:
+        # probes: [qdrant, embeddings?][langfuse]
+        langfuse_idx = 1 if embeddings_provider in {"huggingface", "hf"} else 2
+        langfuse_probe = probes[langfuse_idx]
+    else:
+        langfuse_probe = {"status": "disabled"}
+
     return {
         "status": "ok",
         "environment": settings.app_env,
         "dependencies": {
             "qdrant": probes[0],
-            "embedding_service": probes[1],
-            "langfuse": probes[2] if langfuse_health_url else {"status": "disabled"},
+            "embedding_service": embedding_probe,
+            "langfuse": langfuse_probe,
             "deepseek": deepseek_probe or {"status": "disabled"},
         },
     }
