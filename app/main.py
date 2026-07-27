@@ -115,11 +115,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 
-async def _probe(client: httpx.AsyncClient, url: str) -> Dict[str, Any]:
+async def _probe(client: httpx.AsyncClient, url: str, headers: dict | None = None) -> Dict[str, Any]:
     """Probe a downstream dependency and normalize the response."""
 
     try:
-        response = await client.get(url)
+        response = await client.get(url, headers=headers or {})
         response.raise_for_status()
         payload: Any
         try:
@@ -150,10 +150,11 @@ async def healthz() -> Dict[str, Any]:
     qdrant_health_url = f"{str(settings.qdrant_url).rstrip('/')}/healthz"
     embeddings_health_url = f"{str(settings.embeddings_base_url).rstrip('/')}/api/v1/health/simple"
     langfuse_health_url = f"{str(settings.langfuse_host).rstrip('/')}/api/public/health" if settings.langfuse_host else None
+    qdrant_headers = {"api-key": settings.qdrant_api_key} if settings.qdrant_api_key else {}
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
         probe_coros = [
-            _probe(client, qdrant_health_url),
+            _probe(client, qdrant_health_url, headers=qdrant_headers),
             _probe(client, embeddings_health_url),
         ]
         if langfuse_health_url:
