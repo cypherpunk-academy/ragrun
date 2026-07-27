@@ -147,16 +147,18 @@ def index() -> Dict[str, Any]:
 async def healthz() -> Dict[str, Any]:
     """Aggregate health check for primary dependencies."""
 
-    qdrant_health_url = f"{settings.qdrant_url.rstrip('/')}/healthz"
-    embeddings_health_url = f"{settings.embeddings_base_url.rstrip('/')}/api/v1/health/simple"
-    langfuse_health_url = f"{settings.langfuse_host.rstrip('/')}/api/public/health"
+    qdrant_health_url = f"{str(settings.qdrant_url).rstrip('/')}/healthz"
+    embeddings_health_url = f"{str(settings.embeddings_base_url).rstrip('/')}/api/v1/health/simple"
+    langfuse_health_url = f"{str(settings.langfuse_host).rstrip('/')}/api/public/health" if settings.langfuse_host else None
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
-        probes = await asyncio.gather(
+        probe_coros = [
             _probe(client, qdrant_health_url),
             _probe(client, embeddings_health_url),
-            _probe(client, langfuse_health_url),
-        )
+        ]
+        if langfuse_health_url:
+            probe_coros.append(_probe(client, langfuse_health_url))
+        probes = await asyncio.gather(*probe_coros)
 
     deepseek_probe: Dict[str, Any] | None = None
     if settings.deepseek_model_probe and settings.deepseek_api_key:
@@ -180,7 +182,7 @@ async def healthz() -> Dict[str, Any]:
         "dependencies": {
             "qdrant": probes[0],
             "embedding_service": probes[1],
-            "langfuse": probes[2],
+            "langfuse": probes[2] if langfuse_health_url else {"status": "disabled"},
             "deepseek": deepseek_probe or {"status": "disabled"},
         },
     }
