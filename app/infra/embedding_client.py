@@ -1,10 +1,12 @@
-"""Async client for the personal embedding service."""
+"""Async client for embedding backends (HTTP service or Hugging Face)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 
 import httpx
+
+from app.infra.hf_embedding import DEFAULT_HF_MODEL, HuggingFaceEmbeddingBackend
 
 
 def _chunk_list(items: Sequence[str], chunk_size: int) -> Iterable[List[str]]:
@@ -24,12 +26,49 @@ class EmbeddingBatchResult:
 
 
 class EmbeddingClient:
-    """Simple HTTP client for the personal embedding service."""
+    """HTTP or Hugging Face embedding client with a shared contract."""
 
-    def __init__(self, base_url: str, timeout: float = 60.0, batch_size: int = 64) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 60.0,
+        batch_size: int = 64,
+        *,
+        provider: str = "http",
+        hf_token: str | None = None,
+        hf_model: str = DEFAULT_HF_MODEL,
+        hf_api_url: str | None = None,
+        hf_max_texts_per_request: int = 8,
+        hf_max_retries: int = 4,
+        hf_forbid_large_batches: bool = True,
+        hf_max_batch_texts: int = 32,
+    ) -> None:
         self.base_url = str(base_url).rstrip("/")
         self.timeout = timeout
         self.batch_size = batch_size
+        self.provider = (provider or "http").strip().lower()
+        self.hf_model = hf_model
+        self.hf_forbid_large_batches = hf_forbid_large_batches
+        self.hf_max_batch_texts = hf_max_batch_texts
+        self._hf: HuggingFaceEmbeddingBackend | None = None
+        if self.provider in {"huggingface", "hf"}:
+            if not hf_token:
+                raise ValueError(
+                    "RAGRUN_HF_TOKEN (or HF_TOKEN) is required when "
+                    "RAGRUN_EMBEDDINGS_PROVIDER=huggingface"
+                )
+            self._hf = HuggingFaceEmbeddingBackend(
+                token=hf_token,
+                model=hf_model,
+                api_url=hf_api_url,
+                timeout=timeout,
+                max_retries=hf_max_retries,
+                max_texts_per_request=hf_max_texts_per_request,
+            )
+
+    @property
+    def is_huggingface(self) -> bool:
+        return self._hf is not None
 
     async def embed_texts(
         self,
@@ -42,6 +81,23 @@ class EmbeddingClient:
 
         if not texts:
             raise ValueError("at least one text is required for embeddings")
+
+        if self._hf is not None:
+            if self.hf_forbid_large_batches and len(texts) > self.hf_max_batch_texts:
+                raise RuntimeError(
+                    "Hugging Face embeddings refuse large batches "
+                    f"({len(texts)} > {self.hf_max_batch_texts}). "
+                    "Run ingest against a local personal-embeddings-service "
+                    "(RAGRUN_EMBEDDINGS_PROVIDER=http, "
+                    "RAGRUN_EMBEDDINGS_BASE_URL=http://localhost:8001)."
+                )
+            vectors = await self._hf.embed_texts(texts)
+            dims = len(vectors[0]) if vectors else 0
+            return EmbeddingBatchResult(
+                embeddings=vectors,
+                dimensions=dims,
+                model_name=model_name or self.hf_model,
+            )
 
         resolved_batch_size = batch_size or self.batch_size
         all_embeddings: List[List[float]] = []
@@ -78,4 +134,3 @@ class EmbeddingClient:
             dimensions=dimensions,
             model_name=resolved_model,
         )
-

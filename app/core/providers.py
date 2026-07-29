@@ -20,9 +20,17 @@ from app.infra.sparse_embedder import SparseEmbedder
 @lru_cache(maxsize=1)
 def get_embedding_client(batch_size: int | None = None) -> EmbeddingClient:
     return EmbeddingClient(
-        settings.embeddings_base_url,
+        str(settings.embeddings_base_url),
         timeout=settings.embeddings_timeout_seconds,
         batch_size=batch_size or 64,
+        provider=settings.embeddings_provider,
+        hf_token=settings.hf_token,
+        hf_model=settings.embeddings_hf_model,
+        hf_api_url=settings.embeddings_hf_api_url,
+        hf_max_texts_per_request=settings.embeddings_hf_max_texts_per_request,
+        hf_max_retries=settings.embeddings_hf_max_retries,
+        hf_forbid_large_batches=True,
+        hf_max_batch_texts=settings.embeddings_hf_max_batch_texts,
     )
 
 

@@ -465,6 +465,28 @@ def _validate_embed_chunks_request(request: EmbedChunksRequest) -> None:
             )
 
 
+def _reject_hf_batch_ingest(request: EmbedChunksRequest) -> None:
+    """Block large/batch ingest while query embeddings use Hugging Face."""
+    provider = (settings.embeddings_provider or "http").strip().lower()
+    if (
+        provider in {"huggingface", "hf"}
+        and settings.embeddings_hf_forbid_ingest
+        and not request.cleanup_only
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Batch ingest via /rag/embed-chunks is blocked while "
+                "RAGRUN_EMBEDDINGS_PROVIDER=huggingface "
+                "(avoids burning HF credits on large embeds). "
+                "Run ingest locally: set RAGRUN_EMBEDDINGS_PROVIDER=http and "
+                "RAGRUN_EMBEDDINGS_BASE_URL to personal-embeddings-service "
+                "(e.g. http://localhost:8001), or set "
+                "RAGRUN_EMBEDDINGS_HF_FORBID_INGEST=false to override."
+            ),
+        )
+
+
 def _chunks_text_kb(chunks: List[ChunkRecord]) -> float:
     return sum(len(c.text.encode("utf-8")) for c in chunks) / 1024.0
 
@@ -501,6 +523,7 @@ async def embed_chunks(
     """Read all chunks for a collection from rag_chunks, embed into Qdrant, mirror vector_chunks."""
 
     _validate_embed_chunks_request(request)
+    _reject_hf_batch_ingest(request)
 
     rag_repo = get_rag_chunks_repository()
 
