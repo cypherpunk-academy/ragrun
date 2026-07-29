@@ -125,7 +125,7 @@ async def _lookup_source_ids_for_paragraphs(
                     """
                     SELECT id::text AS paragraph_id, source_id
                     FROM rag_paragraphs
-                    WHERE id = ANY(CAST(:ids AS uuid[]))
+                    WHERE id::text = ANY(:ids)
                       AND deprecated_at IS NULL
                     """
                 ),
