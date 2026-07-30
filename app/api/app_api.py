@@ -287,7 +287,7 @@ async def app_chat_stream(
         linked_document_content=body.linked_document_content,
         app_tool_registry=request.app.state.app_tool_registry,
     )
-    return EventSourceResponse(generator)
+    return EventSourceResponse(generator, ping=None)
 
 
 @router.post("/chat/{talk_id}/summarize", response_model=ChatSummarizeResponse)
