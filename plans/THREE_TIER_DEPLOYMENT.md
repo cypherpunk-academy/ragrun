@@ -128,10 +128,12 @@ Sleep-Modus bedeutet: Railway fährt den Service beim ersten Aufruf hoch (~30–
 - Initial mit Snapshot aus Production-Qdrant (Qdrant Cloud) befüllt (Entscheidung 1b)
 - Production nutzt stattdessen Qdrant Cloud (kein Railway-Qdrant in Production)
 
-**Embeddings (staging + production): Modal, kein Railway-Service**
-- Der `personal-embeddings-service` wird als Modal-App deployt, nicht auf Railway
-- Staging und Production teilen denselben Modal-Endpoint (serverless, per-call)
-- Kein Railway-Volume, kein Kaltstart-Problem für das Modell
+**Embeddings (staging + production): Hugging Face Serverless (queries), local ingest**
+- Modal `personal-embeddings-service` is **stopped** (warm T4 was too expensive).
+- Queries: `RAGRUN_EMBEDDINGS_PROVIDER=huggingface` + `RAGRUN_HF_TOKEN`
+- Ingest (`rag:embed`): local `personal-embeddings-service` with `PROVIDER=http` (HF ingest blocked by default)
+- Future reserve: home GPU Mini-PC — `plans/future/HOME_GPU_EMBEDDER.md`
+- Details: `plans/future/EMBEDDINGS_HOSTING.md`
 
 **Kein Railway-Template für docker-compose.yml:** Railway liest keine `docker-compose.yml`. Jeder Service wird separat in Railway konfiguriert. Die bestehende `docker-compose.yml` dient als lokale Referenz, nicht als Deployment-Artefakt.
 
@@ -333,7 +335,7 @@ rp embed --book ...
 | api | Railway (bestehend) | ~$4 |
 | ui | Railway (bestehend) | ~$2 |
 | qdrant | **Qdrant Cloud Free Tier** | $0 |
-| embeddings | **Modal (serverless GPU, T4)** | ~$0–2 (pay-per-call) |
+| embeddings | **HF Serverless** (e5-large queries) + local ingest | ~$0–few (credits / low traffic) |
 | Supabase | Pro-Account | bestehend |
 | **Production gesamt** | | **~$6–8/Monat** |
 

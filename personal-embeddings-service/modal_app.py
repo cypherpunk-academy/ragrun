@@ -1,14 +1,21 @@
 """
 Modal deployment for personal-embeddings-service.
 
-Deploy:
+DEPRECATED for always-on staging/production queries (2026-07):
+    Warm T4 via min_containers=1 was too expensive; scale-to-zero cold starts
+    were unacceptable. Current path: Hugging Face serverless for queries,
+    local Docker for ingest. Home-GPU Mini-PC is the future reserve — see
+    plans/future/EMBEDDINGS_HOSTING.md. This app should stay stopped unless
+    deliberately revived for a GPU burst.
+
+Deploy (only if intentionally using Modal again):
     modal deploy personal-embeddings-service/modal_app.py
 
 First-time model download (fills the Volume cache):
     modal run personal-embeddings-service/modal_app.py::download_models
 
 The ASGI endpoint URL printed after deploy goes into:
-    RAGRUN_EMBEDDINGS_BASE_URL (ragrun Railway env / .env.staging / .env.production)
+    RAGRUN_EMBEDDINGS_BASE_URL (only when RAGRUN_EMBEDDINGS_PROVIDER=http)
 """
 
 import os
@@ -102,8 +109,9 @@ def download_models():
 @app.function(
     gpu="T4",
     volumes={VOLUME_MOUNT: model_volume},
-    # Keep one container warm to avoid cold-start latency
-    min_containers=1,
+    # Scale to zero when idle — pay only for actual embedding work.
+    # First request after idle pays a cold-start (~30–90s model load).
+    min_containers=0,
     # Scale-out limit — embeddings are stateless, safe to scale
     max_containers=3,
     # Longer timeout for batch encode requests
