@@ -45,6 +45,39 @@ def _announces_write(text: str) -> bool:
     return bool(_WRITE_ANNOUNCEMENT_RE.search(text))
 
 
+# Gate für Schreib-Tools.  Zwei Stufen:
+#
+# 1. _EXPLICIT_ARBEITSTEXT_RE — Nutzer nennt "Arbeitstext" explizit.
+#    Nötig für create_document (kein Dokument verknüpft).
+#
+# 2. _IMPLICIT_WRITE_RE — Kurze Schreib-Aufforderung ohne "Arbeitstext"
+#    ("schreib das auch", "ergänze das", "trag das ein").
+#    Reicht für update_document, wenn bereits ein Dokument verknüpft ist
+#    (= Fortsetzung einer expliziten Arbeitstext-Session).
+_EXPLICIT_ARBEITSTEXT_RE = re.compile(
+    r"arbeitstext",
+    re.IGNORECASE,
+)
+_IMPLICIT_WRITE_RE = re.compile(
+    r"(schreib|trag|füg|ergänz|änder|aktualisier|notier|eintrag|hinzufüg|aufschreib)"
+    r".*\b(das|dies|auch|dazu|noch|bitte|ebenfalls|ein|hinzu|auf)\b",
+    re.IGNORECASE,
+)
+
+
+def _user_requests_write(user_message: str, *, has_linked_document: bool = False) -> bool:
+    """True wenn der Nutzer explizit eine Arbeitstext-Aktion anfordert.
+
+    Wenn bereits ein Dokument verknüpft ist, genügt eine implizite
+    Schreib-Aufforderung (z. B. "schreib das auch").
+    """
+    if _EXPLICIT_ARBEITSTEXT_RE.search(user_message):
+        return True
+    if has_linked_document and _IMPLICIT_WRITE_RE.search(user_message):
+        return True
+    return False
+
+
 async def _resolve_context_paragraph_text(
     *,
     explicit: str | None,
@@ -401,6 +434,16 @@ async def stream_app_chat(
                         available_tools = app_tool_registry.list_tools(
                             mode=mode, linked_document_id=linked_document_id
                         )
+                        # Gate: Schreib-Tools nur wenn der Nutzer explizit
+                        # eine Arbeitstext-Aktion anfordert.
+                        write_requested = _user_requests_write(
+                            msg, has_linked_document=bool(linked_document_id)
+                        )
+                        if not write_requested:
+                            available_tools = [
+                                t for t in available_tools
+                                if t.id not in ("update_document", "create_document")
+                            ]
                         if available_tools:
                             tools_schema = app_tool_registry.schemas_for_llm(available_tools)
                             tool_ctx = ToolContext(
@@ -441,14 +484,14 @@ async def stream_app_chat(
                             for hm in history_messages[-4:]:
                                 role = "user" if isinstance(hm, HumanMessage) else "assistant"
                                 seed_messages.append({"role": role, "content": hm.content})
-                            if _announces_write(final_response):
+                            if write_requested and _announces_write(final_response):
                                 tool_loop_instruction = (
                                     "Deine Antwort an den Nutzer kündigt eine Änderung am Arbeitstext an. "
                                     "Rufe jetzt zwingend `update_document` auf — NICHT `read_blocks`. "
                                     "Die neue Formulierung steht bereits in deiner Antwort oben; "
                                     "übernimm sie direkt als `content`."
                                 )
-                            else:
+                            elif write_requested:
                                 tool_loop_instruction = (
                                     "Ein Arbeitstext ist verknüpft. "
                                     "Rufe jetzt `read_blocks` auf, um den aktuellen Inhalt zu lesen. "
@@ -456,6 +499,11 @@ async def stream_app_chat(
                                     "ausdrücklich darum gebeten hat, etwas in den Arbeitstext zu "
                                     "schreiben, einzutragen oder zu ändern. "
                                     "Du MUSST jetzt ein Werkzeug aufrufen."
+                                )
+                            else:
+                                tool_loop_instruction = (
+                                    "Ein Arbeitstext ist verknüpft, aber der Nutzer hat keine "
+                                    "Änderung angefordert. Rufe KEIN Schreib-Werkzeug auf."
                                 )
                             seed_messages += [
                                 {"role": "user", "content": msg},
@@ -474,7 +522,7 @@ async def stream_app_chat(
                                 tool_ctx,
                                 tools_schema,
                                 seed_messages,
-                                forced_first_round=bool(linked_document_id),
+                                forced_first_round=bool(linked_document_id) and write_requested,
                             )
                     except Exception:
                         logger.warning(
