@@ -123,6 +123,12 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("RAGRUN_SUPABASE_JWT_SECRET", "SUPABASE_JWT_SECRET"),
     )
+    supabase_service_role_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAGRUN_SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+    )
+
+    google_play_url: str = ""
 
     # Default assistant for app search when collection is omitted
     app_default_assistant_slug: str = "philo-von-freisinn"

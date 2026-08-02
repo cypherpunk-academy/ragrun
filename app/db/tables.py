@@ -208,3 +208,22 @@ users_table = Table(
 
 Index("idx_users_github_login", users_table.c.github_login)
 
+
+# --- invitations: Einladungsbasierte Registrierung ---
+invitations_table = Table(
+    "invitations",
+    metadata,
+    Column("id", UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("inviter_user_id", String(128), nullable=False),
+    Column("inviter_email", String(256), nullable=True),
+    Column("invitee_email", String(256), nullable=False),
+    Column("code", String(4), nullable=False),
+    Column("status", String(16), nullable=False, server_default="pending"),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("redeemed_at", DateTime(timezone=True), nullable=True),
+)
+
+Index("idx_inv_invitee_code", invitations_table.c.invitee_email, invitations_table.c.code)
+Index("idx_inv_inviter", invitations_table.c.inviter_user_id)
+

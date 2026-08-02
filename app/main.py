@@ -35,6 +35,7 @@ from fastapi import Depends
 
 from .config import settings
 from .api import app_api as app_api_router
+from .api import invitation as invitation_router
 from .api import rag as rag_router
 from .api import admin as admin_router
 from .api.internal_auth import require_internal_key
@@ -225,6 +226,7 @@ if _cors_origins:
     )
 
 app.include_router(app_api_router.router)
+app.include_router(invitation_router.router)
 app.include_router(rag_router.router, prefix="/api/v1", dependencies=[Depends(require_internal_key)])
 app.include_router(admin_router.router, prefix="/api/v1", dependencies=[Depends(require_internal_key)])
 app.include_router(retrieval_router, prefix="/api/v1")
