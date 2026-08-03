@@ -59,7 +59,7 @@ async def send_invitation(
 
     engine = get_engine()
     try:
-        code = await invitation_service.create_invitation(
+        code = invitation_service.create_invitation(
             engine,
             inviter_user_id=user.user_id,
             inviter_email=user.email,
@@ -97,7 +97,7 @@ async def redeem_invitation(
 
     engine = get_engine()
     try:
-        await invitation_service.redeem_invitation(engine, email=email, code=code)
+        invitation_service.redeem_invitation(engine, email=email, code=code)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

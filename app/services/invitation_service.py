@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select, func, update
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.engine import Engine
 
 from app.config import settings
 from app.db.tables import invitations_table
@@ -23,7 +23,7 @@ def generate_code() -> str:
     return str(secrets.randbelow(9000) + 1000)
 
 
-async def count_recent_invitations(engine: AsyncEngine, inviter_user_id: str) -> int:
+def count_recent_invitations(engine: Engine, inviter_user_id: str) -> int:
     """Count invitations sent by this user in the last 24 hours."""
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     stmt = (
@@ -34,13 +34,13 @@ async def count_recent_invitations(engine: AsyncEngine, inviter_user_id: str) ->
             invitations_table.c.created_at >= since,
         )
     )
-    async with engine.connect() as conn:
-        result = await conn.execute(stmt)
+    with engine.connect() as conn:
+        result = conn.execute(stmt)
         return result.scalar_one()
 
 
-async def create_invitation(
-    engine: AsyncEngine,
+def create_invitation(
+    engine: Engine,
     *,
     inviter_user_id: str,
     inviter_email: str | None,
@@ -50,7 +50,7 @@ async def create_invitation(
 
     Raises ValueError if rate limit exceeded.
     """
-    recent = await count_recent_invitations(engine, inviter_user_id)
+    recent = count_recent_invitations(engine, inviter_user_id)
     if recent >= MAX_INVITATIONS_PER_DAY:
         raise ValueError(f"Maximal {MAX_INVITATIONS_PER_DAY} Einladungen pro Tag erlaubt.")
 
@@ -58,8 +58,8 @@ async def create_invitation(
     now = datetime.now(timezone.utc)
     expires = now + timedelta(hours=INVITATION_EXPIRY_HOURS)
 
-    async with engine.begin() as conn:
-        await conn.execute(
+    with engine.begin() as conn:
+        conn.execute(
             invitations_table.insert().values(
                 inviter_user_id=inviter_user_id,
                 inviter_email=inviter_email,
@@ -75,7 +75,7 @@ async def create_invitation(
     return code
 
 
-async def redeem_invitation(engine: AsyncEngine, *, email: str, code: str) -> bool:
+def redeem_invitation(engine: Engine, *, email: str, code: str) -> bool:
     """Validate and redeem an invitation code.
 
     Returns True if redeemed successfully.
@@ -84,9 +84,9 @@ async def redeem_invitation(engine: AsyncEngine, *, email: str, code: str) -> bo
     now = datetime.now(timezone.utc)
     email_lower = email.lower().strip()
 
-    async with engine.begin() as conn:
+    with engine.begin() as conn:
         # Atomic: only one concurrent redeem can succeed
-        result = await conn.execute(
+        result = conn.execute(
             update(invitations_table)
             .where(
                 invitations_table.c.invitee_email == email_lower,
@@ -101,8 +101,8 @@ async def redeem_invitation(engine: AsyncEngine, *, email: str, code: str) -> bo
 
     if row is None:
         # Check if code exists but expired
-        async with engine.connect() as conn:
-            expired = await conn.execute(
+        with engine.connect() as conn:
+            expired = conn.execute(
                 select(invitations_table.c.id).where(
                     invitations_table.c.invitee_email == email_lower,
                     invitations_table.c.code == code,
