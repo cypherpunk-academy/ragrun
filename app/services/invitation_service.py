@@ -14,7 +14,7 @@ from app.db.tables import invitations_table
 
 logger = logging.getLogger(__name__)
 
-MAX_INVITATIONS_PER_DAY = 3
+MAX_INVITATIONS_PER_DAY = 20
 INVITATION_EXPIRY_HOURS = 48
 
 
