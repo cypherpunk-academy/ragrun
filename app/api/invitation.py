@@ -102,24 +102,17 @@ async def redeem_invitation(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Create the Supabase auth user
+    # Create the Supabase auth user and get an OTP for immediate login
+    # (single admin/generate_link call — no rate-limit issue).
+    email_otp: str | None = None
     try:
-        await supabase_admin.create_user(email)
+        email_otp = await supabase_admin.create_user_and_get_otp(email)
     except Exception:
         logger.exception("Failed to create Supabase user for %s", email)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Benutzer konnte nicht angelegt werden.",
         )
-
-    # Generate a magic-link OTP so the client can log in immediately
-    # without a second email round-trip.
-    email_otp: str | None = None
-    try:
-        email_otp = await supabase_admin.generate_magic_link_otp(email)
-    except Exception:
-        logger.exception("Failed to generate magic link OTP for %s", email)
-        # Non-fatal: client falls back to requesting a new OTP via email
 
     return RedeemResponse(redeemed=True, email_otp=email_otp)
 

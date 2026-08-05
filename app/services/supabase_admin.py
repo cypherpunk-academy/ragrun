@@ -38,28 +38,43 @@ async def create_user(email: str) -> dict:
     return resp.json()
 
 
-async def generate_magic_link_otp(email: str) -> str:
-    """Generate a magic link via Admin API and return the plain OTP code.
+async def create_user_and_get_otp(email: str) -> str:
+    """Create a Supabase auth user and return a magic-link OTP in one step.
 
-    This avoids sending a second email — the caller can pass the OTP
-    directly to the client for immediate verification.
+    Uses admin/generate_link with type=signup which creates the user
+    AND returns the plain OTP — no email sent, no rate-limit issue.
+    Falls back to create_user + separate generate_link if user already exists.
     """
     base = (settings.supabase_url or "").rstrip("/")
     key = settings.supabase_service_role_key
     if not base or not key:
         raise RuntimeError("supabase_url and supabase_service_role_key must be configured")
 
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "apikey": key,
+        "Content-Type": "application/json",
+    }
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        # Try signup link — creates user + returns OTP in one call
         resp = await client.post(
             f"{base}/auth/v1/admin/generate_link",
-            json={"type": "magiclink", "email": email},
-            headers={
-                "Authorization": f"Bearer {key}",
-                "apikey": key,
-                "Content-Type": "application/json",
-            },
+            json={"type": "signup", "email": email},
+            headers=headers,
         )
-    resp.raise_for_status()
+
+        if resp.status_code == 422:
+            # User already exists — create a magiclink OTP instead
+            logger.info("User %s already exists, generating magiclink OTP", email)
+            resp = await client.post(
+                f"{base}/auth/v1/admin/generate_link",
+                json={"type": "magiclink", "email": email},
+                headers=headers,
+            )
+
+        resp.raise_for_status()
+
     data = resp.json()
     otp = data.get("properties", {}).get("email_otp")
     if not otp:
