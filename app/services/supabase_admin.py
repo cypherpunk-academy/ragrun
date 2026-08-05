@@ -74,10 +74,13 @@ async def check_user_exists(email: str) -> bool:
     if not base or not key:
         raise RuntimeError("supabase_url and supabase_service_role_key must be configured")
 
+    email_lower = email.lower().strip()
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        # GoTrue Admin: use `email` query param (exact). The PostgREST-style
+        # `filter=email eq …` returns an empty list on current Auth versions.
         resp = await client.get(
             f"{base}/auth/v1/admin/users",
-            params={"filter": f"email eq {email}", "page": 1, "per_page": 1},
+            params={"email": email_lower, "page": 1, "per_page": 1},
             headers={
                 "Authorization": f"Bearer {key}",
                 "apikey": key,
@@ -86,4 +89,4 @@ async def check_user_exists(email: str) -> bool:
     resp.raise_for_status()
     data = resp.json()
     users = data.get("users", [])
-    return any(u.get("email", "").lower() == email.lower() for u in users)
+    return any(u.get("email", "").lower() == email_lower for u in users)
