@@ -81,8 +81,15 @@ async def create_user_and_get_otp(email: str) -> str:
         resp.raise_for_status()
 
     data = resp.json()
-    otp = data.get("properties", {}).get("email_otp")
+    logger.info("generate_link response keys: %s", list(data.keys()))
+    # Try multiple known response structures
+    otp = (
+        data.get("properties", {}).get("email_otp")
+        or data.get("email_otp")
+        or data.get("hashed_token")
+    )
     if not otp:
+        logger.error("generate_link full response: %s", data)
         raise RuntimeError("Supabase did not return an email_otp in generate_link response")
     return otp
 
