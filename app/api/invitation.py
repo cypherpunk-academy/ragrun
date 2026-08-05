@@ -35,6 +35,7 @@ class RedeemRequest(BaseModel):
 
 class RedeemResponse(BaseModel):
     redeemed: bool
+    email_otp: str | None = None
 
 
 class CheckEmailRequest(BaseModel):
@@ -111,7 +112,16 @@ async def redeem_invitation(
             detail="Benutzer konnte nicht angelegt werden.",
         )
 
-    return RedeemResponse(redeemed=True)
+    # Generate a magic-link OTP so the client can log in immediately
+    # without a second email round-trip.
+    email_otp: str | None = None
+    try:
+        email_otp = await supabase_admin.generate_magic_link_otp(email)
+    except Exception:
+        logger.exception("Failed to generate magic link OTP for %s", email)
+        # Non-fatal: client falls back to requesting a new OTP via email
+
+    return RedeemResponse(redeemed=True, email_otp=email_otp)
 
 
 @router.post("/check-email", response_model=CheckEmailResponse)

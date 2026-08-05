@@ -38,6 +38,35 @@ async def create_user(email: str) -> dict:
     return resp.json()
 
 
+async def generate_magic_link_otp(email: str) -> str:
+    """Generate a magic link via Admin API and return the plain OTP code.
+
+    This avoids sending a second email — the caller can pass the OTP
+    directly to the client for immediate verification.
+    """
+    base = (settings.supabase_url or "").rstrip("/")
+    key = settings.supabase_service_role_key
+    if not base or not key:
+        raise RuntimeError("supabase_url and supabase_service_role_key must be configured")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        resp = await client.post(
+            f"{base}/auth/v1/admin/generate_link",
+            json={"type": "magiclink", "email": email},
+            headers={
+                "Authorization": f"Bearer {key}",
+                "apikey": key,
+                "Content-Type": "application/json",
+            },
+        )
+    resp.raise_for_status()
+    data = resp.json()
+    otp = data.get("properties", {}).get("email_otp")
+    if not otp:
+        raise RuntimeError("Supabase did not return an email_otp in generate_link response")
+    return otp
+
+
 async def check_user_exists(email: str) -> bool:
     """Check whether a Supabase auth user with this email exists."""
     base = (settings.supabase_url or "").rstrip("/")
