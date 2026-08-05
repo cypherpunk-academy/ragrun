@@ -39,11 +39,11 @@ async def create_user(email: str) -> dict:
 
 
 async def create_user_and_get_otp(email: str) -> str:
-    """Create a Supabase auth user and return a magic-link OTP in one step.
+    """Create a Supabase auth user and return a magic-link OTP.
 
-    Uses admin/generate_link with type=signup which creates the user
-    AND returns the plain OTP — no email sent, no rate-limit issue.
-    Falls back to create_user + separate generate_link if user already exists.
+    1. Create user via admin/users (no auth email triggered).
+    2. Generate magiclink via admin/generate_link → returns plain OTP.
+    Both use the admin API which is exempt from per-user rate limits.
     """
     base = (settings.supabase_url or "").rstrip("/")
     key = settings.supabase_service_role_key
@@ -57,22 +57,27 @@ async def create_user_and_get_otp(email: str) -> str:
     }
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        # Try signup link — creates user + returns OTP in one call
+        # Step 1: create user (idempotent — ignores "already exists")
         resp = await client.post(
-            f"{base}/auth/v1/admin/generate_link",
-            json={"type": "signup", "email": email},
+            f"{base}/auth/v1/admin/users",
+            json={"email": email, "email_confirm": True},
             headers=headers,
         )
-
         if resp.status_code == 422:
-            # User already exists — create a magiclink OTP instead
-            logger.info("User %s already exists, generating magiclink OTP", email)
-            resp = await client.post(
-                f"{base}/auth/v1/admin/generate_link",
-                json={"type": "magiclink", "email": email},
-                headers=headers,
-            )
+            body = resp.json()
+            msg = (body.get("msg") or body.get("message") or "").lower()
+            if "already" not in msg:
+                resp.raise_for_status()
+            logger.info("User %s already exists in Supabase", email)
+        else:
+            resp.raise_for_status()
 
+        # Step 2: generate magiclink OTP (admin API — no rate limit)
+        resp = await client.post(
+            f"{base}/auth/v1/admin/generate_link",
+            json={"type": "magiclink", "email": email},
+            headers=headers,
+        )
         resp.raise_for_status()
 
     data = resp.json()
