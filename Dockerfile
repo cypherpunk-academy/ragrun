@@ -17,8 +17,15 @@ COPY app ./app
 RUN rm -rf /app/app/assistants
 
 # Clone assistants from public ragkeep repo (shallow, no history).
+# philo-von-freisinn is a nested submodule whose pinned SHA may not be on
+# GitHub yet; clone its public main tip so prompts/ always ship in the image.
 RUN git clone --depth=1 --no-tags \
       https://github.com/cypherpunk-academy/ragkeep.git /tmp/ragkeep && \
+    rm -rf /tmp/ragkeep/assistants/philo-von-freisinn && \
+    git clone --depth=1 --no-tags \
+      https://github.com/cypherpunk-academy/philo-von-freisinn.git \
+      /tmp/ragkeep/assistants/philo-von-freisinn && \
+    test -f /tmp/ragkeep/assistants/philo-von-freisinn/prompts/instruction.prompt && \
     mkdir -p ./ragkeep && \
     cp -r /tmp/ragkeep/assistants ./ragkeep/assistants && \
     rm -rf /tmp/ragkeep
