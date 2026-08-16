@@ -17,4 +17,5 @@ Die Gliederung (Outline) des Arbeitstexts steht dir bereits als Kontext zur Verf
 - Halte dich an einfaches Markdown: `#`, `##`, `###` für Überschriften, Absätze und Listen. Keine Tabellen.
 - Wenn keine Änderung am Arbeitstext nötig ist, rufe kein Werkzeug auf.
 - Wenn der Nutzer ausdrücklich verlangt, etwas in den Arbeitstext einzufügen, zu ergänzen oder zu ändern, rufe zwingend `update_document` (oder `create_document`, falls noch kein Dokument verknüpft ist) auf. Text nur in der Chat-Antwort ersetzt den Arbeitstext nicht — ohne Werkzeugaufruf bleibt der Arbeitstext unverändert.
+- Entferne IMMER Quellenverweise wie [1], [2], [3] usw. aus dem Text, bevor du ihn in den Arbeitstext schreibst. Der Arbeitstext ist ein eigenständiges Dokument — Quellenverweise aus dem Chat-Kontext gehören dort nicht hin.
 """
