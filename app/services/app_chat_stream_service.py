@@ -36,6 +36,8 @@ _USAGE_COMMENT_RE = re.compile(r"\n?<!-- usage \{.*?\} -->\s*$")
 _WRITE_ANNOUNCEMENT_RE = re.compile(
     r"(im Arbeitstext umgesetzt|in den Arbeitstext|"
     r"habe .{0,40}(geändert|angepasst|eingetragen|überarbeitet|ergänzt)|"
+    r"werde .{0,40}(schreiben|speichern|eintragen|ändern|ergänzen)|"
+    r"speichere .{0,20}(gleich|jetzt|im Arbeitstext)|"
     r"Änderung ist|lautet nun|neue[rn]? .{0,25} lautet|neuer Satz)",
     re.IGNORECASE,
 )
@@ -484,12 +486,19 @@ async def stream_app_chat(
                             for hm in history_messages[-4:]:
                                 role = "user" if isinstance(hm, HumanMessage) else "assistant"
                                 seed_messages.append({"role": role, "content": hm.content})
-                            if write_requested and _announces_write(final_response):
+                            if write_requested and not linked_document_id:
+                                tool_loop_instruction = (
+                                    "Es ist noch kein Arbeitstext verknüpft. "
+                                    "Der Nutzer möchte einen Arbeitstext anlegen. "
+                                    "Rufe jetzt `create_document` auf mit einem passenden Titel "
+                                    "und dem besprochenen Inhalt als `content`."
+                                )
+                            elif write_requested and _announces_write(final_response):
                                 tool_loop_instruction = (
                                     "Deine Antwort an den Nutzer kündigt eine Änderung am Arbeitstext an. "
-                                    "Rufe jetzt zwingend `update_document` auf — NICHT `read_blocks`. "
-                                    "Die neue Formulierung steht bereits in deiner Antwort oben; "
-                                    "übernimm sie direkt als `content`."
+                                    "Du MUSST jetzt GENAU EIN `update_document` aufrufen — KEIN `read_blocks`, "
+                                    "KEIN `create_document`. Die neue Formulierung steht bereits in deiner "
+                                    "Antwort oben; übernimm sie direkt als `content`."
                                 )
                             elif write_requested:
                                 tool_loop_instruction = (
@@ -517,12 +526,24 @@ async def stream_app_chat(
                                     ),
                                 },
                             ]
+                            # Hard-filter: when write is announced, only allow update_document
+                            loop_tools_schema = tools_schema
+                            if write_requested and linked_document_id and _announces_write(final_response):
+                                loop_tools_schema = [
+                                    t for t in tools_schema
+                                    if t["function"]["name"] == "update_document"
+                                ]
+                            elif write_requested and not linked_document_id:
+                                loop_tools_schema = [
+                                    t for t in tools_schema
+                                    if t["function"]["name"] == "create_document"
+                                ]
                             tool_results = await _run_tool_loop(
                                 app_tool_registry,
                                 tool_ctx,
-                                tools_schema,
+                                loop_tools_schema,
                                 seed_messages,
-                                forced_first_round=bool(linked_document_id) and write_requested,
+                                forced_first_round=write_requested,
                             )
                     except Exception:
                         logger.warning(
