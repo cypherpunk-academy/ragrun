@@ -1,0 +1,14 @@
+Erzeuge aus den folgenden „ungestützten/zu starken Behauptungen“ (Abschnitt b) eine kurze, präzise Suchanfrage für die Qdrant/RAG-Suche im Steiner-Korpus.
+
+Primäre Werke (nur als Orientierung, wofür die Anfrage passen muss):
+{primary_books_list}
+
+Abschnitt b) (ungestützte/zu starke Behauptungen):
+{b_section}
+
+Regeln:
+- Gib genau EINE Suchanfrage als Fließtext zurück (keine Aufzählungen, keine Anführungszeichen, kein JSON).
+- Länge: 60–140 Wörter.
+- Enthält Schlüsselbegriffe, mögliche Steiner-Formulierungen und 2–5 Synonyme/Varianten.
+- Fokussiere auf die Punkte aus b), die sich am ehesten im Steiner-Kontext belegen oder präzisieren lassen.
+- Beende mit einem Punkt.

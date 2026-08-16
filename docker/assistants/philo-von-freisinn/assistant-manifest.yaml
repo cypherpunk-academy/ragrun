@@ -1,0 +1,128 @@
+name: Philo von Freisinn
+rag-collection: philo-von-freisinn
+assistant-id: 1e3d0f4f-8e71-4f78-8f46-b1d31e607a1c
+description: Auf der Grundlage der Philosophie der Freiheit und Werken, die in
+  der Arbeit von Rudolf Steiner damit in engem Zusammenhang stehen, entwickelt
+  Philo von Freisinn eine mathematistisch-individualistische Weltanschauung.
+paths:
+  talks: writings/talks
+  quotes: sources/quotes
+
+  concepts: sources/concepts
+  typologies: sources/typologies
+  co-created-quotes: writings/co-created/quotes
+  co-created-summaries: writings/co-created/summaries
+  generated: .generated
+cover-image: assets/cover.png
+avatar-image: assets/avatar.png
+writing-style: Philo von Freisinn ist Autor eines Philosophie-Blogs und ein
+  Verfechter der individuellen Freiheit. Ziel ist es, Eigeninitiative anzuregen,
+  mit Schwerpunkt auf den Freiheitsgrenzen zwischen Menschen. Ton -> lebendig
+  und humorvoll, aber auch präzise und unaufgeregt. Humor ja, Nähe ja, aber
+  keine Ironie, keine Personifizierungen des Autors (z. B. „verteidigt
+  schelmisch“, „in charmantem Ton“). Keine Fremdworte wie Determinismus, die
+  Steiner nicht verwendet hat.
+primary-books:
+  - Rudolf_Steiner#Die_Philosophie_der_Freiheit#4
+  - Rudolf_Steiner#Die_Kernpunkte_der_sozialen_Frage#23
+  - Rudolf_Steiner#Die_Rätsel_der_Philosophie#18
+  - Rudolf_Steiner#Aufsätze_über_die_Dreigliederung_des_sozialen_Organismus_und_zur_Zeitlage#24
+  - Rudolf_Steiner#Wahrheit_und_Wissenschaft#3
+  - Rudolf_Steiner#Grundlinien_einer_Erkenntnistheorie_der_Goetheschen_Weltanschauung#2
+  - Rudolf_Steiner#Friedrich_Nietzsche._Ein_Kämpfer_gegen_seine_Zeit#5
+  - Rudolf_Steiner#Goethes_Weltanschauung#6
+primary-lectures: null
+secondary-books:
+  - Rudolf_Steiner#Methodische_Grundlagen_der_Anthroposophie#30
+  - Rudolf_Steiner#Gesammelte_Aufsätze_zur_Kultur-_und_Zeitgeschichte#31
+  - Rudolf_Steiner#Einleitungen_zu_Goethes_Naturwissenschaftlichen_Schriften#1
+  - Rudolf_Steiner#Lucifer-Gnosis._Grundlegende_Aufsätze_zur_Anthroposophie_und_Berichte_aus_den_Zeitschriften_«Luzifer»_und_«Lucifer-Gnosis»#34
+  - Eric_S_Raymond#A_brief_history_of_Hackerdom#1
+  - Eric_S_Raymond#How_to_become_a_hacker#1
+  - Eric_S_Raymond#The_Cathedral_and_the_Bazaar#1
+  - Glyn_Moody#Rebel_Code#1
+  - Lawrence_Lessig#Code_Version_2_0#1
+  - Richard_M_Stallman#Free_Software_Free_Society#1
+  - Julian_Assange#Cypherpunks
+  - Julian_Assange#Julian_Assange_in_his_own_words
+  - Julian_Assange#Various_Interviews_and_Articles#1
+  - Sigismund_von_Gleich#Die_Wahrheit_als_Gesamtumfang_aller_Weltansichten
+secondary-lectures:
+  - Zyklus 33, Der menschliche und der kosmische Gedanke, 4 Vorträge
+  - GA 73a, Fachwissenschaften und Anthroposophie
+  - GA 76, Die befruchtende Wirkung der Anthroposophie auf die Fachwissenschaften
+  - GA 79, Die Wirklichkeit der höheren Welten
+  - GA 82, Damit der Mensch ganz Mensch werde. Die Bedeutung der Anthroposophie
+    im Geistesleben der Gegenwart
+  - GA 201, Entsprechungen zwischen Mikrokosmos und Makrokosmos. Der Mensch —
+    eine Hieroglyphe des Weltenalls. Der Mensch in seinem Zusammenhang mit dem
+    Kosmos Band I
+  - GA 199, Geisteswissenschaft als Erkenntnis der Grundimpulse sozialer
+    Gestaltung
+  - GA 328, Die soziale Frage
+  - GA 329, Die Befreiung des Menschenwesens als Grundlage für eine soziale
+    Neugestaltung. Altes Denken und neues soziales Wollen
+  - GA 330, Neugestaltung des sozialen Organismus
+  - GA 331, Betriebsräte und Sozialisierung
+  - GA 332a, Soziale Zukunft
+  - GA 334, Vom Einheitsstaat zum dreigliedrigen sozialen Organismus
+  - GA 335, Die Krisis der Gegenwart und der Weg zu gesundem Denken
+  - GA 337a, Soziale Ideen. Soziale Wirklichkeit. Soziale Praxis. Band I.
+    Diskussionsabende des Schweizer Bundes für Dreigliederung des sozialen
+    Organismus
+  - GA 337b, Soziale Ideen. Soziale Wirklichkeit. Soziale Praxis. Band II.
+    Diskussionsabende des Schweizer Bundes für Dreigliederung des sozialen
+    Organismus
+  - GA 339, Anthroposophie soziale Dreigliederung und Redekunst.
+    Orientierungskurs für die öffentliche Wirksamkeit mit besonderem Hinblick
+    auf die Schweiz
+  - GA 340, Nationalökonomischer Kurs. Aufgaben einer neuen
+    Wirtschaftswissenschaft Band I
+  - GA 341, Nationalökonomisches Seminar. Aufgaben einer neuen
+    Wirtschaftswissenschaft Band II
+  - GA 293, Allgemeine Menschenkunde als Grundlage der Pädagogik
+  - GA 294, Erziehungskunst. Methodisch-Didaktisches
+  - GA 295, Erziehungskunst. Seminarbesprechungen und Lehrplanvorträge
+  - GA 185, Geschichtliche Symptomatologie
+  - GA 333, Gedankenfreiheit und soziale Kräfte
+  - GA 338, Wie wirkt man für den Impuls der Dreigliederung des sozialen
+    Organismus?
+augmentation-types:
+  - summaries
+  - quotes
+active-embedder: e5
+embedders:
+  - key: e5
+    model: intfloat/multilingual-e5-large
+    mode: dense
+    prefix-query: "query: "
+    prefix-passage: "passage: "
+    test-collection: philo-von-freisinn-test-e5
+  - key: bge
+    model: BAAI/bge-m3
+    mode: dense
+    prefix-query: ""
+    prefix-passage: ""
+    test-collection: philo-von-freisinn-test-bge
+  - key: cross
+    model: T-Systems-onsite/cross-en-de-roberta-sentence-transformer
+    mode: dense
+    prefix-query: ""
+    prefix-passage: ""
+    test-collection: philo-von-freisinn-test-cross
+benchmark:
+  books:
+    - Rudolf_Steiner#Die_Philosophie_der_Freiheit#4
+    - Rudolf_Steiner#Die_Kernpunkte_der_sozialen_Frage#23
+  chunk-types:
+    - book
+    - summaries
+    - quotes
+concepts:
+  - concepts.jsonl
+typologies:
+  - typologies.jsonl
+lexical-strip-hybrid:
+  - Rudolf Steiner
+  - Steiner
+last-updated: 2026-07-12T11:23:36.649Z
