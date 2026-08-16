@@ -57,7 +57,13 @@ def _announces_write(text: str) -> bool:
 #    Reicht für update_document, wenn bereits ein Dokument verknüpft ist
 #    (= Fortsetzung einer expliziten Arbeitstext-Session).
 _EXPLICIT_ARBEITSTEXT_RE = re.compile(
-    r"arbeitstext",
+    r"(arbeitstext\s+(anlegen|erstellen|schreiben|erzeugen|beginnen|starten)"
+    r"|leg.{0,10}arbeitstext\s+an"
+    r"|erstell.{0,10}arbeitstext"
+    r"|mach\s+(mir\s+)?(einen?\s+)?arbeitstext"
+    r"|schreib.{0,30}(in\s+(den|einen)\s+)?arbeitstext"
+    r"|im\s+arbeitstext"
+    r"|in\s+(den|einen|dem|meinen)\s+arbeitstext)",
     re.IGNORECASE,
 )
 _IMPLICIT_WRITE_RE = re.compile(
