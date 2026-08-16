@@ -16,16 +16,18 @@ COPY app ./app
 # `/app/ragkeep/assistants` (matches `settings.assistants_root` default).
 RUN rm -rf /app/app/assistants
 
-# Public assistants from ragkeep (shallow). philo-von-freisinn is a private
-# nested submodule — clone would need credentials — so overlay runtime files
-# vendored under docker/assistants/ (prompts + manifest only).
+# Clone public assistants. philo-von-freisinn is a nested submodule of
+# ragkeep, so a shallow clone leaves it empty — clone it explicitly.
 RUN git clone --depth=1 --no-tags \
       https://github.com/cypherpunk-academy/ragkeep.git /tmp/ragkeep && \
+    rm -rf /tmp/ragkeep/assistants/philo-von-freisinn && \
+    git clone --depth=1 --no-tags \
+      https://github.com/cypherpunk-academy/philo-von-freisinn.git \
+      /tmp/ragkeep/assistants/philo-von-freisinn && \
+    test -f /tmp/ragkeep/assistants/philo-von-freisinn/prompts/instruction.prompt && \
     mkdir -p ./ragkeep && \
     cp -r /tmp/ragkeep/assistants ./ragkeep/assistants && \
-    rm -rf /tmp/ragkeep ./ragkeep/assistants/philo-von-freisinn
-COPY docker/assistants/philo-von-freisinn ./ragkeep/assistants/philo-von-freisinn
-RUN test -f ./ragkeep/assistants/philo-von-freisinn/prompts/instruction.prompt
+    rm -rf /tmp/ragkeep
 
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
