@@ -622,21 +622,25 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         messages_in.append(
             SystemMessage(
                 content=(
-                    “Verknüpfter Arbeitstext des Nutzers (Markdown). “
-                    “Wenn der Nutzer von „Arbeitstext”, „Kapitel”, „Absatz” oder Überschriften “
-                    “wie „## 4” / „## 5” spricht, bezieht er sich auf DIESES Dokument — “
-                    “nicht auf Kapitel in den Steiner-Quellen. “
-                    “Arbeite an diesem Text über die Dokument-Werkzeuge (nach der Chat-Antwort); “
-                    “schreibe den neuen Kapiteltext NICHT vollständig in die Chat-Antwort — “
-                    “dort nur eine kurze Bestätigung. “
-                    “Wenn du eine Änderung am Arbeitstext ankündigst, verwende IMMER die Zukunftsform: “
-                    “„Ich werde das in den Arbeitstext schreiben” oder „Ich speichere das gleich im Arbeitstext”. “
-                    “Sage NIEMALS „Ich habe das geschrieben/geändert/eingetragen” — “
-                    “die Änderung erfolgt erst NACH deiner Antwort. “
-                    “Wenn die nummerierten Quellen unten inhaltliche Angaben enthalten (Listen, “
-                    “Begriffe, Zitate), haben diese VORRANG vor dem bisherigen Dokumentinhalt “
-                    “und vor deinem eigenen Wissen — übernimm sie ohne Rückfrage.\n\n”
-                    f”{arbeitstext}”
+                    'Der Arbeitstext ist ein App-Feature: ein eigenes Markdown-Dokument des Nutzers, '
+                    'an dem ihr gemeinsam arbeitet. Es ist KEIN philosophischer Fachbegriff und hat '
+                    'NICHTS mit Steiner-Quellen oder Texten ueber Arbeit zu tun. '
+                    'Wenn der Nutzer fragt, was der Arbeitstext ist, erklaere dieses Feature. '
+                    'Unten steht der aktuell verknuepfte Arbeitstext (Markdown). '
+                    'Wenn der Nutzer von Arbeitstext, Kapitel, Absatz oder Ueberschriften '
+                    'wie ## 4 / ## 5 spricht, bezieht er sich auf DIESES Dokument \u2014 '
+                    'nicht auf Kapitel in den Steiner-Quellen. '
+                    "Arbeite an diesem Text über die Dokument-Werkzeuge (nach der Chat-Antwort); "
+                    "schreibe den neuen Kapiteltext NICHT vollständig in die Chat-Antwort — "
+                    "dort nur eine kurze Bestätigung. "
+                    "Wenn du eine Änderung am Arbeitstext ankündigst, verwende IMMER die Zukunftsform: "
+                    "„Ich werde das in den Arbeitstext schreiben“ oder „Ich speichere das gleich im Arbeitstext“. "
+                    "Sage NIEMALS „Ich habe das geschrieben/geändert/eingetragen“ — "
+                    "die Änderung erfolgt erst NACH deiner Antwort. "
+                    "Wenn die nummerierten Quellen unten inhaltliche Angaben enthalten (Listen, "
+                    "Begriffe, Zitate), haben diese VORRANG vor dem bisherigen Dokumentinhalt "
+                    "und vor deinem eigenen Wissen — übernimm sie ohne Rückfrage.\n\n"
+                    f"{arbeitstext}"
                 )
             )
         )
@@ -644,16 +648,16 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         messages_in.append(
             SystemMessage(
                 content=(
-                    “WICHTIG: Wenn der Nutzer das Wort „Arbeitstext” verwendet, meint er damit “
-                    “ein App-Feature — ein eigenes Markdown-Dokument, an dem ihr gemeinsam arbeitet. “
-                    “Es hat NICHTS mit Steiner-Quellen oder philosophischen Texten über Arbeit zu tun. “
-                    “Aktuell ist KEIN Arbeitstext verknüpft. “
-                    “Wenn der Nutzer fragt, was der Arbeitstext ist oder wie er funktioniert, “
-                    “erkläre das Feature: Er kann einen Arbeitstext anlegen, um gemeinsam mit dir “
-                    “an einem eigenen Text zu arbeiten. Du kannst dann darin lesen, schreiben und Abschnitte bearbeiten. “
-                    “Lege einen neuen Arbeitstext nur an (über `create_document`), wenn der Nutzer “
-                    “ausdrücklich darum bittet, etwas aufzuschreiben, anzulegen oder in den Arbeitstext zu schreiben — “
-                    “NICHT bei theoretischen Fragen über das Feature.”
+                    "WICHTIG: Wenn der Nutzer das Wort „Arbeitstext“ verwendet, meint er damit "
+                    "ein App-Feature — ein eigenes Markdown-Dokument, an dem ihr gemeinsam arbeitet. "
+                    "Es hat NICHTS mit Steiner-Quellen oder philosophischen Texten über Arbeit zu tun. "
+                    "Aktuell ist KEIN Arbeitstext verknüpft. "
+                    "Wenn der Nutzer fragt, was der Arbeitstext ist oder wie er funktioniert, "
+                    "erkläre das Feature: Er kann einen Arbeitstext anlegen, um gemeinsam mit dir "
+                    "an einem eigenen Text zu arbeiten. Du kannst dann darin lesen, schreiben und Abschnitte bearbeiten. "
+                    "Lege einen neuen Arbeitstext nur an (über `create_document`), wenn der Nutzer "
+                    "ausdrücklich darum bittet, etwas aufzuschreiben, anzulegen oder in den Arbeitstext zu schreiben — "
+                    "NICHT bei theoretischen Fragen über das Feature."
                 )
             )
         )
@@ -988,15 +992,15 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
         paragraph_text = (state.get("context_paragraph_text") or "").strip()
         if paragraph_text:
             skip_messages.append(SystemMessage(content=_paragraph_context_system_message(paragraph_text)))
-        arbeitstext = (state.get(“linked_document_content”) or “”).strip()
+        arbeitstext = (state.get("linked_document_content") or "").strip()
         if arbeitstext:
             skip_messages.append(
                 SystemMessage(
                     content=(
-                        “Verknüpfter Arbeitstext des Nutzers (Markdown). “
-                        “Wenn der Nutzer von „Arbeitstext” oder „Kapitel” spricht, “
-                        “bezieht er sich auf DIESES Dokument.\n\n”
-                        f”{arbeitstext}”
+                        "Verknüpfter Arbeitstext des Nutzers (Markdown). "
+                        "Wenn der Nutzer von „Arbeitstext“ oder „Kapitel“ spricht, "
+                        "bezieht er sich auf DIESES Dokument.\n\n"
+                        f"{arbeitstext}"
                     )
                 )
             )
@@ -1004,16 +1008,16 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
             skip_messages.append(
                 SystemMessage(
                     content=(
-                        “WICHTIG: Wenn der Nutzer das Wort „Arbeitstext” verwendet, meint er damit “
-                        “ein App-Feature — ein eigenes Markdown-Dokument, an dem ihr gemeinsam arbeitet. “
-                        “Es hat NICHTS mit Steiner-Quellen oder philosophischen Texten über Arbeit zu tun. “
-                        “Aktuell ist KEIN Arbeitstext verknüpft. “
-                        “Erkläre das Feature, wenn danach gefragt wird. “
-                        “Lege einen neuen Arbeitstext nur an, wenn der Nutzer ausdrücklich etwas aufschreiben will.”
+                        "WICHTIG: Wenn der Nutzer das Wort „Arbeitstext“ verwendet, meint er damit "
+                        "ein App-Feature — ein eigenes Markdown-Dokument, an dem ihr gemeinsam arbeitet. "
+                        "Es hat NICHTS mit Steiner-Quellen oder philosophischen Texten über Arbeit zu tun. "
+                        "Aktuell ist KEIN Arbeitstext verknüpft. "
+                        "Erkläre das Feature, wenn danach gefragt wird. "
+                        "Lege einen neuen Arbeitstext nur an, wenn der Nutzer ausdrücklich etwas aufschreiben will."
                     )
                 )
             )
-        skip_messages.append(HumanMessage(content=state[“user_message”]))
+        skip_messages.append(HumanMessage(content=state["user_message"]))
         msg = await llm.ainvoke(skip_messages, config)
         response = msg.content
         _skip_usage = msg.usage_metadata or {}
