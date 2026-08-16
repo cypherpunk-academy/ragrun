@@ -622,9 +622,13 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         messages_in.append(
             SystemMessage(
                 content=(
-                    'Der Arbeitstext ist ein App-Feature: ein eigenes Markdown-Dokument des Nutzers, '
-                    'an dem ihr gemeinsam arbeitet. Es ist KEIN philosophischer Fachbegriff und hat '
-                    'NICHTS mit Steiner-Quellen oder Texten ueber Arbeit zu tun. '
+                    'Der Arbeitstext ist ein App-Feature \u2014 KEIN philosophischer Fachbegriff '
+                    'und hat NICHTS mit Steiner-Quellen oder Texten ueber Arbeit zu tun. '
+                    'Arbeitstexte sind dauerhafte Markdown-Dokumente, die der Nutzer pro Absatz, '
+                    'pro Kapitel, pro Vortrag, zu einem ganzen Buch oder zu einem Gespraech mit dir '
+                    'anlegen kann. Darin kann er sich Dinge notieren, in Verhaeltnis setzen, '
+                    'Fragen aufschreiben und beantworten, ein Schema entwickeln oder seine '
+                    'Forschung festhalten. Du kannst darin lesen, schreiben und Abschnitte bearbeiten. '
                     'Wenn der Nutzer fragt, was der Arbeitstext ist, erklaere dieses Feature. '
                     'Unten steht der aktuell verknuepfte Arbeitstext (Markdown). '
                     'Wenn der Nutzer von Arbeitstext, Kapitel, Absatz oder Ueberschriften '
@@ -648,16 +652,20 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         messages_in.append(
             SystemMessage(
                 content=(
-                    "WICHTIG: Wenn der Nutzer das Wort „Arbeitstext“ verwendet, meint er damit "
-                    "ein App-Feature — ein eigenes Markdown-Dokument, an dem ihr gemeinsam arbeitet. "
-                    "Es hat NICHTS mit Steiner-Quellen oder philosophischen Texten über Arbeit zu tun. "
-                    "Aktuell ist KEIN Arbeitstext verknüpft. "
-                    "Wenn der Nutzer fragt, was der Arbeitstext ist oder wie er funktioniert, "
-                    "erkläre das Feature: Er kann einen Arbeitstext anlegen, um gemeinsam mit dir "
-                    "an einem eigenen Text zu arbeiten. Du kannst dann darin lesen, schreiben und Abschnitte bearbeiten. "
-                    "Lege einen neuen Arbeitstext nur an (über `create_document`), wenn der Nutzer "
-                    "ausdrücklich darum bittet, etwas aufzuschreiben, anzulegen oder in den Arbeitstext zu schreiben — "
-                    "NICHT bei theoretischen Fragen über das Feature."
+                    'WICHTIG: Wenn der Nutzer das Wort Arbeitstext verwendet, meint er damit '
+                    'ein App-Feature \u2014 KEIN philosophischer Fachbegriff und NICHTS mit '
+                    'Steiner-Quellen oder Texten ueber Arbeit zu tun. '
+                    'Arbeitstexte sind dauerhafte Markdown-Dokumente, die der Nutzer pro Absatz, '
+                    'pro Kapitel, pro Vortrag, zu einem ganzen Buch oder zu einem Gespraech mit dir '
+                    'anlegen kann. Darin kann er sich Dinge notieren, in Verhaeltnis setzen, '
+                    'Fragen aufschreiben und beantworten, ein Schema entwickeln oder seine '
+                    'Forschung festhalten. Du kannst darin lesen, schreiben und Abschnitte bearbeiten. '
+                    'Aktuell ist KEIN Arbeitstext verknuepft. '
+                    'Wenn der Nutzer fragt, was der Arbeitstext ist oder wie er funktioniert, '
+                    'erklaere dieses Feature. '
+                    'Lege einen neuen Arbeitstext nur an (ueber create_document), wenn der Nutzer '
+                    'ausdruecklich darum bittet, etwas aufzuschreiben, anzulegen oder in den '
+                    'Arbeitstext zu schreiben \u2014 NICHT bei theoretischen Fragen ueber das Feature.'
                 )
             )
         )
@@ -997,10 +1005,12 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
             skip_messages.append(
                 SystemMessage(
                     content=(
-                        "Verknüpfter Arbeitstext des Nutzers (Markdown). "
-                        "Wenn der Nutzer von „Arbeitstext“ oder „Kapitel“ spricht, "
-                        "bezieht er sich auf DIESES Dokument.\n\n"
-                        f"{arbeitstext}"
+                        'Der Arbeitstext ist ein App-Feature \u2014 KEIN philosophischer Fachbegriff. '
+                        'Arbeitstexte sind dauerhafte Dokumente, die der Nutzer pro Absatz, Kapitel, '
+                        'Vortrag, Buch oder Gespraech anlegen kann. '
+                        'Wenn der Nutzer von Arbeitstext oder Kapitel spricht, bezieht er sich auf '
+                        'DIESES Dokument \u2014 nicht auf Steiner-Quellen.\n\n'
+                        f'{arbeitstext}'
                     )
                 )
             )
@@ -1008,12 +1018,13 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
             skip_messages.append(
                 SystemMessage(
                     content=(
-                        "WICHTIG: Wenn der Nutzer das Wort „Arbeitstext“ verwendet, meint er damit "
-                        "ein App-Feature — ein eigenes Markdown-Dokument, an dem ihr gemeinsam arbeitet. "
-                        "Es hat NICHTS mit Steiner-Quellen oder philosophischen Texten über Arbeit zu tun. "
-                        "Aktuell ist KEIN Arbeitstext verknüpft. "
-                        "Erkläre das Feature, wenn danach gefragt wird. "
-                        "Lege einen neuen Arbeitstext nur an, wenn der Nutzer ausdrücklich etwas aufschreiben will."
+                        'WICHTIG: Arbeitstext ist ein App-Feature \u2014 KEIN philosophischer '
+                        'Fachbegriff und NICHTS mit Steiner-Quellen zu tun. '
+                        'Arbeitstexte sind dauerhafte Dokumente, die der Nutzer pro Absatz, Kapitel, '
+                        'Vortrag, Buch oder Gespraech anlegen kann, um sich Dinge zu notieren, '
+                        'Fragen festzuhalten oder seine Forschung zu dokumentieren. '
+                        'Aktuell ist KEIN Arbeitstext verknuepft. '
+                        'Erklaere das Feature, wenn danach gefragt wird.'
                     )
                 )
             )
