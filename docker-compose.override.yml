@@ -52,6 +52,8 @@ services:
       - ./app:/app/app:ro
       - ./scripts:/app/scripts:ro
       - ./config:/app/config:ro
+      # Local ragkeep (prompts live in assistant submodules; image clone has empty dirs)
+      - ./ragkeep:/app/ragkeep:ro
       # Override data mounts to absolute bind paths
       - type: bind
         source: /Users/michael/Reniets/Ai/ragrun/data/vector_db

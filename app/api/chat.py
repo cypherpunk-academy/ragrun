@@ -101,7 +101,7 @@ async def chat_stream(
                 elif kind == "on_chain_end" and event.get("name") == "finalize":
                     output = event["data"].get("output") or {}
                     response_text = output.get("final_response", "")
-                    # Bei run_authentic_concept_explain/return_begriff_chunk: kein Streaming,
+                    # Bei skip-Intent: kein Streaming,
                     # Antwort kommt erst in finalize. Als Token senden, damit die UI den Text anzeigt.
                     if response_text and not tokens_sent:
                         yield {"data": json.dumps({"type": "token", "content": response_text})}
