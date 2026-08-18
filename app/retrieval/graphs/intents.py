@@ -7,15 +7,13 @@ im Implementierungsplan einführen.
 from __future__ import annotations
 
 INTENT_LABELS: list[str] = [
-    "begriff_definieren",   # Begriff nachschlagen (mit Lemma-Lookup)
     "quelle_suchen",        # Zitat oder Belegstelle finden
-    "erklaerung",           # Erklaerung, Vergleich, Vertiefung, Zusammenfassung
+    "erklaerung",           # Erklaerung, Vergleich, Vertiefung, Zusammenfassung, Definition
     "skip",                 # Kein Retrieval nötig (Gruss, Meta-Frage, Off-Topic)
     "sonstiges",            # Fallback: breites Retrieval ohne chunk_type-Filter
 ]
 
 INTENT_CHUNK_TYPE_MAP: dict[str, list[str]] = {
-    "begriff_definieren": ["begriff"],
     "quelle_suchen":      ["quote", "book", "talk"],
     "erklaerung":         ["book", "talk", "chapter_summary", "secondary_book", "typology"],
     "sonstiges":          [],   # leere Liste → kein chunk_type-Filter
