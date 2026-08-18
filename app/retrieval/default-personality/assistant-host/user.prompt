@@ -9,10 +9,6 @@ Zitiere im Text mit [1], [2] usw. (z.B. „…wie Steiner ausführt [2].“ oder
 **Dies sind ergänzende Informationen. Nutze sie nur zur Vertiefung oder Ergänzung, wenn die primären Quellen nicht ausreichen.**
 {secondary-books}
 
---- Begriffslexikon ---
-**Begriffe zum besseren Verständnis des Textes durch dich (LLM). Nutze sie für präzisere Interpretation, nicht als Hauptquelle für die Antwort.**
-{concepts}
-
 --- Mögliche Zitate ---
 **Maximal ein Zitat aus dieser Auswahl nutzen, um die Antwort zu würzen.**
 {quotes}

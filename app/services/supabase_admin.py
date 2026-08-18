@@ -38,6 +38,62 @@ async def create_user(email: str) -> dict:
     return resp.json()
 
 
+async def create_user_and_get_otp(email: str) -> str:
+    """Create a Supabase auth user and return a magic-link OTP.
+
+    1. Create user via admin/users (no auth email triggered).
+    2. Generate magiclink via admin/generate_link → returns plain OTP.
+    Both use the admin API which is exempt from per-user rate limits.
+    """
+    base = (settings.supabase_url or "").rstrip("/")
+    key = settings.supabase_service_role_key
+    if not base or not key:
+        raise RuntimeError("supabase_url and supabase_service_role_key must be configured")
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "apikey": key,
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        # Step 1: create user (idempotent — ignores "already exists")
+        resp = await client.post(
+            f"{base}/auth/v1/admin/users",
+            json={"email": email, "email_confirm": True},
+            headers=headers,
+        )
+        if resp.status_code == 422:
+            body = resp.json()
+            msg = (body.get("msg") or body.get("message") or "").lower()
+            if "already" not in msg:
+                resp.raise_for_status()
+            logger.info("User %s already exists in Supabase", email)
+        else:
+            resp.raise_for_status()
+
+        # Step 2: generate magiclink OTP (admin API — no rate limit)
+        resp = await client.post(
+            f"{base}/auth/v1/admin/generate_link",
+            json={"type": "magiclink", "email": email},
+            headers=headers,
+        )
+        resp.raise_for_status()
+
+    data = resp.json()
+    logger.info("generate_link response keys: %s", list(data.keys()))
+    # Try multiple known response structures
+    otp = (
+        data.get("properties", {}).get("email_otp")
+        or data.get("email_otp")
+        or data.get("hashed_token")
+    )
+    if not otp:
+        logger.error("generate_link full response: %s", data)
+        raise RuntimeError("Supabase did not return an email_otp in generate_link response")
+    return otp
+
+
 async def check_user_exists(email: str) -> bool:
     """Check whether a Supabase auth user with this email exists."""
     base = (settings.supabase_url or "").rstrip("/")
@@ -45,10 +101,13 @@ async def check_user_exists(email: str) -> bool:
     if not base or not key:
         raise RuntimeError("supabase_url and supabase_service_role_key must be configured")
 
+    email_lower = email.lower().strip()
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        # GoTrue Admin: use `email` query param (exact). The PostgREST-style
+        # `filter=email eq …` returns an empty list on current Auth versions.
         resp = await client.get(
             f"{base}/auth/v1/admin/users",
-            params={"filter": f"email eq {email}", "page": 1, "per_page": 1},
+            params={"email": email_lower, "page": 1, "per_page": 1},
             headers={
                 "Authorization": f"Bearer {key}",
                 "apikey": key,
@@ -57,4 +116,4 @@ async def check_user_exists(email: str) -> bool:
     resp.raise_for_status()
     data = resp.json()
     users = data.get("users", [])
-    return any(u.get("email", "").lower() == email.lower() for u in users)
+    return any(u.get("email", "").lower() == email_lower for u in users)

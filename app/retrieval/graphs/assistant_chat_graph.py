@@ -7,11 +7,7 @@ Graph-Fluss (via graph.get_graph().draw_mermaid()):
 
     __start__ --> classify_intent
     classify_intent -->|skip| finalize
-    classify_intent -->|begriffe| lemma_lookup
     classify_intent -->|retrieval| route_retrieval_plan
-    lemma_lookup -->|found| return_begriff_chunk --> finalize
-    lemma_lookup -->|not found| run_authentic_concept_explain --> finalize | retrieve_chunks
-    lemma_lookup -->|empty lemma| retrieve_chunks
     route_retrieval_plan --> retrieve_chunks
     retrieve_chunks -->|insufficient+retry| retrieve_chunks
     retrieve_chunks -->|ok| compose_answer
@@ -246,7 +242,6 @@ class IntentResult(BaseModel):
     intent: str
     confidence: float
     reasoning: str
-    lemma: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -317,25 +312,13 @@ async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
         extra=_ci_cost if (_ci_cost["cost_usd"] > 0) else None,
     )
     logger.info(
-        "Intent: %s (confidence=%.2f, lemma=%r)",
-        result.intent, result.confidence, result.lemma,
+        "Intent: %s (confidence=%.2f)",
+        result.intent, result.confidence,
     )
-
-    if result.intent == "begriff_definieren":
-        normalized_lemma = _normalize_lemma(result.lemma)
-        await adispatch_custom_event(
-            "ace_progress",
-            {
-                "step": "classify_intent",
-                "label": f'Erkannt als "begriff_definieren", Begriff ist: "{normalized_lemma}"',
-            },
-            config=config,
-        )
 
     return {
         "intent": result.intent,
         "intent_confidence": result.confidence,
-        "extracted_lemma": result.lemma,
         # Record the human turn in conversation history
         "messages": [HumanMessage(content=state["user_message"])],
     }
@@ -622,17 +605,50 @@ async def compose_answer(state: ChatState, config: RunnableConfig) -> dict:
         messages_in.append(
             SystemMessage(
                 content=(
-                    "Verknüpfter Arbeitstext des Nutzers (Markdown). "
-                    "Wenn der Nutzer von „Arbeitstext“, „Kapitel“, „Absatz“ oder Überschriften "
-                    "wie „## 4“ / „## 5“ spricht, bezieht er sich auf DIESES Dokument — "
-                    "nicht auf Kapitel in den Steiner-Quellen. "
+                    'Der Arbeitstext ist ein App-Feature \u2014 KEIN philosophischer Fachbegriff '
+                    'und hat NICHTS mit Steiner-Quellen oder Texten ueber Arbeit zu tun. '
+                    'Arbeitstexte sind dauerhafte Markdown-Dokumente, die der Nutzer pro Absatz, '
+                    'pro Kapitel, pro Vortrag, zu einem ganzen Buch oder zu einem Gespraech mit dir '
+                    'anlegen kann. Darin kann er sich Dinge notieren, in Verhaeltnis setzen, '
+                    'Fragen aufschreiben und beantworten, ein Schema entwickeln oder seine '
+                    'Forschung festhalten. Du kannst darin lesen, schreiben und Abschnitte bearbeiten. '
+                    'Wenn der Nutzer fragt, was der Arbeitstext ist, erklaere dieses Feature. '
+                    'Unten steht der aktuell verknuepfte Arbeitstext (Markdown). '
+                    'Wenn der Nutzer von Arbeitstext, Kapitel, Absatz oder Ueberschriften '
+                    'wie ## 4 / ## 5 spricht, bezieht er sich auf DIESES Dokument \u2014 '
+                    'nicht auf Kapitel in den Steiner-Quellen. '
                     "Arbeite an diesem Text über die Dokument-Werkzeuge (nach der Chat-Antwort); "
                     "schreibe den neuen Kapiteltext NICHT vollständig in die Chat-Antwort — "
                     "dort nur eine kurze Bestätigung. "
+                    "Wenn du eine Änderung am Arbeitstext ankündigst, verwende IMMER die Zukunftsform: "
+                    "„Ich werde das in den Arbeitstext schreiben“ oder „Ich speichere das gleich im Arbeitstext“. "
+                    "Sage NIEMALS „Ich habe das geschrieben/geändert/eingetragen“ — "
+                    "die Änderung erfolgt erst NACH deiner Antwort. "
                     "Wenn die nummerierten Quellen unten inhaltliche Angaben enthalten (Listen, "
                     "Begriffe, Zitate), haben diese VORRANG vor dem bisherigen Dokumentinhalt "
                     "und vor deinem eigenen Wissen — übernimm sie ohne Rückfrage.\n\n"
                     f"{arbeitstext}"
+                )
+            )
+        )
+    else:
+        messages_in.append(
+            SystemMessage(
+                content=(
+                    'WICHTIG: Wenn der Nutzer das Wort Arbeitstext verwendet, meint er damit '
+                    'ein App-Feature \u2014 KEIN philosophischer Fachbegriff und NICHTS mit '
+                    'Steiner-Quellen oder Texten ueber Arbeit zu tun. '
+                    'Arbeitstexte sind dauerhafte Markdown-Dokumente, die der Nutzer pro Absatz, '
+                    'pro Kapitel, pro Vortrag, zu einem ganzen Buch oder zu einem Gespraech mit dir '
+                    'anlegen kann. Darin kann er sich Dinge notieren, in Verhaeltnis setzen, '
+                    'Fragen aufschreiben und beantworten, ein Schema entwickeln oder seine '
+                    'Forschung festhalten. Du kannst darin lesen, schreiben und Abschnitte bearbeiten. '
+                    'Aktuell ist KEIN Arbeitstext verknuepft. '
+                    'Wenn der Nutzer fragt, was ein Arbeitstext ist oder wie er funktioniert, '
+                    'erklaere NUR dieses Feature. Biete NICHT an, einen anzulegen. '
+                    'Sage NICHT "Ich lege einen an" oder "Soll ich einen erstellen?". '
+                    'Einen Arbeitstext legst du NUR an, wenn der Nutzer es ausdruecklich verlangt '
+                    '(z.B. "Lege einen Arbeitstext an", "Schreib das in den Arbeitstext").'
                 )
             )
         )
@@ -972,10 +988,27 @@ async def finalize(state: ChatState, config: RunnableConfig) -> dict:
             skip_messages.append(
                 SystemMessage(
                     content=(
-                        "Verknüpfter Arbeitstext des Nutzers (Markdown). "
-                        "Wenn der Nutzer von „Arbeitstext“ oder „Kapitel“ spricht, "
-                        "bezieht er sich auf DIESES Dokument.\n\n"
-                        f"{arbeitstext}"
+                        'Der Arbeitstext ist ein App-Feature \u2014 KEIN philosophischer Fachbegriff. '
+                        'Arbeitstexte sind dauerhafte Dokumente, die der Nutzer pro Absatz, Kapitel, '
+                        'Vortrag, Buch oder Gespraech anlegen kann. '
+                        'Wenn der Nutzer von Arbeitstext oder Kapitel spricht, bezieht er sich auf '
+                        'DIESES Dokument \u2014 nicht auf Steiner-Quellen.\n\n'
+                        f'{arbeitstext}'
+                    )
+                )
+            )
+        else:
+            skip_messages.append(
+                SystemMessage(
+                    content=(
+                        'WICHTIG: Arbeitstext ist ein App-Feature \u2014 KEIN philosophischer '
+                        'Fachbegriff und NICHTS mit Steiner-Quellen zu tun. '
+                        'Arbeitstexte sind dauerhafte Dokumente, die der Nutzer pro Absatz, Kapitel, '
+                        'Vortrag, Buch oder Gespraech anlegen kann, um sich Dinge zu notieren, '
+                        'Fragen festzuhalten oder seine Forschung zu dokumentieren. '
+                        'Aktuell ist KEIN Arbeitstext verknuepft. '
+                        'Erklaere NUR das Feature, wenn danach gefragt wird. '
+                        'Biete NICHT an, einen anzulegen.'
                     )
                 )
             )
@@ -1034,8 +1067,6 @@ def route_after_intent(state: ChatState) -> str:
     intent = state.get("intent", "sonstiges")
     if intent in SKIP_RETRIEVAL_INTENTS:
         return "finalize"
-    if intent == "begriff_definieren":
-        return "lemma_lookup"
     return "route_retrieval_plan"
 
 
@@ -1083,9 +1114,6 @@ def build_chat_graph(checkpointer=None):
     builder = StateGraph(ChatState)
 
     builder.add_node("classify_intent",           classify_intent)
-    builder.add_node("lemma_lookup",              lemma_lookup)
-    builder.add_node("return_begriff_chunk",      return_begriff_chunk)
-    builder.add_node("run_authentic_concept_explain", run_authentic_concept_explain)
     builder.add_node("route_retrieval_plan",      route_retrieval_plan)
     builder.add_node("retrieve_chunks",            retrieve_chunks)
     builder.add_node("compose_answer",             compose_answer)
@@ -1099,30 +1127,7 @@ def build_chat_graph(checkpointer=None):
         route_after_intent,
         {
             "finalize":             "finalize",
-            "lemma_lookup":         "lemma_lookup",
             "route_retrieval_plan": "route_retrieval_plan",
-        },
-    )
-    builder.add_conditional_edges(
-        "lemma_lookup",
-        route_after_lemma_lookup,
-        {
-            "return_begriff_chunk":      "return_begriff_chunk",
-            "run_authentic_concept_explain": "run_authentic_concept_explain",
-            "retrieve_chunks":           "retrieve_chunks",
-        },
-    )
-    builder.add_conditional_edges(
-        "return_begriff_chunk",
-        route_after_return_begriff,
-        {"retrieve_chunks": "retrieve_chunks", "finalize": "finalize"},
-    )
-    builder.add_conditional_edges(
-        "run_authentic_concept_explain",
-        route_after_ace,
-        {
-            "retrieve_chunks": "retrieve_chunks",
-            "finalize":       "finalize",
         },
     )
     builder.add_edge("route_retrieval_plan", "retrieve_chunks")

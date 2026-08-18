@@ -39,6 +39,29 @@ def fetch_one_autocommit(engine: Engine, stmt: Selectable) -> Row[Any]:
         return autocommit.execute(stmt).one()
 
 
+def _validate_postgres_dsn(dsn: str) -> None:
+    """Fail fast when the DSN is empty or contains un-encoded special characters."""
+    if not dsn or not dsn.strip():
+        raise RuntimeError(
+            "RAGRUN_POSTGRES_DSN is empty. "
+            "Check your .env — special characters like '!' must be URL-encoded (! → %21)."
+        )
+    # password sits between the first ':' after '://' and the '@'
+    try:
+        after_scheme = dsn.split("://", 1)[1]
+        userinfo = after_scheme.split("@", 1)[0]
+        if ":" in userinfo:
+            password = userinfo.split(":", 1)[1]
+            bad = [ch for ch in password if ch in "!#$ &'()+,;="]
+            if bad:
+                raise RuntimeError(
+                    f"RAGRUN_POSTGRES_DSN password contains un-encoded characters: {bad}. "
+                    f"URL-encode them in .env (e.g. ! → %21, # → %23)."
+                )
+    except (IndexError, ValueError):
+        pass  # malformed DSN — let SQLAlchemy report the real error
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     """Create (or reuse) the SQLAlchemy engine and ensure tables exist.
@@ -47,6 +70,7 @@ def get_engine() -> Engine:
     immediately after. Avoids pool state issues and Supabase rate-limiting
     caused by rapid sequential queries on a shared connection.
     """
+    _validate_postgres_dsn(settings.postgres_dsn)
 
     engine = create_engine(
         settings.postgres_dsn,

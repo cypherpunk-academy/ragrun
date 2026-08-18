@@ -19,9 +19,9 @@ queries:
     k: 8
     method: dense
 
-  - name: concepts
-    chunk_types: [begriff,typology]
-    method: lemma-lookup
+  # - name: concepts
+  #   chunk_types: [begriff,typology]
+  #   method: lemma-lookup
 
   - name: quotes
     chunk_types: [quote]

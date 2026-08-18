@@ -36,6 +36,10 @@ _USAGE_COMMENT_RE = re.compile(r"\n?<!-- usage \{.*?\} -->\s*$")
 _WRITE_ANNOUNCEMENT_RE = re.compile(
     r"(im Arbeitstext umgesetzt|in den Arbeitstext|"
     r"habe .{0,40}(geändert|angepasst|eingetragen|überarbeitet|ergänzt)|"
+    r"werde .{0,40}(schreiben|speichern|eintragen|ändern|ergänzen)|"
+    r"speichere .{0,20}(gleich|jetzt|im Arbeitstext)|"
+    r"lege .{0,30}arbeitstext|"
+    r"erstelle .{0,20}arbeitstext|"
     r"Änderung ist|lautet nun|neue[rn]? .{0,25} lautet|neuer Satz)",
     re.IGNORECASE,
 )
@@ -43,6 +47,21 @@ _WRITE_ANNOUNCEMENT_RE = re.compile(
 
 def _announces_write(text: str) -> bool:
     return bool(_WRITE_ANNOUNCEMENT_RE.search(text))
+
+
+# Definitive create announcement: the first sentence of the response
+# commits to creating a document (e.g. "Ja, ich lege dir einen an.").
+# Excludes conditional offers like "Wenn du möchtest, lege ich einen an."
+_CREATE_ANNOUNCEMENT_RE = re.compile(
+    r"^(ja[,.]?\s+)?(ich\s+)?(lege|erstelle|mache)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _announces_create(text: str) -> bool:
+    """True if the response definitively announces creating a document."""
+    first_line = text.strip().split('\n')[0] if text else ''
+    return bool(_CREATE_ANNOUNCEMENT_RE.search(first_line))
 
 
 # Gate für Schreib-Tools.  Zwei Stufen:
@@ -55,7 +74,15 @@ def _announces_write(text: str) -> bool:
 #    Reicht für update_document, wenn bereits ein Dokument verknüpft ist
 #    (= Fortsetzung einer expliziten Arbeitstext-Session).
 _EXPLICIT_ARBEITSTEXT_RE = re.compile(
-    r"arbeitstext",
+    r"(arbeitstext\s+(anlegen|erstellen|schreiben|erzeugen|beginnen|starten)"
+    r"|leg.{0,10}arbeitstext\s+an"
+    r"|erstell.{0,10}arbeitstext"
+    r"|mach\s+(mir\s+)?(einen?\s+)?arbeitstext"
+    r"|schreib.{0,30}(in\s+(den|einen)\s+)?arbeitstext"
+    r"|im\s+arbeitstext"
+    r"|in\s+(den|einen|dem|meinen)\s+arbeitstext"
+    r"|arbeitstext.{0,10}(anlegen|erstellen|schreiben|erzeugen|beginnen|starten|anleg)"
+    r"|(einen?\s+)?arbeitstext.{0,5}(für|mit|und))",
     re.IGNORECASE,
 )
 _IMPLICIT_WRITE_RE = re.compile(
@@ -440,6 +467,7 @@ async def stream_app_chat(
                             msg, has_linked_document=bool(linked_document_id)
                         )
                         if not write_requested:
+                            all_tools = available_tools  # keep full list for post-response check
                             available_tools = [
                                 t for t in available_tools
                                 if t.id not in ("update_document", "create_document")
@@ -484,12 +512,19 @@ async def stream_app_chat(
                             for hm in history_messages[-4:]:
                                 role = "user" if isinstance(hm, HumanMessage) else "assistant"
                                 seed_messages.append({"role": role, "content": hm.content})
-                            if write_requested and _announces_write(final_response):
+                            if write_requested and not linked_document_id:
+                                tool_loop_instruction = (
+                                    "Es ist noch kein Arbeitstext verknüpft. "
+                                    "Der Nutzer möchte einen Arbeitstext anlegen. "
+                                    "Rufe jetzt `create_document` auf mit einem passenden Titel "
+                                    "und dem besprochenen Inhalt als `content`."
+                                )
+                            elif write_requested and _announces_write(final_response):
                                 tool_loop_instruction = (
                                     "Deine Antwort an den Nutzer kündigt eine Änderung am Arbeitstext an. "
-                                    "Rufe jetzt zwingend `update_document` auf — NICHT `read_blocks`. "
-                                    "Die neue Formulierung steht bereits in deiner Antwort oben; "
-                                    "übernimm sie direkt als `content`."
+                                    "Du MUSST jetzt GENAU EIN `update_document` aufrufen — KEIN `read_blocks`, "
+                                    "KEIN `create_document`. Die neue Formulierung steht bereits in deiner "
+                                    "Antwort oben; übernimm sie direkt als `content`."
                                 )
                             elif write_requested:
                                 tool_loop_instruction = (
@@ -505,6 +540,25 @@ async def stream_app_chat(
                                     "Ein Arbeitstext ist verknüpft, aber der Nutzer hat keine "
                                     "Änderung angefordert. Rufe KEIN Schreib-Werkzeug auf."
                                 )
+                            # Post-response check: LLM announced a create but
+                            # regex didn't catch the user's intent (e.g. follow-up
+                            # "Kannst du eines erstellen?" without saying "Arbeitstext").
+                            # Only trigger on definitive announcements, not conditional
+                            # offers like "Wenn du möchtest, lege ich einen an".
+                            if (
+                                not write_requested
+                                and not linked_document_id
+                                and _announces_create(final_response)
+                            ):
+                                write_requested = True
+                                available_tools = all_tools
+                                tools_schema = app_tool_registry.schemas_for_llm(available_tools)
+                                tool_loop_instruction = (
+                                    "Es ist noch kein Arbeitstext verknüpft. "
+                                    "Der Nutzer möchte einen Arbeitstext anlegen. "
+                                    "Rufe jetzt `create_document` auf mit einem passenden Titel "
+                                    "und dem besprochenen Inhalt als `content`."
+                                )
                             seed_messages += [
                                 {"role": "user", "content": msg},
                                 {
@@ -517,12 +571,24 @@ async def stream_app_chat(
                                     ),
                                 },
                             ]
+                            # Hard-filter: when write is announced, only allow update_document
+                            loop_tools_schema = tools_schema
+                            if write_requested and linked_document_id and _announces_write(final_response):
+                                loop_tools_schema = [
+                                    t for t in tools_schema
+                                    if t["function"]["name"] == "update_document"
+                                ]
+                            elif write_requested and not linked_document_id:
+                                loop_tools_schema = [
+                                    t for t in tools_schema
+                                    if t["function"]["name"] == "create_document"
+                                ]
                             tool_results = await _run_tool_loop(
                                 app_tool_registry,
                                 tool_ctx,
-                                tools_schema,
+                                loop_tools_schema,
                                 seed_messages,
-                                forced_first_round=bool(linked_document_id) and write_requested,
+                                forced_first_round=write_requested,
                             )
                     except Exception:
                         logger.warning(

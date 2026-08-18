@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/app/invitations", tags=["invitations"])
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+InvitationStatus = Literal["none", "pending", "expired", "redeemed"]
 
 
 class SendRequest(BaseModel):
@@ -35,6 +37,7 @@ class RedeemRequest(BaseModel):
 
 class RedeemResponse(BaseModel):
     redeemed: bool
+    email_otp: str | None = None
 
 
 class CheckEmailRequest(BaseModel):
@@ -43,6 +46,7 @@ class CheckEmailRequest(BaseModel):
 
 class CheckEmailResponse(BaseModel):
     exists: bool
+    invitation_status: InvitationStatus = "none"
 
 
 @router.post("/send", response_model=SendResponse)
@@ -101,9 +105,11 @@ async def redeem_invitation(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Create the Supabase auth user
+    # Create the Supabase auth user and get an OTP for immediate login
+    # (single admin/generate_link call — no rate-limit issue).
+    email_otp: str | None = None
     try:
-        await supabase_admin.create_user(email)
+        email_otp = await supabase_admin.create_user_and_get_otp(email)
     except Exception:
         logger.exception("Failed to create Supabase user for %s", email)
         raise HTTPException(
@@ -111,7 +117,7 @@ async def redeem_invitation(
             detail="Benutzer konnte nicht angelegt werden.",
         )
 
-    return RedeemResponse(redeemed=True)
+    return RedeemResponse(redeemed=True, email_otp=email_otp)
 
 
 @router.post("/check-email", response_model=CheckEmailResponse)
@@ -120,7 +126,7 @@ async def check_email(
     body: CheckEmailRequest,
     request: Request,
 ) -> CheckEmailResponse:
-    """Check if an email is already registered (fallback for shouldCreateUser)."""
+    """Check if an email is registered and whether a (possibly expired) invite exists."""
     email = body.email.lower().strip()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültige E-Mail-Adresse.")
@@ -134,4 +140,6 @@ async def check_email(
             detail="E-Mail-Prüfung fehlgeschlagen.",
         )
 
-    return CheckEmailResponse(exists=exists)
+    engine = get_engine()
+    invitation_status = invitation_service.invitation_status_for_email(engine, email)
+    return CheckEmailResponse(exists=exists, invitation_status=invitation_status)

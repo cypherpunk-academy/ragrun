@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
-const FROM_EMAIL = Deno.env.get("INVITATION_FROM_EMAIL") ?? "noreply@freisinn.app";
+const FROM_EMAIL = Deno.env.get("INVITATION_FROM_EMAIL") ?? "noreply@michaelschmidt.berlin";
 
 serve(async (req) => {
   if (req.method !== "POST") {
