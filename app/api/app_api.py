@@ -154,7 +154,7 @@ async def app_personalities() -> PersonalitiesResponse:
 
 
 @router.post("/search", response_model=SearchResponse)
-@limit("20/hour")
+@limit("1000/hour" if settings.app_env == "development" else "20/hour")
 async def app_search_endpoint(
     request: Request,
     body: SearchRequest,

@@ -202,6 +202,25 @@ def _apply_parent_quote_hit(hit: dict[str, Any], parent: dict[str, Any]) -> None
     hit.pop("parent_id", None)
 
 
+_MAX_SUMMARY_RESULTS = 3
+
+
+def _cap_summary_results(
+    results: list[dict[str, Any]],
+    max_summaries: int = _MAX_SUMMARY_RESULTS,
+) -> list[dict[str, Any]]:
+    """Keep at most *max_summaries* chapter_summary hits, preserving order."""
+    out: list[dict[str, Any]] = []
+    summary_count = 0
+    for r in results:
+        if str(r.get("chunk_type") or "") == "chapter_summary":
+            summary_count += 1
+            if summary_count > max_summaries:
+                continue
+        out.append(r)
+    return out
+
+
 def _dedupe_results_by_chunk_id(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep one hit per chunk_id, preferring the highest score."""
     best: dict[str, dict[str, Any]] = {}
@@ -291,6 +310,121 @@ def _set_navigation_error(hit: dict[str, Any], message: str) -> None:
     hit.pop("paragraph_id", None)
 
 
+async def _title_match_search(
+    query: str,
+    chunk_types: list[str],
+    engine: Engine,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Find chunks whose segment_title or source_title matches the query (ILIKE).
+
+    Returns result dicts in the same shape as the hybrid search output, with a
+    synthetic high score so title matches rank above typical RRF scores.
+    """
+    q_like = f"%{query}%"
+
+    def _query() -> list[dict[str, Any]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, source_id, chunk_type, text, metadata
+                    FROM rag_chunks
+                    WHERE chunk_type = ANY(:types)
+                      AND (
+                        metadata->>'segment_title' ILIKE :q
+                        OR metadata->>'source_title' ILIKE :q
+                      )
+                    ORDER BY
+                      CASE WHEN LOWER(metadata->>'segment_title') = LOWER(:exact) THEN 0
+                           WHEN LOWER(metadata->>'source_title') = LOWER(:exact) THEN 1
+                           ELSE 2
+                      END,
+                      updated_at DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"types": chunk_types, "q": q_like, "exact": query, "lim": limit},
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
+    return await asyncio.to_thread(_query)
+
+
+def _title_hit_to_result(row: dict[str, Any], query: str) -> dict[str, Any]:
+    """Convert a rag_chunks row from _title_match_search to a search result dict."""
+    meta = row.get("metadata") or {}
+    if isinstance(meta, str):
+        import json as _json
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+
+    chunk_type = str(row.get("chunk_type") or meta.get("chunk_type") or "")
+    text_val = str(row.get("text") or "")
+    source_title = meta.get("source_title")
+    segment_title = meta.get("segment_title")
+    book_title = meta.get("book_title")
+    if (
+        not book_title
+        and isinstance(source_title, str) and source_title.strip()
+        and isinstance(segment_title, str) and segment_title.strip()
+        and source_title.strip() != segment_title.strip()
+    ):
+        book_title = source_title.strip()
+
+    author = meta.get("author")
+    if isinstance(author, str) and author.strip().lower() in (
+        "philo-von-freisinn", "philo von freisinn",
+    ):
+        author = None
+
+    # Exact title match → highest score; partial → still above typical RRF (~0.03).
+    seg_lower = (segment_title or "").strip().lower()
+    q_lower = query.strip().lower()
+    if seg_lower == q_lower:
+        score = 1.0
+    elif q_lower in seg_lower:
+        score = 0.8
+    else:
+        score = 0.5
+
+    item: dict[str, Any] = {
+        "chunk_id": str(row.get("chunk_id") or ""),
+        "source_id": str(row.get("source_id") or meta.get("source_id") or ""),
+        "segment_id": meta.get("segment_id"),
+        "paragraph_id": meta.get("paragraph_id"),
+        "title": book_title or source_title,
+        "segment_title": segment_title,
+        "snippet": _snippet_text(text_val),
+        "text": text_val,
+        "score": score,
+        "chunk_type": chunk_type,
+        "source_type": meta.get("source_type"),
+        "author": author,
+        "book_title": book_title,
+        "venue": meta.get("venue"),
+        "lecture_date": meta.get("lecture_date"),
+        "vortragstitel": meta.get("vortragstitel"),
+    }
+    if chunk_type == "chapter_summary":
+        parent_id = _parent_id_from_meta(meta)
+        if parent_id:
+            item["parent_id"] = parent_id
+        source_index = meta.get("source_index")
+        if source_index is None:
+            source_index = meta.get("segment_index")
+        if isinstance(source_index, (int, float)) and not isinstance(source_index, bool):
+            item["source_index"] = int(source_index)
+    if chunk_type in ("quote", "quote_explanation"):
+        item["quote_text"] = text_val
+        item["quote_author"] = meta.get("author")
+        _apply_quote_nav_fields_from_meta(item, meta)
+
+    return item
+
+
 async def app_search(
     *,
     query: str,
@@ -311,7 +445,11 @@ async def app_search(
     prefix_passage, prefix_query = load_assistant_embedding_prefixes(assistant_slug)
     _ = prefix_passage  # search uses query prefix only
 
-    snippets = await hybrid_retrieve(
+    # Run hybrid vector search and DB title-match search in parallel.
+    # Skip title search for very long queries (unlikely to match a title).
+    _MAX_TITLE_QUERY_LEN = 120
+
+    hybrid_coro = hybrid_retrieve(
         query=q,
         k_dense=k,
         k_sparse=k,
@@ -325,11 +463,32 @@ async def app_search(
         force_sparse=settings.use_hybrid_retrieval,
     )
 
+    run_title_search = engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN
+    if run_title_search:
+        title_coro = _title_match_search(q, ["chapter_summary"], engine, limit=k)
+        snippets, title_rows = await asyncio.gather(hybrid_coro, title_coro)
+    else:
+        snippets = await hybrid_coro
+        title_rows = []
+
+    # Build title-match results and collect their chunk_ids for dedup.
+    title_results: list[dict[str, Any]] = []
+    title_chunk_ids: set[str] = set()
+    for row in title_rows:
+        item = _title_hit_to_result(row, q)
+        cid = item.get("chunk_id")
+        if cid:
+            title_chunk_ids.add(cid)
+            title_results.append(item)
+
     results: list[dict[str, Any]] = []
     for snip in snippets:
         meta = _meta(snip)
         chunk_id = meta.get("chunk_id") or snip.payload.get("chunk_id")
         if not isinstance(chunk_id, str) or not chunk_id:
+            continue
+        # Skip hybrid hits already covered by title search (will be merged later).
+        if chunk_id in title_chunk_ids:
             continue
         source_id = meta.get("source_id")
         text_val = snip.text or ""
@@ -430,4 +589,13 @@ async def app_search(
                 "Kein Absatz für diesen Treffer verfügbar — bitte Ingest neu ausführen.",
             )
 
-    return results
+    # Merge title-match results: prepend (sorted by title relevance), then hybrid.
+    # Title-match scores (0.5–1.0) are not comparable to RRF scores (~0.01–0.03),
+    # so we prepend structurally rather than mixing by score.
+    if title_results:
+        title_results.sort(key=lambda r: float(r.get("score", 0)), reverse=True)
+        merged = (title_results + results)[:k]
+    else:
+        merged = results
+
+    return _cap_summary_results(merged)
