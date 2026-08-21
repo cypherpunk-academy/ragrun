@@ -269,7 +269,7 @@ async def classify_intent(state: ChatState, config: RunnableConfig) -> dict:
 
     await adispatch_custom_event(
         "ace_progress",
-        {"step": "classify_intent", "label": "Ich klassifiziere den Prompt"},
+        {"step": "classify_intent", "label": "Klassifiziere den Prompt"},
         config=config,
     )
 
@@ -338,7 +338,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
         logger.info("Lemma lookup: empty lemma, falling back to broad retrieval")
         await adispatch_custom_event(
             "ace_progress",
-            {"step": "lemma_lookup", "label": "Begriff nicht gefunden, ich bestimme ihn neu (das kann eine Weile dauern)."},
+            {"step": "lemma_not_found", "label": "Begriff nicht gefunden, bestimme ihn neu…"},
             config=config,
         )
         return {
@@ -375,7 +375,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
         meta = rec.metadata or {}
         await adispatch_custom_event(
             "ace_progress",
-            {"step": "lemma_lookup", "label": "Begriff gefunden, gebe ihn zurück"},
+            {"step": "lemma_found", "label": "Begriff gefunden"},
             config=config,
         )
         return {
@@ -391,7 +391,7 @@ async def lemma_lookup(state: ChatState, config: RunnableConfig) -> dict:
     logger.info("Lemma lookup: '%s' not found, using authentic_concept_explain", lemma)
     await adispatch_custom_event(
         "ace_progress",
-        {"step": "lemma_lookup", "label": "Begriff nicht gefunden, ich bestimme ihn neu (das kann eine Weile dauern)."},
+        {"step": "lemma_not_found", "label": "Begriff nicht gefunden, bestimme ihn neu…"},
         config=config,
     )
     return {
