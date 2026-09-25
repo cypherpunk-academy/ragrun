@@ -140,6 +140,15 @@ async def app_health() -> dict[str, Any]:
     }
 
 
+@router.get("/corpus-version")
+async def app_corpus_version() -> dict[str, Any]:
+    """Current corpus version and download URL (no JWT — public)."""
+    return {
+        "version": settings.corpus_version,
+        "download_url": settings.corpus_download_url or None,
+    }
+
+
 @router.get("/personalities", response_model=PersonalitiesResponse)
 async def app_personalities() -> PersonalitiesResponse:
     """List chat personalities (no JWT — public catalogue)."""

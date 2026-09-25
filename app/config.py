@@ -130,6 +130,12 @@ class Settings(BaseSettings):
 
     google_play_url: str = ""
 
+    # Bundled corpus version — bumped whenever books.db is regenerated.
+    # App compares its local PRAGMA user_version against this.
+    corpus_version: int = 1
+    # Public URL where the current books.db can be downloaded (Supabase Storage or CDN).
+    corpus_download_url: str = ""
+
     # Default assistant for app search when collection is omitted
     app_default_assistant_slug: str = "philo-von-freisinn"
 
@@ -151,13 +157,6 @@ class Settings(BaseSettings):
     # Retrieval: filter out very short chunks (e.g. "13| Dr. Rudolf Steiner.")
     min_chunk_chars: int = 80
     retrieval_overfetch_multiplier: int = 2
-
-    # concept_explain_worldviews graph retrieval sizing (final reranked chunk counts)
-    # Note: base and widen sizes are derived from these finals in the graph to ensure
-    # the system can actually return up to k_final (i.e. widen/base are >= k_final).
-    cewv_k_final_concept: int = 6
-    cewv_k_final_context1: int = 4
-    cewv_k_final_context2: int = 6
 
     # In some environments (e.g. restricted sandboxes) a present `.env` file may be
     # unreadable; fall back to environment variables only in that case.
