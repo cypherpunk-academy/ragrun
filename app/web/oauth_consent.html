@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Philo — Zugriff erlauben</title>
+  <style>
+    :root {
+      --ink: #1a1814;
+      --muted: #5c564c;
+      --paper: #f7f3eb;
+      --panel: #fffdf8;
+      --line: #d9d0c0;
+      --accent: #2f5d4a;
+      --accent-hover: #244a3b;
+      --danger: #8b3a2f;
+      --danger-hover: #6e2e25;
+      --err-bg: #f8e8e4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 80% 50% at 10% 0%, #e8dfd0 0%, transparent 55%),
+        radial-gradient(ellipse 60% 40% at 90% 100%, #d5e0d8 0%, transparent 50%),
+        var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .shell {
+      width: min(26rem, 100%);
+    }
+    .brand {
+      font-size: 1.75rem;
+      letter-spacing: 0.04em;
+      margin: 0 0 0.35rem;
+      font-weight: 600;
+    }
+    .lede {
+      margin: 0 0 1.25rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 1.25rem 1.35rem 1.4rem;
+    }
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--line);
+      background: #fff;
+      font: inherit;
+      font-size: 1rem;
+      margin-bottom: 0.85rem;
+      color: var(--ink);
+    }
+    input:focus {
+      outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      border-color: var(--accent);
+    }
+    .row {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    button, .btn {
+      font: inherit;
+      font-size: 0.95rem;
+      padding: 0.65rem 1rem;
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    button:hover:not(:disabled), .btn:hover { background: var(--accent-hover); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    button.secondary, .btn.secondary {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    button.secondary:hover:not(:disabled) {
+      background: #f0ebe1;
+    }
+    button.danger {
+      background: transparent;
+      color: var(--danger);
+      border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+    }
+    button.danger:hover:not(:disabled) {
+      background: var(--err-bg);
+      border-color: var(--danger);
+    }
+    .meta {
+      margin: 0.85rem 0 1rem;
+      font-size: 0.9rem;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+    .meta strong { color: var(--ink); font-weight: 600; }
+    .scopes {
+      margin: 0 0 1rem;
+      padding: 0;
+      list-style: none;
+      font-size: 0.9rem;
+    }
+    .scopes li {
+      padding: 0.25rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .scopes li:last-child { border-bottom: none; }
+    .err {
+      display: none;
+      margin: 0 0 0.85rem;
+      padding: 0.65rem 0.75rem;
+      background: var(--err-bg);
+      color: var(--danger);
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+    .err.show { display: block; }
+    .hint {
+      margin: 0.75rem 0 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .oauth-providers {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .oauth-providers .btn {
+      text-align: center;
+      text-decoration: none;
+      width: 100%;
+    }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 0.25rem 0 1rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+    [hidden] { display: none !important; }
+    .user-line {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 0 0 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="brand">Philo</p>
+    <p class="lede">Anmeldung für den Claude-Connector und andere OAuth-Clients.</p>
+
+    <div id="err" class="err" role="alert"></div>
+
+    <section id="panel-missing" class="panel" hidden>
+      <h2>Ungültige Anfrage</h2>
+      <p class="meta">Es fehlt die Parameter <code>authorization_id</code>. Starte die Verbindung erneut aus Claude.</p>
+    </section>
+
+    <section id="panel-config" class="panel" hidden>
+      <h2>Konfiguration fehlt</h2>
+      <p class="meta">ragrun kennt keine Supabase-URL / Anon-Key (<code>RAGRUN_SUPABASE_URL</code>, <code>RAGRUN_SUPABASE_ANON_KEY</code>).</p>
+    </section>
+
+    <section id="panel-login" class="panel" hidden>
+      <h2>Anmelden</h2>
+      <div class="oauth-providers">
+        <button type="button" class="btn secondary" id="btn-google">Mit Google fortfahren</button>
+        <button type="button" class="btn secondary" id="btn-apple">Mit Apple fortfahren</button>
+      </div>
+      <div class="divider">oder E-Mail</div>
+      <form id="form-email">
+        <label for="email">E-Mail</label>
+        <input id="email" name="email" type="email" autocomplete="email" required placeholder="name@beispiel.de" />
+        <button type="submit" id="btn-send-otp">Code senden</button>
+      </form>
+      <form id="form-otp" hidden>
+        <label for="otp">Code aus der E-Mail</label>
+        <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required placeholder="123456" />
+        <div class="row">
+          <button type="submit" id="btn-verify">Bestätigen</button>
+          <button type="button" class="secondary" id="btn-resend">Erneut senden</button>
+        </div>
+      </form>
+      <p class="hint">Nach dem Login kommst du zurück zu dieser Seite und kannst den Zugriff erlauben.</p>
+    </section>
+
+    <section id="panel-consent" class="panel" hidden>
+      <h2>Zugriff erlauben?</h2>
+      <p class="user-line" id="user-line"></p>
+      <div class="meta">
+        <div><strong id="client-name">App</strong> möchte auf deinen Philo-Account zugreifen.</div>
+        <div style="margin-top:0.5rem"><strong>Redirect:</strong> <span id="redirect-uri"></span></div>
+      </div>
+      <ul class="scopes" id="scopes"></ul>
+      <div class="row">
+        <button type="button" id="btn-approve">Erlauben</button>
+        <button type="button" class="danger" id="btn-deny">Ablehnen</button>
+      </div>
+    </section>
+
+    <section id="panel-busy" class="panel" hidden>
+      <h2>Einen Moment…</h2>
+      <p class="meta">Verbindung wird vorbereitet.</p>
+    </section>
+  </main>
+
+  <script type="module">
+    const CONFIG = __RAGRUN_OAUTH_CONFIG__;
+
+    const $ = (id) => document.getElementById(id);
+    const errEl = $("err");
+
+    function showError(msg) {
+      errEl.textContent = msg || "Unbekannter Fehler";
+      errEl.classList.add("show");
+    }
+    function clearError() {
+      errEl.textContent = "";
+      errEl.classList.remove("show");
+    }
+    function showPanel(id) {
+      for (const el of document.querySelectorAll("section.panel")) {
+        el.hidden = el.id !== id;
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const authorizationId = params.get("authorization_id");
+
+    if (!CONFIG.supabaseUrl || !CONFIG.supabaseAnonKey) {
+      showPanel("panel-config");
+    } else if (!authorizationId) {
+      showPanel("panel-missing");
+    } else {
+      showPanel("panel-busy");
+      boot();
+    }
+
+    async function boot() {
+      const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm");
+      const supabase = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+        },
+      });
+
+      // After Google/Apple redirect, hash/query may contain tokens; wait for session.
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session) {
+        await showConsent(supabase, session);
+      } else {
+        showPanel("panel-login");
+        wireLogin(supabase);
+      }
+
+      supabase.auth.onAuthStateChange(async (event, nextSession) => {
+        if (event === "SIGNED_IN" && nextSession) {
+          clearError();
+          await showConsent(supabase, nextSession);
+        }
+      });
+    }
+
+    function wireLogin(supabase) {
+      const emailInput = $("email");
+      let pendingEmail = "";
+
+      async function sendOtp() {
+        clearError();
+        const email = (emailInput.value || "").trim();
+        if (!email) {
+          showError("Bitte E-Mail eingeben.");
+          return;
+        }
+        pendingEmail = email;
+        $("btn-send-otp").disabled = true;
+        $("btn-resend").disabled = true;
+        try {
+          const { error } = await supabase.auth.signInWithOtp({
+            email,
+            options: {
+              shouldCreateUser: true,
+              // Stay on this consent URL after magic-link click (if used).
+              emailRedirectTo: window.location.href,
+            },
+          });
+          if (error) throw error;
+          $("form-otp").hidden = false;
+        } catch (e) {
+          showError(e.message || String(e));
+        } finally {
+          $("btn-send-otp").disabled = false;
+          $("btn-resend").disabled = false;
+        }
+      }
+
+      $("form-email").addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        sendOtp();
+      });
+      $("btn-resend").addEventListener("click", () => sendOtp());
+
+      $("form-otp").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        clearError();
+        const token = ($("otp").value || "").trim();
+        if (!token || !pendingEmail) {
+          showError("E-Mail und Code nötig.");
+          return;
+        }
+        $("btn-verify").disabled = true;
+        try {
+          const { error } = await supabase.auth.verifyOtp({
+            email: pendingEmail,
+            token,
+            type: "email",
+          });
+          if (error) throw error;
+        } catch (e) {
+          showError(e.message || String(e));
+        } finally {
+          $("btn-verify").disabled = false;
+        }
+      });
+
+      async function oauth(provider) {
+        clearError();
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: window.location.href },
+        });
+        if (error) showError(error.message || String(error));
+      }
+      $("btn-google").addEventListener("click", () => oauth("google"));
+      $("btn-apple").addEventListener("click", () => oauth("apple"));
+    }
+
+    async function showConsent(supabase, session) {
+      showPanel("panel-busy");
+      clearError();
+      try {
+        const { data: authDetails, error } =
+          await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+        if (error || !authDetails) {
+          throw new Error(error?.message || "Ungültige Autorisierungsanfrage");
+        }
+
+        // Previously consented → Supabase returns redirect_url only.
+        if (!("authorization_id" in authDetails) && authDetails.redirect_url) {
+          window.location.href = authDetails.redirect_url;
+          return;
+        }
+
+        const clientName = authDetails.client?.name || authDetails.client?.client_name || "Client";
+        $("client-name").textContent = clientName;
+        $("redirect-uri").textContent = authDetails.redirect_uri || "—";
+        $("user-line").textContent = session.user?.email
+          ? `Angemeldet als ${session.user.email}`
+          : "Angemeldet";
+
+        const scopesEl = $("scopes");
+        scopesEl.innerHTML = "";
+        const scopeStr = (authDetails.scope || "").trim();
+        if (scopeStr) {
+          for (const s of scopeStr.split(/\s+/)) {
+            const li = document.createElement("li");
+            li.textContent = s;
+            scopesEl.appendChild(li);
+          }
+        }
+
+        showPanel("panel-consent");
+
+        $("btn-approve").onclick = async () => {
+          clearError();
+          $("btn-approve").disabled = true;
+          $("btn-deny").disabled = true;
+          try {
+            const { data, error: approveErr } =
+              await supabase.auth.oauth.approveAuthorization(authorizationId);
+            if (approveErr) throw approveErr;
+            const url = data?.redirect_url;
+            if (!url) throw new Error("Keine redirect_url von Supabase");
+            window.location.href = url;
+          } catch (e) {
+            showError(e.message || String(e));
+            $("btn-approve").disabled = false;
+            $("btn-deny").disabled = false;
+          }
+        };
+
+        $("btn-deny").onclick = async () => {
+          clearError();
+          $("btn-approve").disabled = true;
+          $("btn-deny").disabled = true;
+          try {
+            const { data, error: denyErr } =
+              await supabase.auth.oauth.denyAuthorization(authorizationId);
+            if (denyErr) throw denyErr;
+            const url = data?.redirect_url;
+            if (url) {
+              window.location.href = url;
+            } else {
+              showError("Zugriff abgelehnt.");
+            }
+          } catch (e) {
+            showError(e.message || String(e));
+            $("btn-approve").disabled = false;
+            $("btn-deny").disabled = false;
+          }
+        };
+      } catch (e) {
+        showError(e.message || String(e));
+        showPanel("panel-consent");
+      }
+    }
+  </script>
+</body>
+</html>
