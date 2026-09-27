@@ -1,4 +1,4 @@
-"""MCP server with whoami tool, using Supabase as OAuth 2.1 Authorization Server.
+"""MCP server with read-only tools, using Supabase as OAuth 2.1 Authorization Server.
 
 The MCP SDK's streamable HTTP app is mounted into the main FastAPI app at /mcp/.
 Supabase handles all OAuth (authorize, token, DCR); ragrun only verifies the
@@ -7,6 +7,7 @@ resulting JWT and serves MCP tools.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from urllib.parse import urlparse
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
@@ -22,6 +23,38 @@ logger = logging.getLogger(__name__)
 
 # Module-level reference so the parent lifespan can access it
 _mcp_server: MCPServer | None = None
+
+# ---------------------------------------------------------------------------
+# Server instructions (loaded once)
+# ---------------------------------------------------------------------------
+
+_SERVER_INSTRUCTIONS = """\
+Du bist Philo von Freisinn, ein philosophischer Assistent, der ueber einen \
+strukturierten Korpus von Werken Rudolf Steiners und verwandter Autoren verfuegt.
+
+## Korpus
+Der Korpus umfasst Primaerwerke (u.a. Die Philosophie der Freiheit, Die Kernpunkte \
+der sozialen Frage) sowie Sekundaerwerke. Nutze `search_corpus` fuer semantische \
+Suche und `get_passage` fuer den Volltext einzelner Absaetze.
+
+## Stufenlieferung
+Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
+vertieft, liefere ausfuehrlichere Auszuege. Halte Zitate und Textauszuege knapp \
+(max. 2-3 Saetze), es sei denn der Nutzer bittet ausdruecklich um mehr.
+
+## Arbeitstexte
+Der Nutzer kann eigene Arbeitstexte (Notizen, Entwuerfe) haben. Lies sie mit \
+`list_work_texts` / `get_work_text`. Erstelle oder aendere Arbeitstexte NUR wenn \
+der Nutzer ausdruecklich darum bittet (Schreibtools folgen in einem spaeteren Update).
+
+## Protokolle
+Protokolle sind kapitelweise Studiennotizen des Nutzers. Lies sie mit `get_protocol`. \
+Schreiben ist noch nicht moeglich.
+
+## Stil
+Sprich den Nutzer immer mit "du" an. Sei klar, sachlich, praezise. Keine Ironie, \
+kein Fachjargon. Vermeide Fremdwoerter, die Rudolf Steiner nicht verwendet hat.\
+"""
 
 
 class SupabaseTokenVerifier(TokenVerifier):
@@ -46,6 +79,16 @@ class SupabaseTokenVerifier(TokenVerifier):
         )
 
 
+def _load_philo_voice() -> str:
+    """Load the Philo personality prompt from the assistant's prompts directory."""
+    prompt_path = Path(settings.assistants_root) / "philo-von-freisinn" / "prompts" / "instruction.md"
+    try:
+        return prompt_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        logger.warning("philo_voice prompt not found at %s", prompt_path)
+        return "Du bist Philo von Freisinn, ein philosophischer Assistent."
+
+
 def _build_mcp_server() -> MCPServer:
     base = (settings.supabase_url or "").strip().rstrip("/")
     mcp_url = (settings.mcp_base_url or "").strip().rstrip("/")
@@ -67,9 +110,28 @@ def _build_mcp_server() -> MCPServer:
         name="philo",
         title="Philo MCP Server",
         description="MCP server for the Philo philosophical assistant",
-        version="0.1.0",
+        instructions=_SERVER_INSTRUCTIONS,
+        version="0.2.0",
         auth=auth,
         token_verifier=token_verifier,
+    )
+
+    _register_tools(mcp)
+    _register_resources(mcp)
+    _register_prompts(mcp)
+
+    return mcp
+
+
+def _register_tools(mcp: MCPServer) -> None:
+    """Register all MCP tools."""
+    from .tools import (
+        get_passage,
+        get_protocol,
+        get_work_text,
+        list_volumes,
+        list_work_texts,
+        search_corpus,
     )
 
     @mcp.tool()
@@ -87,7 +149,99 @@ def _build_mcp_server() -> MCPServer:
             "authenticated": True,
         }
 
-    return mcp
+    @mcp.tool(name="search_corpus")
+    async def tool_search_corpus(
+        query: str,
+        types: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Search the philosophical corpus (books, talks, concepts, quotes).
+
+        Returns ranked results with chunk_id, source metadata, and a short snippet.
+        Use get_passage with the paragraph_id from results to read the full text.
+
+        Args:
+            query: Search query (German or English).
+            types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
+            limit: Max results (1-20, default 10).
+        """
+        return await search_corpus(query=query, types=types, limit=limit)
+
+    @mcp.tool(name="get_passage")
+    async def tool_get_passage(paragraph_id: str) -> dict:
+        """Read a single paragraph by its UUID.
+
+        Returns the paragraph text plus source/segment metadata for navigation.
+
+        Args:
+            paragraph_id: UUID of the paragraph (from search results or protocols).
+        """
+        return await get_passage(paragraph_id=paragraph_id)
+
+    @mcp.tool(name="list_volumes")
+    async def tool_list_volumes() -> list[dict]:
+        """List all available books/volumes in the corpus.
+
+        Returns source_id and display_name for each volume.
+        """
+        return await list_volumes()
+
+    @mcp.tool(name="get_protocol")
+    async def tool_get_protocol(source_id: str, segment_slug: str) -> dict:
+        """Read the user's study protocol for a specific chapter.
+
+        Protocols collect notes, questions, and insights per chapter.
+
+        Args:
+            source_id: Book/source ID.
+            segment_slug: Chapter identifier (segment index or slug).
+        """
+        return await get_protocol(source_id=source_id, segment_slug=segment_slug)
+
+    @mcp.tool(name="list_work_texts")
+    async def tool_list_work_texts(
+        text_type: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """List the user's work texts (notes, drafts, essays).
+
+        Args:
+            text_type: Filter by type (e.g. "note", "essay"). Default: all.
+            limit: Max results (1-50, default 20).
+        """
+        return await list_work_texts(text_type=text_type, limit=limit)
+
+    @mcp.tool(name="get_work_text")
+    async def tool_get_work_text(note_id: str) -> dict:
+        """Read a specific work text by its ID.
+
+        Returns title, content, version, and metadata.
+
+        Args:
+            note_id: The note ID.
+        """
+        return await get_work_text(note_id=note_id)
+
+
+def _register_resources(mcp: MCPServer) -> None:
+    """Register MCP resources."""
+    from .tools import list_volumes
+
+    @mcp.resource("philo://corpus/volumes")
+    async def band_list() -> str:
+        """List of all volumes in the Philo corpus."""
+        volumes = await list_volumes()
+        lines = [f"- {v['display_name']} (source_id: {v['source_id']})" for v in volumes]
+        return "# Korpus-Baende\n\n" + "\n".join(lines)
+
+
+def _register_prompts(mcp: MCPServer) -> None:
+    """Register MCP prompts."""
+
+    @mcp.prompt()
+    async def philo_voice() -> str:
+        """The Philo von Freisinn personality and writing style instructions."""
+        return _load_philo_voice()
 
 
 def get_mcp_server() -> MCPServer:
