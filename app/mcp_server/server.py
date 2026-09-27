@@ -45,11 +45,16 @@ vertieft, liefere ausfuehrlichere Auszuege. Halte Zitate und Textauszuege knapp 
 ## Arbeitstexte
 Der Nutzer kann eigene Arbeitstexte (Notizen, Entwuerfe) haben. Lies sie mit \
 `list_work_texts` / `get_work_text`. Erstelle oder aendere Arbeitstexte NUR wenn \
-der Nutzer ausdruecklich darum bittet (Schreibtools folgen in einem spaeteren Update).
+der Nutzer ausdruecklich darum bittet — nutze `create_work_text` bzw. `update_work_text`. \
+Bei `update_work_text` immer vorher `get_work_text` lesen, um die aktuelle Version zu kennen.
 
 ## Protokolle
 Protokolle sind kapitelweise Studiennotizen des Nutzers. Lies sie mit `get_protocol`. \
-Schreiben ist noch nicht moeglich.
+Fuege neue Eintraege mit `append_to_protocol` hinzu, wenn der Nutzer darum bittet.
+
+## Uebergaben (Handoffs)
+Wenn der Nutzer eine Handoff-ID nennt, lies die Uebergabe mit `get_handoff`. \
+Sie enthaelt markierten Text, eine Frage und den Absatzverweis aus der App.
 
 ## Stil
 Sprich den Nutzer immer mit "du" an. Sei klar, sachlich, praezise. Keine Ironie, \
@@ -111,7 +116,7 @@ def _build_mcp_server() -> MCPServer:
         title="Philo MCP Server",
         description="MCP server for the Philo philosophical assistant",
         instructions=_SERVER_INSTRUCTIONS,
-        version="0.2.0",
+        version="0.3.0",
         auth=auth,
         token_verifier=token_verifier,
     )
@@ -126,12 +131,16 @@ def _build_mcp_server() -> MCPServer:
 def _register_tools(mcp: MCPServer) -> None:
     """Register all MCP tools."""
     from .tools import (
+        append_to_protocol,
+        create_work_text,
+        get_handoff,
         get_passage,
         get_protocol,
         get_work_text,
         list_volumes,
         list_work_texts,
         search_corpus,
+        update_work_text,
     )
 
     @mcp.tool()
@@ -221,6 +230,103 @@ def _register_tools(mcp: MCPServer) -> None:
             note_id: The note ID.
         """
         return await get_work_text(note_id=note_id)
+
+    @mcp.tool(name="create_work_text")
+    async def tool_create_work_text(
+        title: str,
+        content: str,
+        text_type: str = "note",
+        paragraph_id: str | None = None,
+        conversation_url: str | None = None,
+    ) -> dict:
+        """Create a new work text (note, draft, essay).
+
+        Only create work texts when the user explicitly asks for it.
+
+        Args:
+            title: Title of the work text.
+            content: The text content.
+            text_type: Type: "note", "essay", "draft". Default: "note".
+            paragraph_id: Optional paragraph UUID to link to.
+            conversation_url: Optional conversation URL.
+        """
+        return await create_work_text(
+            title=title,
+            content=content,
+            text_type=text_type,
+            paragraph_id=paragraph_id,
+            conversation_url=conversation_url,
+        )
+
+    @mcp.tool(name="update_work_text")
+    async def tool_update_work_text(
+        note_id: str,
+        content: str,
+        expected_version: int,
+        title: str | None = None,
+        status: str | None = None,
+    ) -> dict:
+        """Update an existing work text with version control.
+
+        Always read the note first (get_work_text) to get the current version.
+        Returns {ok, new_version} or {error: "conflict"} if version changed.
+
+        Args:
+            note_id: The note ID to update.
+            content: The new content.
+            expected_version: Version from get_work_text (must match).
+            title: Optional new title.
+            status: Optional new status: "draft" or "final".
+        """
+        return await update_work_text(
+            note_id=note_id,
+            content=content,
+            expected_version=expected_version,
+            title=title,
+            status=status,
+        )
+
+    @mcp.tool(name="append_to_protocol")
+    async def tool_append_to_protocol(
+        source_id: str,
+        segment_slug: str,
+        entry_type: str,
+        content: str,
+        paragraph_id: str | None = None,
+        conversation_url: str | None = None,
+    ) -> dict:
+        """Append a note/question/insight to the study protocol for a chapter.
+
+        Creates the protocol automatically if it does not exist yet.
+
+        Args:
+            source_id: Book/source ID.
+            segment_slug: Chapter identifier (segment index or slug).
+            entry_type: Type: "note", "question", "insight", "summary".
+            content: The entry text.
+            paragraph_id: Optional paragraph UUID this entry refers to.
+            conversation_url: Optional conversation URL.
+        """
+        return await append_to_protocol(
+            source_id=source_id,
+            segment_slug=segment_slug,
+            entry_type=entry_type,
+            content=content,
+            paragraph_id=paragraph_id,
+            conversation_url=conversation_url,
+        )
+
+    @mcp.tool(name="get_handoff")
+    async def tool_get_handoff(handoff_id: str) -> dict:
+        """Retrieve a handoff from the app.
+
+        A handoff transfers context (marked text, question, paragraph) from
+        the app to Claude. If expired, returns what is still available.
+
+        Args:
+            handoff_id: The 5-character handoff ID from the app deep link.
+        """
+        return await get_handoff(handoff_id=handoff_id)
 
 
 def _register_resources(mcp: MCPServer) -> None:

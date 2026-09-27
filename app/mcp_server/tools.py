@@ -1,10 +1,12 @@
-"""Read-only MCP tools for Step 11 (Filo x Claude integration)."""
+"""MCP tools for Filo x Claude integration (Steps 11 + 13)."""
 from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any
 
+import httpx
 from sqlalchemy import text
 
 from app.config import settings
@@ -32,6 +34,44 @@ def _get_user_id() -> str | None:
     if token is None:
         return None
     return token.subject
+
+
+def _get_raw_token() -> str | None:
+    """Extract the raw Supabase JWT from the MCP access token."""
+    from mcp.server.auth.middleware.auth_context import get_access_token
+
+    token = get_access_token()
+    if token is None:
+        return None
+    return token.token
+
+
+async def _supabase_rpc(
+    function_name: str,
+    params: dict[str, Any],
+    user_jwt: str,
+) -> dict[str, Any]:
+    """Call a Supabase PostgREST RPC function with the user's JWT."""
+    base = (settings.supabase_url or "").rstrip("/")
+    anon_key = settings.supabase_anon_key or ""
+    if not base:
+        return {"error": "supabase not configured"}
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        resp = await client.post(
+            f"{base}/rest/v1/rpc/{function_name}",
+            json=params,
+            headers={
+                "Authorization": f"Bearer {user_jwt}",
+                "apikey": anon_key,
+                "Content-Type": "application/json",
+            },
+        )
+
+    if resp.status_code >= 400:
+        logger.warning("RPC %s failed: %s %s", function_name, resp.status_code, resp.text)
+        return {"error": f"RPC failed: {resp.status_code}"}
+    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -382,3 +422,266 @@ async def get_work_text(note_id: str) -> dict[str, Any]:
     if result is None:
         return {"error": "note not found"}
     return result
+
+
+# ---------------------------------------------------------------------------
+# create_work_text (Step 13)
+# ---------------------------------------------------------------------------
+
+
+async def create_work_text(
+    title: str,
+    content: str,
+    text_type: str = "note",
+    paragraph_id: str | None = None,
+    conversation_url: str | None = None,
+) -> dict[str, Any]:
+    """Create a new work text (note, draft, essay).
+
+    Returns the new note_id and version on success.
+
+    Args:
+        title: Title of the work text.
+        content: The text content.
+        text_type: Type of text: "note", "essay", "draft". Default: "note".
+        paragraph_id: Optional paragraph UUID to link this note to.
+        conversation_url: Optional URL of the conversation that created this.
+    """
+    raw_token = _get_raw_token()
+    if not raw_token:
+        return {"error": "not authenticated"}
+
+    note_id = str(uuid.uuid4())
+    params: dict[str, Any] = {
+        "p_id": note_id,
+        "p_title": title.strip(),
+        "p_content": content,
+        "p_text_type": text_type.strip() or "note",
+        "p_created_by": "claude",
+    }
+    if paragraph_id and paragraph_id.strip():
+        params["p_paragraph_id"] = paragraph_id.strip()
+    if conversation_url and conversation_url.strip():
+        params["p_conversation_url"] = conversation_url.strip()
+
+    return await _supabase_rpc("create_note", params, raw_token)
+
+
+# ---------------------------------------------------------------------------
+# update_work_text (Step 13)
+# ---------------------------------------------------------------------------
+
+
+async def update_work_text(
+    note_id: str,
+    content: str,
+    expected_version: int,
+    title: str | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """Update an existing work text with optimistic version control.
+
+    Returns {ok, new_version} on success, or {error: "conflict", current_version,
+    current_content, current_title} if the version has changed since last read.
+    Always read the note first with get_work_text to get the current version.
+
+    Args:
+        note_id: The note ID to update.
+        content: The new content.
+        expected_version: The version you read (from get_work_text). Must match.
+        title: Optional new title (keeps current if omitted).
+        status: Optional new status: "draft" or "final" (keeps current if omitted).
+    """
+    raw_token = _get_raw_token()
+    if not raw_token:
+        return {"error": "not authenticated"}
+
+    nid = (note_id or "").strip()
+    if not nid:
+        return {"error": "note_id is required"}
+
+    params: dict[str, Any] = {
+        "p_id": nid,
+        "p_content": content,
+        "p_expected_version": expected_version,
+        "p_changed_by": "claude",
+    }
+    if title is not None:
+        params["p_title"] = title.strip()
+    if status is not None:
+        params["p_status"] = status.strip()
+
+    return await _supabase_rpc("save_note", params, raw_token)
+
+
+# ---------------------------------------------------------------------------
+# append_to_protocol (Step 13)
+# ---------------------------------------------------------------------------
+
+
+async def append_to_protocol(
+    source_id: str,
+    segment_slug: str,
+    entry_type: str,
+    content: str,
+    paragraph_id: str | None = None,
+    conversation_url: str | None = None,
+) -> dict[str, Any]:
+    """Append a note/question/insight to the user's study protocol for a chapter.
+
+    Creates the protocol if it does not exist yet.
+
+    Args:
+        source_id: Book/source ID.
+        segment_slug: Chapter identifier (segment index or slug).
+        entry_type: Type of entry: "note", "question", "insight", "summary".
+        content: The entry text.
+        paragraph_id: Optional paragraph UUID this entry refers to.
+        conversation_url: Optional URL of the conversation.
+    """
+    user_id = _get_user_id()
+    if not user_id:
+        return {"error": "not authenticated"}
+
+    sid = (source_id or "").strip()
+    slug = (segment_slug or "").strip()
+    etype = (entry_type or "").strip()
+    if not sid or not slug or not etype:
+        return {"error": "source_id, segment_slug, and entry_type are required"}
+
+    def _write() -> dict[str, Any]:
+        with get_engine().connect() as conn:
+            # Upsert protocol
+            row = conn.execute(
+                text(
+                    """
+                    INSERT INTO protocols (user_id, source_id, segment_slug)
+                    VALUES (CAST(:uid AS uuid), :sid, :slug)
+                    ON CONFLICT (user_id, source_id, segment_slug)
+                    DO UPDATE SET updated_at = now()
+                    RETURNING id::text AS protocol_id
+                    """
+                ),
+                {"uid": user_id, "sid": sid, "slug": slug},
+            ).mappings().first()
+
+            if not row:
+                return {"error": "failed to create protocol"}
+
+            protocol_id = row["protocol_id"]
+
+            # Insert entry
+            params: dict[str, Any] = {
+                "pid": protocol_id,
+                "etype": etype,
+                "content": content,
+            }
+            pid_col = "NULL"
+            conv_col = "NULL"
+            if paragraph_id and paragraph_id.strip():
+                params["para_id"] = paragraph_id.strip()
+                pid_col = "CAST(:para_id AS uuid)"
+            if conversation_url and conversation_url.strip():
+                params["conv_url"] = conversation_url.strip()
+                conv_col = ":conv_url"
+
+            entry = conn.execute(
+                text(
+                    f"""
+                    INSERT INTO protocol_entries
+                        (protocol_id, paragraph_id, entry_type, content, conversation_url)
+                    VALUES
+                        (CAST(:pid AS uuid), {pid_col}, :etype, :content, {conv_col})
+                    RETURNING id::text AS entry_id
+                    """
+                ),
+                params,
+            ).mappings().first()
+
+            conn.commit()
+
+            return {
+                "ok": True,
+                "protocol_id": protocol_id,
+                "entry_id": entry["entry_id"] if entry else None,
+            }
+
+    return await asyncio.to_thread(_write)
+
+
+# ---------------------------------------------------------------------------
+# get_handoff (Step 13)
+# ---------------------------------------------------------------------------
+
+
+async def get_handoff(handoff_id: str) -> dict[str, Any]:
+    """Retrieve a handoff by its short ID.
+
+    A handoff transfers context from the app to Claude: marked text, a user
+    question, and the paragraph reference. If the handoff has expired, returns
+    what is still available (paragraph_id) with an explanation.
+
+    Args:
+        handoff_id: The 5-character handoff ID (from the app deep link).
+    """
+    user_id = _get_user_id()
+    if not user_id:
+        return {"error": "not authenticated"}
+
+    hid = (handoff_id or "").strip()
+    if not hid:
+        return {"error": "handoff_id is required"}
+
+    def _query() -> dict[str, Any] | None:
+        with get_engine().connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        paragraph_id,
+                        source_id,
+                        segment_slug,
+                        marked_text,
+                        user_question,
+                        return_url,
+                        created_at,
+                        expires_at,
+                        expires_at < now() AS is_expired
+                    FROM handoffs
+                    WHERE id = :hid
+                      AND user_id = CAST(:uid AS uuid)
+                    """
+                ),
+                {"hid": hid, "uid": user_id},
+            ).mappings().first()
+        if not row:
+            return None
+        return dict(row)
+
+    result = await asyncio.to_thread(_query)
+    if result is None:
+        return {"error": "handoff not found"}
+
+    if result.get("is_expired"):
+        out: dict[str, Any] = {
+            "expired": True,
+            "message": "Diese Uebergabe ist abgelaufen. Du kannst den Absatz aber noch direkt lesen.",
+        }
+        if result.get("paragraph_id"):
+            out["paragraph_id"] = str(result["paragraph_id"])
+        if result.get("user_question"):
+            out["user_question"] = result["user_question"]
+        return out
+
+    return {
+        "handoff_id": result["id"],
+        "paragraph_id": str(result["paragraph_id"]) if result["paragraph_id"] else None,
+        "source_id": result["source_id"],
+        "segment_slug": result["segment_slug"],
+        "marked_text": result["marked_text"],
+        "user_question": result["user_question"],
+        "return_url": result["return_url"],
+        "created_at": str(result["created_at"]),
+        "expires_at": str(result["expires_at"]),
+    }
