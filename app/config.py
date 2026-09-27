@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     # Public URL where the current books.db can be downloaded (Supabase Storage or CDN).
     corpus_download_url: str = ""
 
+    # Public base URL for the MCP server (used for OAuth Protected Resource Metadata).
+    # Set to the ngrok/staging/production URL so Claude can discover OAuth endpoints.
+    mcp_base_url: str = ""
+
     # Default assistant for app search when collection is omitted
     app_default_assistant_slug: str = "philo-von-freisinn"
 

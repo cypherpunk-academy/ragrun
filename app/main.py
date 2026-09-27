@@ -37,6 +37,8 @@ from .config import settings
 from .api import app_api as app_api_router
 from .api import rag as rag_router
 from .api import admin as admin_router
+from .api import oauth_consent as oauth_consent_router
+from .mcp_server.server import create_mcp_app, create_resource_metadata_route, get_mcp_server
 from .api.internal_auth import require_internal_key
 from .api.limiter import limiter
 from .api.chat import router as chat_router
@@ -96,7 +98,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     cleanup_task = asyncio.create_task(_talk_cleanup_loop())
     logger.info("Talk cleanup background task started (every %ds)", _TALK_CLEANUP_INTERVAL_SECONDS)
 
-    yield
+    # MCP session manager needs to run for the mounted /mcp sub-app
+    mcp = get_mcp_server()
+    async with mcp.session_manager.run():
+        logger.info("MCP session manager started")
+        yield
 
     cleanup_task.cancel()
     with suppress(asyncio.CancelledError):
@@ -140,6 +146,7 @@ def index() -> Dict[str, Any]:
         "environment": settings.app_env,
         "docs": "/docs",
         "health": "/healthz",
+        "oauth_consent": "/oauth/consent",
     }
 
 
@@ -225,9 +232,20 @@ if _cors_origins:
     )
 
 app.include_router(app_api_router.router)
+app.include_router(oauth_consent_router.router)
 app.include_router(rag_router.router, prefix="/api/v1", dependencies=[Depends(require_internal_key)])
 app.include_router(admin_router.router, prefix="/api/v1", dependencies=[Depends(require_internal_key)])
 app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(action_prompt_router, prefix="/api/v1")
 app.include_router(problem_solver_router, prefix="/api/v1")
+
+# MCP server (Claude Custom Connector)
+app.mount("/mcp", create_mcp_app())
+
+# RFC 9728: Protected Resource Metadata must be on the root app,
+# not inside the /mcp mount, because the well-known path is
+# /.well-known/oauth-protected-resource/mcp (relative to origin).
+_prm_route = create_resource_metadata_route()
+if _prm_route:
+    app.routes.insert(0, _prm_route)
