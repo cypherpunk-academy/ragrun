@@ -25,8 +25,11 @@ logging.basicConfig(
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 import httpx
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -38,6 +41,7 @@ from .api import app_api as app_api_router
 from .api import rag as rag_router
 from .api import admin as admin_router
 from .api import oauth_consent as oauth_consent_router
+from .api.deep_links import router as deep_links_router
 from .mcp_server.server import create_mcp_app, create_resource_metadata_route, get_mcp_server
 from .api.internal_auth import require_internal_key
 from .api.limiter import limiter
@@ -239,9 +243,30 @@ app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(action_prompt_router, prefix="/api/v1")
 app.include_router(problem_solver_router, prefix="/api/v1")
+app.include_router(deep_links_router)
 
 # MCP server (Claude Custom Connector)
 app.mount("/mcp", create_mcp_app())
+
+# Well-known files for Universal Links / App Links (Step 14b)
+_well_known_dir = Path(__file__).parent / "web" / "well-known"
+
+
+@app.get("/.well-known/apple-app-site-association", tags=["well-known"])
+async def apple_app_site_association() -> FileResponse:
+    return FileResponse(
+        _well_known_dir / "apple-app-site-association",
+        media_type="application/json",
+    )
+
+
+@app.get("/.well-known/assetlinks.json", tags=["well-known"])
+async def assetlinks() -> FileResponse:
+    return FileResponse(
+        _well_known_dir / "assetlinks.json",
+        media_type="application/json",
+    )
+
 
 # RFC 9728: Protected Resource Metadata must be on the root app,
 # not inside the /mcp mount, because the well-known path is
