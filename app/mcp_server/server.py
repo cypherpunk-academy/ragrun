@@ -73,6 +73,9 @@ kein Fachjargon. Vermeide Fremdwoerter, die Rudolf Steiner nicht verwendet hat.\
 class SupabaseTokenVerifier(TokenVerifier):
     """Verify Supabase-issued OAuth access tokens (JWTs)."""
 
+    _THROTTLE_SECONDS = 60
+    _last_grant_update: dict[str, float] = {}  # user_id → monotonic timestamp
+
     async def verify_token(self, token: str) -> AccessToken | None:
         from app.api.auth import parse_bearer_token
 
@@ -82,6 +85,8 @@ class SupabaseTokenVerifier(TokenVerifier):
             logger.debug("MCP token verification failed")
             return None
 
+        self._track_grant(user.user_id)
+
         return AccessToken(
             token=token,
             client_id="supabase",
@@ -90,6 +95,29 @@ class SupabaseTokenVerifier(TokenVerifier):
             subject=user.user_id,
             claims={"email": user.email},
         )
+
+    def _track_grant(self, user_id: str) -> None:
+        """Upsert connector_grants row, throttled to max 1x per minute per user."""
+        import time
+        now = time.monotonic()
+        last = self._last_grant_update.get(user_id, 0.0)
+        if now - last < self._THROTTLE_SECONDS:
+            return
+        self._last_grant_update[user_id] = now
+        try:
+            from sqlalchemy import text as sql_text
+            from app.db.session import get_engine
+            engine = get_engine()
+            with engine.connect() as conn:
+                conn.execute(sql_text(
+                    "INSERT INTO connector_grants (user_id, client_id, last_mcp_request) "
+                    "VALUES (CAST(:uid AS uuid), 'supabase', now()) "
+                    "ON CONFLICT (user_id, client_id) DO UPDATE "
+                    "SET last_mcp_request = now(), revoked_at = NULL"
+                ), {"uid": user_id})
+                conn.commit()
+        except Exception:
+            logger.debug("Failed to track connector grant for %s", user_id, exc_info=True)
 
 
 def _load_philo_voice() -> str:
