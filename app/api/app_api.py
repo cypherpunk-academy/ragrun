@@ -149,6 +149,40 @@ async def app_corpus_version() -> dict[str, Any]:
     }
 
 
+@router.get("/claude-status")
+async def app_claude_status(
+    user: Annotated[AuthUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Connector status for the authenticated user.
+
+    Queries connector_grants for the most recent non-revoked grant.
+    Returns: { status, last_active? }
+    """
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT last_mcp_request, revoked_at "
+                "FROM connector_grants "
+                "WHERE user_id = CAST(:uid AS uuid) "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"uid": user.user_id},
+        )
+        row = result.mappings().first()
+
+    if not row:
+        return {"status": "not_connected"}
+    if row["revoked_at"] is not None:
+        return {"status": "revoked"}
+    if row["last_mcp_request"] is None:
+        return {"status": "connected_unused"}
+    return {
+        "status": "connected",
+        "last_active": row["last_mcp_request"].isoformat(),
+    }
+
+
 @router.get("/deep-link-config")
 async def app_deep_link_config() -> dict[str, Any]:
     """Deep-link configuration for the app (no JWT — public).
