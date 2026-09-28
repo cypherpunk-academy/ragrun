@@ -149,6 +149,23 @@ async def app_corpus_version() -> dict[str, Any]:
     }
 
 
+@router.get("/deep-link-config")
+async def app_deep_link_config() -> dict[str, Any]:
+    """Deep-link configuration for the app (no JWT — public).
+
+    Controls how the app opens external links (e.g. to Claude).
+    Switchable server-side without an app release.
+    """
+    mcp_base = (settings.mcp_base_url or "").strip().rstrip("/")
+    return {
+        "strategy": "native_app",
+        "claude_base_url": "https://claude.ai/new",
+        "auto_send": False,
+        "passage_base_url": f"{mcp_base}/passage" if mcp_base else None,
+        "text_base_url": f"{mcp_base}/text" if mcp_base else None,
+    }
+
+
 @router.get("/personalities", response_model=PersonalitiesResponse)
 async def app_personalities() -> PersonalitiesResponse:
     """List chat personalities (no JWT — public catalogue)."""
