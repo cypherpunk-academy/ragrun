@@ -114,7 +114,7 @@ def _build_mcp_server() -> MCPServer:
     if base:
         auth = AuthSettings(
             issuer_url=f"{base}/auth/v1",
-            resource_server_url=f"{mcp_url}/mcp" if mcp_url else None,
+            resource_server_url=f"{mcp_url}/mcp/" if mcp_url else None,
             validate_token_resource=False,
         )
         token_verifier = SupabaseTokenVerifier()
@@ -376,7 +376,7 @@ def create_resource_metadata_route() -> Route | None:
     from mcp.server.auth.routes import build_resource_metadata_url
     from mcp.shared.auth import ProtectedResourceMetadata
 
-    resource_url = f"{mcp_url}/mcp"
+    resource_url = f"{mcp_url}/mcp/"
     metadata = ProtectedResourceMetadata(
         resource=resource_url,
         authorization_servers=[f"{base}/auth/v1"],
