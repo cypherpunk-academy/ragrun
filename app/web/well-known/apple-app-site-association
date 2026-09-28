@@ -1,0 +1,21 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "J424WHTQX5.berlin.cypherpunkacademy.ragapp",
+          "J424WHTQX5.berlin.cypherpunkacademy.ragapp.staging"
+        ],
+        "paths": [
+          "/passage/*",
+          "/text/*"
+        ],
+        "components": [
+          { "/": "/passage/*" },
+          { "/": "/text/*" }
+        ]
+      }
+    ]
+  }
+}
