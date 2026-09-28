@@ -124,6 +124,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
+# Trust X-Forwarded-Proto from reverse proxies (Railway, ngrok) so that
+# Starlette's redirect responses use https:// instead of http://.
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 
 async def _probe(client: httpx.AsyncClient, url: str, headers: dict | None = None) -> Dict[str, Any]:
     """Probe a downstream dependency and normalize the response."""
