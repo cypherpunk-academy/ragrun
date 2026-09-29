@@ -1,6 +1,3 @@
 [submodule "ragkeep"]
 	path = ragkeep
 	url = ../ragkeep
-[submodule "steineroriginals"]
-	path = steineroriginals
-	url = https://github.com/steineroriginals/steineroriginals.git
