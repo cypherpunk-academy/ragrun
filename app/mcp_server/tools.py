@@ -11,12 +11,22 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db.session import get_engine
+from app.mcp_server.citation import (
+    fetch_chapter_citation,
+    fetch_citation,
+    fetch_citations_batch,
+    note_display_title,
+    resolve_segment_slug,
+    text_return_url,
+)
 from app.services.app_catalog_repository import PostgresCatalogRepository
 from app.services.app_search_service import app_search
 
 logger = logging.getLogger(__name__)
 
 _SNIPPET_LIMIT = 300
+_CONTENT_MAX_BYTES = 1_048_576  # 1 MB
+_ALLOWED_SEARCH_TYPES = frozenset({"text", "concept", "quote", "chapter_summary"})
 
 
 def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
@@ -44,6 +54,38 @@ def _get_raw_token() -> str | None:
     if token is None:
         return None
     return token.token
+
+
+def _content_too_long(content: str | None) -> dict[str, Any] | None:
+    raw = content if content is not None else ""
+    if len(raw.encode("utf-8")) > _CONTENT_MAX_BYTES:
+        return {
+            "error": f"content exceeds maximum length of {_CONTENT_MAX_BYTES} bytes (1 MB)",
+            "code": "content_too_long",
+        }
+    return None
+
+
+def _validate_search_types(types: list[str] | None) -> dict[str, Any] | None:
+    if not types:
+        return None
+    unknown = sorted(
+        {
+            (t or "").strip().lower()
+            for t in types
+            if (t or "").strip() and (t or "").strip().lower() not in _ALLOWED_SEARCH_TYPES
+        }
+    )
+    if unknown:
+        return {
+            "error": (
+                "invalid types: "
+                + ", ".join(unknown)
+                + f"; allowed: {', '.join(sorted(_ALLOWED_SEARCH_TYPES))}"
+            ),
+            "code": "invalid_types",
+        }
+    return None
 
 
 async def _supabase_rpc(
@@ -83,7 +125,7 @@ async def search_corpus(
     query: str,
     types: list[str] | None = None,
     limit: int = 10,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Search the philosophical corpus (books, talks, concepts, quotes).
 
     Returns ranked results with chunk_id, source metadata, and a short snippet.
@@ -94,9 +136,17 @@ async def search_corpus(
         types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
         limit: Max results (1-20, default 10).
     """
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query is required", "code": "empty_query"}
+
+    type_err = _validate_search_types(types)
+    if type_err:
+        return type_err
+
     k = max(1, min(limit or 10, 20))
     results = await app_search(
-        query=query,
+        query=q,
         types=types,
         limit=k,
         engine=get_engine(),
@@ -120,6 +170,15 @@ async def search_corpus(
         if r.get("source_id"):
             item["source_id"] = r["source_id"]
         out.append(item)
+
+    engine = get_engine()
+    pids = [str(i["paragraph_id"]) for i in out if i.get("paragraph_id")]
+    citations = await asyncio.to_thread(fetch_citations_batch, engine, pids)
+    for item in out:
+        pid = item.get("paragraph_id")
+        if pid and pid in citations:
+            item["citation"] = citations[str(pid)]
+
     return out
 
 
@@ -164,7 +223,7 @@ async def get_passage(paragraph_id: str) -> dict[str, Any]:
             ).mappings().first()
         if not row:
             return None
-        return {
+        base = {
             "paragraph_id": row["paragraph_id"],
             "source_id": row["source_id"],
             "source_title": row["source_title"],
@@ -174,10 +233,20 @@ async def get_passage(paragraph_id: str) -> dict[str, Any]:
             "paragraph_number": row["paragraph_number"],
             "text": str(row["text"] or ""),
         }
+        return base
 
     result = await asyncio.to_thread(_query)
     if result is None:
         return {"error": "paragraph not found"}
+
+    engine = get_engine()
+    citation = await asyncio.to_thread(
+        fetch_citation,
+        engine,
+        str(result["paragraph_id"]),
+    )
+    if citation:
+        result["citation"] = citation
     return result
 
 
@@ -189,7 +258,7 @@ async def get_passage(paragraph_id: str) -> dict[str, Any]:
 async def list_volumes() -> list[dict[str, Any]]:
     """List all available books/volumes in the corpus.
 
-    Returns source_id, title, author for each volume.
+    Returns source_id, display_name, source_type, is_primary, ga, zyklus for each volume.
     Use source_id with get_passage or search_corpus for navigation.
     """
     catalog = PostgresCatalogRepository(get_engine())
@@ -198,6 +267,10 @@ async def list_volumes() -> list[dict[str, Any]]:
         {
             "source_id": s["source_id"],
             "display_name": s["display_name"],
+            "source_type": s.get("source_type") or "book",
+            "is_primary": bool(s.get("is_primary")),
+            "ga": s.get("ga"),
+            "zyklus": s.get("zyklus"),
         }
         for s in sources
     ]
@@ -225,12 +298,17 @@ async def get_protocol(
         return {"error": "not authenticated"}
 
     sid = (source_id or "").strip()
-    slug = (segment_slug or "").strip()
-    if not sid or not slug:
+    raw_slug = (segment_slug or "").strip()
+    if not sid or not raw_slug:
         return {"error": "source_id and segment_slug are required"}
 
+    engine = get_engine()
+    slug = await asyncio.to_thread(resolve_segment_slug, engine, sid, raw_slug)
+    if not slug:
+        return {"error": f"segment not found: {raw_slug}", "code": "segment_not_found"}
+
     def _query() -> dict[str, Any] | None:
-        with get_engine().connect() as conn:
+        with engine.connect() as conn:
             proto = conn.execute(
                 text(
                     """
@@ -284,6 +362,27 @@ async def get_protocol(
     result = await asyncio.to_thread(_query)
     if result is None:
         return {"protocol": None, "message": "No protocol found for this chapter."}
+
+    chapter = await asyncio.to_thread(
+        fetch_chapter_citation,
+        engine,
+        str(result["source_id"]),
+        str(result["segment_slug"]),
+    )
+    if chapter:
+        result["chapter_citation"] = chapter
+
+    entry_pids = [
+        str(e["paragraph_id"])
+        for e in result.get("entries", [])
+        if e.get("paragraph_id")
+    ]
+    entry_citations = await asyncio.to_thread(fetch_citations_batch, engine, entry_pids)
+    for entry in result.get("entries", []):
+        pid = entry.get("paragraph_id")
+        if pid and str(pid) in entry_citations:
+            entry["citation"] = entry_citations[str(pid)]
+
     return result
 
 
@@ -322,6 +421,7 @@ async def list_work_texts(
                     SELECT
                         id,
                         title,
+                        LEFT(content, 2048) AS content_preview,
                         text_type,
                         status,
                         version,
@@ -339,21 +439,41 @@ async def list_work_texts(
                 ),
                 params,
             ).mappings().all()
-        return [
+        return list(rows)
+
+    rows = await asyncio.to_thread(_query)
+    engine = get_engine()
+    anchor_pids = [
+        str(r["paragraph_id"])
+        for r in rows
+        if r.get("paragraph_id")
+    ]
+    anchor_citations = await asyncio.to_thread(fetch_citations_batch, engine, anchor_pids)
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        pid = str(row["paragraph_id"]) if row.get("paragraph_id") else None
+        citation = anchor_citations.get(pid) if pid else None
+        display, source = note_display_title(
+            row.get("title"),
+            row.get("content_preview"),
+            citation,
+        )
+        out.append(
             {
                 "note_id": row["id"],
                 "title": row["title"],
+                "display_title": display,
+                "title_source": source,
                 "text_type": row["text_type"],
                 "status": row["status"],
                 "version": row["version"],
-                "paragraph_id": str(row["paragraph_id"]) if row["paragraph_id"] else None,
+                "paragraph_id": pid,
                 "created_by": row["created_by"],
                 "updated_at": str(row["updated_at"]),
             }
-            for row in rows
-        ]
-
-    return await asyncio.to_thread(_query)
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -404,24 +524,42 @@ async def get_work_text(note_id: str) -> dict[str, Any]:
             ).mappings().first()
         if not row:
             return None
-        return {
-            "note_id": row["id"],
-            "title": row["title"],
-            "content": row["content"],
-            "text_type": row["text_type"],
-            "status": row["status"],
-            "version": row["version"],
-            "paragraph_id": str(row["paragraph_id"]) if row["paragraph_id"] else None,
-            "conversation_url": row["conversation_url"],
-            "created_by": row["created_by"],
-            "created_at": str(row["created_at"]),
-            "updated_at": str(row["updated_at"]),
-        }
+        return dict(row)
 
     result = await asyncio.to_thread(_query)
     if result is None:
         return {"error": "note not found"}
-    return result
+
+    engine = get_engine()
+    pid = str(result["paragraph_id"]) if result.get("paragraph_id") else None
+    citation = None
+    if pid:
+        citation = await asyncio.to_thread(fetch_citation, engine, pid)
+
+    display, source = note_display_title(
+        result.get("title"),
+        result.get("content"),
+        citation,
+    )
+    payload: dict[str, Any] = {
+        "note_id": result["id"],
+        "title": result["title"],
+        "display_title": display,
+        "title_source": source,
+        "content": result["content"],
+        "text_type": result["text_type"],
+        "status": result["status"],
+        "version": result["version"],
+        "paragraph_id": pid,
+        "conversation_url": result["conversation_url"],
+        "created_by": result["created_by"],
+        "created_at": str(result["created_at"]),
+        "updated_at": str(result["updated_at"]),
+        "text_return_url": text_return_url(str(result["id"])),
+    }
+    if citation:
+        payload["citation"] = citation
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +588,10 @@ async def create_work_text(
     raw_token = _get_raw_token()
     if not raw_token:
         return {"error": "not authenticated"}
+
+    too_long = _content_too_long(content)
+    if too_long:
+        return too_long
 
     note_id = str(uuid.uuid4())
     params: dict[str, Any] = {
@@ -500,6 +642,10 @@ async def update_work_text(
     if not nid:
         return {"error": "note_id is required"}
 
+    too_long = _content_too_long(content)
+    if too_long:
+        return too_long
+
     params: dict[str, Any] = {
         "p_id": nid,
         "p_content": content,
@@ -544,13 +690,18 @@ async def append_to_protocol(
         return {"error": "not authenticated"}
 
     sid = (source_id or "").strip()
-    slug = (segment_slug or "").strip()
+    raw_slug = (segment_slug or "").strip()
     etype = (entry_type or "").strip()
-    if not sid or not slug or not etype:
+    if not sid or not raw_slug or not etype:
         return {"error": "source_id, segment_slug, and entry_type are required"}
 
+    engine = get_engine()
+    slug = await asyncio.to_thread(resolve_segment_slug, engine, sid, raw_slug)
+    if not slug:
+        return {"error": f"segment not found: {raw_slug}", "code": "segment_not_found"}
+
     def _write() -> dict[str, Any]:
-        with get_engine().connect() as conn:
+        with engine.connect() as conn:
             # Upsert protocol
             row = conn.execute(
                 text(
@@ -663,20 +814,30 @@ async def get_handoff(handoff_id: str) -> dict[str, Any]:
     if result is None:
         return {"error": "handoff not found"}
 
+    engine = get_engine()
+    paragraph_id = (
+        str(result["paragraph_id"]) if result.get("paragraph_id") else None
+    )
+    citation = None
+    if paragraph_id:
+        citation = await asyncio.to_thread(fetch_citation, engine, paragraph_id)
+
     if result.get("is_expired"):
         out: dict[str, Any] = {
             "expired": True,
             "message": "Diese Uebergabe ist abgelaufen. Du kannst den Absatz aber noch direkt lesen.",
         }
-        if result.get("paragraph_id"):
-            out["paragraph_id"] = str(result["paragraph_id"])
+        if paragraph_id:
+            out["paragraph_id"] = paragraph_id
+        if citation:
+            out["citation"] = citation
         if result.get("user_question"):
             out["user_question"] = result["user_question"]
         return out
 
-    return {
+    payload: dict[str, Any] = {
         "handoff_id": result["id"],
-        "paragraph_id": str(result["paragraph_id"]) if result["paragraph_id"] else None,
+        "paragraph_id": paragraph_id,
         "source_id": result["source_id"],
         "segment_slug": result["segment_slug"],
         "marked_text": result["marked_text"],
@@ -685,3 +846,6 @@ async def get_handoff(handoff_id: str) -> dict[str, Any]:
         "created_at": str(result["created_at"]),
         "expires_at": str(result["expires_at"]),
     }
+    if citation:
+        payload["citation"] = citation
+    return payload

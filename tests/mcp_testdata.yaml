@@ -9,12 +9,12 @@ volumes:
     display_name: "Rudolf Steiner: Die Philosophie der Freiheit"
   source_id_bg:
     id: "0c20163d-b14e-4750-988b-3b58c0fa3126"
-    display_name: "Lawrence Lessig: Code Version 2 0"
+    display_name: "Lawrence Lessig: Code Version 2.0"
     search_term: "neutral search"
 segments:
   segment: "xiii-der-wert-des-lebens-pessimismus-und-optimismus"
   segment_idx: "15"
-  slug_and_index_equivalent: false
+  slug_and_index_equivalent: true
   segment_empty: "viii-die-faktoren-des-lebens"
 paragraph:
   para_id: "6dd87d4c-73a3-4796-b690-61cba295afd1"
@@ -24,14 +24,15 @@ work_texts:
   essay_a: { note_id: "e73a7a51-8c1c-49d7-b152-709020318fd3", text_type: essay, version: 1 }
   note_b: { note_id: "9d454806-b147-4a53-947d-30f04602f13e", text_type: note, version: 1 }
 handoffs:
-  handoff_id: "jtr9n"
-  handoff_old: "t5ngb"
-  handoff_b: "iekad"
+  handoff_id: "d9f3j"
+  handoff_old: "rr8cw"
+  handoff_b: "t7kkg"
   refresh_script: scripts/test_handoffs.py
 decisions:
-  invalid_types: "Kein Fehler — unbekannte Typen werden unverändert übernommen (app/services/app_search_service.py:52–56); Suche kann trotzdem Treffer liefern (z. B. bogus_type → 3 Ergebnisse auf dev)."
+  invalid_types: "Fehler code=invalid_types — nur text/concept/quote/chapter_summary (app/mcp_server/tools.py _validate_search_types)."
   limit_out_of_range: "Kein Fehler — stille Begrenzung via max/min (app/mcp_server/tools.py:104 search_corpus 1–20, Zeile 357 list_work_texts 1–50)."
   empty_protocol: "Objekt mit protocol null und message (app/mcp_server/tools.py:311–312), kein HTTP-Fehler."
   handoff_reuse_and_ttl: "Mehrfach abrufbar — kein Einmal-Verbrauch in get_handoff (app/mcp_server/tools.py:722–787); abgelaufen wenn expires_at < now() (Zeile 737, 761–772). Standard-TTL 24h (ragapp/supabase/migrations/018_claude_integration.sql:218)."
-  content_max_length: "Keine Obergrenze in MCP-Tools oder create_note/save_note — app_notes.content ist text ohne CHECK (ragapp/supabase/migrations/001_initial_schema.sql:176; 018_claude_integration.sql:103–127)."
+  content_max_length: "Max 1 MB — MCP-Check + RPC create_note/save_note (ragapp/supabase/migrations/020_note_content_max_length.sql)."
+  slug_and_index_equivalent: "Index und Slug werden via resolve_segment_slug auf denselben kanonischen Slug gemappt (app/mcp_server/citation.py)."
 cleanup_script: scripts/test_cleanup.py

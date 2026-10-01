@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
@@ -23,6 +24,16 @@ logger = logging.getLogger(__name__)
 
 # Module-level reference so the parent lifespan can access it
 _mcp_server: MCPServer | None = None
+
+
+def _mcp_resource_url(mcp_base: str) -> str:
+    """Canonical MCP resource URL (no trailing slash).
+
+    Cursor compares this string exactly to the URL in the MCP config.
+    Claude and Cursor both register ``https://host/mcp``; advertising
+    ``…/mcp/`` makes Cursor fail with a protected-resource mismatch.
+    """
+    return f"{mcp_base.rstrip('/')}/mcp"
 
 # ---------------------------------------------------------------------------
 # Server instructions (loaded once)
@@ -56,13 +67,14 @@ Fuege neue Eintraege mit `append_to_protocol` hinzu, wenn der Nutzer darum bitte
 Wenn der Nutzer eine Handoff-ID nennt, lies die Uebergabe mit `get_handoff`. \
 Sie enthaelt markierten Text, eine Frage und den Absatzverweis aus der App.
 
-## Quellenverweise
-Verwende bei Verweisen auf Werke immer den vollstaendigen deutschen Titel, wie er \
-im Korpus steht (z.B. "Die Philosophie der Freiheit", nicht "PdF" oder "GA 4"). \
-Bei Werken Rudolf Steiners fuege die GA-Nummer in Klammern hinzu, wenn es den Lesefluss \
-nicht stoert — z.B. "Die Kernpunkte der sozialen Frage (GA 23)". \
-Die GA-Nummer entspricht dem Index im Quellen-ID (z.B. source_id "...#4" = GA 4). \
-Bei Nicht-Steiner-Autoren genuegt der Titel ohne GA-Nummer.
+## Quellenverweise (Korpus-Baende)
+Wenn ein Tool ein Objekt `citation` mit Feld `zitierform` liefert, uebernimm \
+diese Zeichenkette woertlich fuer den Beleg — setze sie nicht selbst zusammen \
+und ergaenze keine GA-Nummer. Nutze optional `citation.return_url` als Link zur Stelle \
+in Philo. Ohne `citation` zitiere Korpus-Baende mit dem vollen deutschen Titel \
+(`band` / `segment_title`), ohne GA-Nummer. Ausnahme: die separate Collection \
+`rudolf-steiner-ga` (Seitenangaben „GA n, S. …") — sie folgt eigenen Regeln und \
+liefert kein `citation`-Objekt im Philo-Format.
 
 ## Stil
 Sprich den Nutzer immer mit "du" an. Sei klar, sachlich, praezise. Keine Ironie, \
@@ -142,7 +154,7 @@ def _build_mcp_server() -> MCPServer:
     if base:
         auth = AuthSettings(
             issuer_url=f"{base}/auth/v1",
-            resource_server_url=f"{mcp_url}/mcp/" if mcp_url else None,
+            resource_server_url=_mcp_resource_url(mcp_url) if mcp_url else None,
             validate_token_resource=False,
         )
         token_verifier = SupabaseTokenVerifier()
@@ -162,6 +174,22 @@ def _build_mcp_server() -> MCPServer:
     _register_prompts(mcp)
 
     return mcp
+
+
+def _tool_infra_error(exc: BaseException) -> dict[str, Any]:
+    """Map infra failures to a structured MCP error (X-04)."""
+    name = type(exc).__name__
+    msg = str(exc) or name
+    code = "tool_error"
+    lower = msg.lower()
+    if "qdrant" in lower or "Qdrant" in name:
+        code = "qdrant_unavailable"
+    elif "embed" in lower:
+        code = "embeddings_unavailable"
+    elif any(tok in lower for tok in ("postgres", "psycopg", "sqlalchemy", "connection refused", "dsn")):
+        code = "db_unavailable"
+    logger.exception("MCP tool failed (%s): %s", code, msg)
+    return {"error": msg, "code": code}
 
 
 def _register_tools(mcp: MCPServer) -> None:
@@ -199,7 +227,7 @@ def _register_tools(mcp: MCPServer) -> None:
         query: str,
         types: list[str] | None = None,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[dict] | dict:
         """Search the philosophical corpus (books, talks, concepts, quotes).
 
         Returns ranked results with chunk_id, source metadata, and a short snippet.
@@ -210,7 +238,10 @@ def _register_tools(mcp: MCPServer) -> None:
             types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
             limit: Max results (1-20, default 10).
         """
-        return await search_corpus(query=query, types=types, limit=limit)
+        try:
+            return await search_corpus(query=query, types=types, limit=limit)
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="get_passage")
     async def tool_get_passage(paragraph_id: str) -> dict:
@@ -221,15 +252,21 @@ def _register_tools(mcp: MCPServer) -> None:
         Args:
             paragraph_id: UUID of the paragraph (from search results or protocols).
         """
-        return await get_passage(paragraph_id=paragraph_id)
+        try:
+            return await get_passage(paragraph_id=paragraph_id)
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="list_volumes")
-    async def tool_list_volumes() -> list[dict]:
+    async def tool_list_volumes() -> list[dict] | dict:
         """List all available books/volumes in the corpus.
 
-        Returns source_id and display_name for each volume.
+        Returns source_id, display_name, source_type, is_primary, ga, zyklus.
         """
-        return await list_volumes()
+        try:
+            return await list_volumes()
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="get_protocol")
     async def tool_get_protocol(source_id: str, segment_slug: str) -> dict:
@@ -241,7 +278,10 @@ def _register_tools(mcp: MCPServer) -> None:
             source_id: Book/source ID.
             segment_slug: Chapter identifier (segment index or slug).
         """
-        return await get_protocol(source_id=source_id, segment_slug=segment_slug)
+        try:
+            return await get_protocol(source_id=source_id, segment_slug=segment_slug)
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="list_work_texts")
     async def tool_list_work_texts(
@@ -254,7 +294,10 @@ def _register_tools(mcp: MCPServer) -> None:
             text_type: Filter by type (e.g. "note", "essay"). Default: all.
             limit: Max results (1-50, default 20).
         """
-        return await list_work_texts(text_type=text_type, limit=limit)
+        try:
+            return await list_work_texts(text_type=text_type, limit=limit)
+        except Exception as exc:
+            return [_tool_infra_error(exc)]
 
     @mcp.tool(name="get_work_text")
     async def tool_get_work_text(note_id: str) -> dict:
@@ -265,7 +308,10 @@ def _register_tools(mcp: MCPServer) -> None:
         Args:
             note_id: The note ID.
         """
-        return await get_work_text(note_id=note_id)
+        try:
+            return await get_work_text(note_id=note_id)
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="create_work_text")
     async def tool_create_work_text(
@@ -286,13 +332,16 @@ def _register_tools(mcp: MCPServer) -> None:
             paragraph_id: Optional paragraph UUID to link to.
             conversation_url: Optional conversation URL.
         """
-        return await create_work_text(
-            title=title,
-            content=content,
-            text_type=text_type,
-            paragraph_id=paragraph_id,
-            conversation_url=conversation_url,
-        )
+        try:
+            return await create_work_text(
+                title=title,
+                content=content,
+                text_type=text_type,
+                paragraph_id=paragraph_id,
+                conversation_url=conversation_url,
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="update_work_text")
     async def tool_update_work_text(
@@ -314,13 +363,16 @@ def _register_tools(mcp: MCPServer) -> None:
             title: Optional new title.
             status: Optional new status: "draft" or "final".
         """
-        return await update_work_text(
-            note_id=note_id,
-            content=content,
-            expected_version=expected_version,
-            title=title,
-            status=status,
-        )
+        try:
+            return await update_work_text(
+                note_id=note_id,
+                content=content,
+                expected_version=expected_version,
+                title=title,
+                status=status,
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="append_to_protocol")
     async def tool_append_to_protocol(
@@ -343,14 +395,17 @@ def _register_tools(mcp: MCPServer) -> None:
             paragraph_id: Optional paragraph UUID this entry refers to.
             conversation_url: Optional conversation URL.
         """
-        return await append_to_protocol(
-            source_id=source_id,
-            segment_slug=segment_slug,
-            entry_type=entry_type,
-            content=content,
-            paragraph_id=paragraph_id,
-            conversation_url=conversation_url,
-        )
+        try:
+            return await append_to_protocol(
+                source_id=source_id,
+                segment_slug=segment_slug,
+                entry_type=entry_type,
+                content=content,
+                paragraph_id=paragraph_id,
+                conversation_url=conversation_url,
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
     @mcp.tool(name="get_handoff")
     async def tool_get_handoff(handoff_id: str) -> dict:
@@ -362,7 +417,10 @@ def _register_tools(mcp: MCPServer) -> None:
         Args:
             handoff_id: The 5-character handoff ID from the app deep link.
         """
-        return await get_handoff(handoff_id=handoff_id)
+        try:
+            return await get_handoff(handoff_id=handoff_id)
+        except Exception as exc:
+            return _tool_infra_error(exc)
 
 
 def _register_resources(mcp: MCPServer) -> None:
@@ -404,7 +462,7 @@ def create_resource_metadata_route() -> Route | None:
     from mcp.server.auth.routes import build_resource_metadata_url
     from mcp.shared.auth import ProtectedResourceMetadata
 
-    resource_url = f"{mcp_url}/mcp/"
+    resource_url = _mcp_resource_url(mcp_url)
     metadata = ProtectedResourceMetadata(
         resource=resource_url,
         authorization_servers=[f"{base}/auth/v1"],

@@ -23,6 +23,8 @@ _APP_TYPE_TO_CHUNK_TYPES: dict[str, list[str]] = {
     "chapter_summary": ["chapter_summary"],
 }
 
+ALLOWED_APP_SEARCH_TYPES = frozenset(_APP_TYPE_TO_CHUNK_TYPES.keys())
+
 _NAVIGATION_CHUNK_TYPES = frozenset({
     "book",
     "secondary_book",
@@ -52,8 +54,7 @@ def _resolve_chunk_types(types: Iterable[str] | None) -> list[str]:
         mapped = _APP_TYPE_TO_CHUNK_TYPES.get(key)
         if mapped:
             out.extend(mapped)
-        else:
-            out.append(key)
+        # Unknown app types are ignored here; MCP validates and errors separately.
     return list(dict.fromkeys(out))
 
 
@@ -465,7 +466,7 @@ async def app_search(
 
     run_title_search = engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN
     if run_title_search:
-        title_coro = _title_match_search(q, ["chapter_summary"], engine, limit=k)
+        title_coro = _title_match_search(q, chunk_types, engine, limit=k)
         snippets, title_rows = await asyncio.gather(hybrid_coro, title_coro)
     else:
         snippets = await hybrid_coro
