@@ -1,8 +1,18 @@
 """Unit tests for MCP citation helpers."""
+import asyncio
 from unittest.mock import MagicMock
 
-from app.mcp_server.citation import format_zitierform, note_display_title, resolve_segment_slug
-from app.mcp_server.tools import _content_too_long, _validate_search_types
+from app.mcp_server.citation import (
+    fetch_citation,
+    format_zitierform,
+    note_display_title,
+    resolve_segment_slug,
+)
+from app.mcp_server.tools import (
+    _content_too_long,
+    _validate_search_types,
+    lecture_display_title,
+)
 
 
 def test_format_zitierform_chapter_paragraph():
@@ -101,6 +111,77 @@ def test_content_too_long_limit():
     err = _content_too_long("x" * (1_048_576 + 1))
     assert err is not None
     assert err["code"] == "content_too_long"
+
+
+def test_fetch_citation_compares_paragraph_id_as_text():
+    engine = MagicMock()
+    conn = MagicMock()
+    engine.connect.return_value.__enter__.return_value = conn
+    result = MagicMock()
+    result.mappings.return_value.first.return_value = None
+    conn.execute.return_value = result
+
+    assert fetch_citation(engine, "4716e5de-80df-45a3-b906-a5d829ef65b6") is None
+    sql = str(conn.execute.call_args.args[0])
+    assert "p.id::text = :pid" in sql
+    assert "CAST(:pid AS uuid)" not in sql
+
+
+def test_lecture_display_title_prefers_stored():
+    assert (
+        lecture_display_title(
+            "Der menschliche und der kosmische Gedanke — Erster Vortrag",
+            "Erster Vortrag",
+            None,
+            "Berlin",
+            "20.01.1914",
+            "Der menschliche und der kosmische Gedanke",
+            "19140120b",
+        )
+        == "Der menschliche und der kosmische Gedanke — Erster Vortrag"
+    )
+
+
+def test_lecture_display_title_anlass_when_empty():
+    title = lecture_display_title(
+        None,
+        "",
+        "Mitgliederversammlung",
+        "Dornach",
+        "10.10.1920",
+        None,
+        "19201010a",
+    )
+    assert title == "Mitgliederversammlung (Dornach, 10.10.1920)"
+    assert "GA" not in title
+
+
+def test_lecture_display_title_never_embeds_ga():
+    title = lecture_display_title(
+        None,
+        "Erster Vortrag",
+        None,
+        "Berlin",
+        "20.01.1914",
+        None,
+        "19140120b",
+    )
+    assert title == "Erster Vortrag"
+    assert "GA" not in title
+
+
+def test_get_lecture_info_requires_source_id():
+    from app.mcp_server.tools import get_lecture_info
+
+    err = asyncio.run(get_lecture_info("  "))
+    assert err["code"] == "empty_source_id"
+
+
+def test_list_lectures_requires_ga():
+    from app.mcp_server.tools import list_lectures
+
+    err = asyncio.run(list_lectures(""))
+    assert err["code"] == "empty_ga"
 
 
 def test_resolve_chunk_types_ignores_unknown():

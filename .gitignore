@@ -5,6 +5,9 @@ __pycache__/
 .env.dev
 .env.staging
 .env.production
+.env.prod
 data/vector_db/
 data/backups/
 *.sqlite3
+tests/.env.mcp
+tests/reports/

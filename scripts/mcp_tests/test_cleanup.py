@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Remove [TEST] MCP fixture data for Anton Testo and Antonia Testa (dev only).
+"""Remove [TEST] MCP fixture data for Anton Testo and Antonia Testa.
 
 Deletes app_notes, protocol_entries, empty protocols, and handoffs that are
 tagged with the [TEST] prefix (title, content, marked_text, or user_question).
+Rows tagged [FIXTURE] are left alone.
 
 Usage:
   set -a && source .env.dev && set +a
-  python scripts/test_cleanup.py
+  python scripts/mcp_tests/test_cleanup.py
 """
 from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 from sqlalchemy import create_engine, text
 

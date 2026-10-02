@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh [TEST] handoffs for Philo MCP test plan (dev only).
+"""Refresh [TEST] handoffs for Philo MCP test plan.
 
 Deletes prior [TEST] handoffs for Anton Testo and Antonia Testa, inserts:
   - one valid handoff for Anton (24h TTL)
@@ -10,7 +10,7 @@ Prints handoff_id, handoff_old, handoff_b on stdout (YAML-friendly).
 
 Usage:
   set -a && source .env.dev && set +a
-  python scripts/test_handoffs.py
+  python scripts/mcp_tests/test_handoffs.py
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
