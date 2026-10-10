@@ -75,7 +75,7 @@ Alle Testeinträge aus einem Lauf: Präfix `[TEST]` im Titel oder Inhalt. Dauerh
 | ID | Aufruf | Erwartung |
 |---|---|---|
 | S-01 | query="Freiheit und Erkenntnis" | bis zu 10 Treffer; `chunk_id`, Snippet; bei `paragraph_id` vollständiges `citation` (siehe Beleg) |
-| S-02 | englische query ("freedom and knowledge") | **live 1.10:** 0 Treffer. Embeddings matchen deutsch; kein Soll mehr „englisch → deutsch“. Optional später: eigene EN-Query oder als bekannt offen markieren |
+| S-02 | englische query ("freedom and knowledge") | **live 2.10:** Treffer möglich (EN-Zitate im Korpus). Struktur wie S-01; bei `paragraph_id` vollständiges `citation`. Früher (1.10): 0 Treffer |
 | S-03 | types=["text"] | nur `book`, `secondary_book` oder `talk` — nie der String `text` |
 | S-04 | types=["concept"], dann ["quote"], dann ["chapter_summary"] | nur `begriff`/`typology` bzw. `quote` bzw. `chapter_summary` |
 | S-05 | types=["concept","quote"] | Mischung aus diesen internen Typen, sonst nichts |

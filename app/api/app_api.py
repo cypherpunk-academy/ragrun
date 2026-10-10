@@ -149,6 +149,14 @@ async def app_corpus_version() -> dict[str, Any]:
     }
 
 
+def _grant_status(row: Any) -> str:
+    if row["revoked_at"] is not None:
+        return "revoked"
+    if row["last_mcp_request"] is None:
+        return "connected_unused"
+    return "connected"
+
+
 @router.get("/claude-status")
 async def app_claude_status(
     user: Annotated[AuthUser, Depends(get_current_user)],
@@ -173,14 +181,62 @@ async def app_claude_status(
 
     if not row:
         return {"status": "not_connected"}
-    if row["revoked_at"] is not None:
-        return {"status": "revoked"}
-    if row["last_mcp_request"] is None:
-        return {"status": "connected_unused"}
-    return {
-        "status": "connected",
-        "last_active": row["last_mcp_request"].isoformat(),
-    }
+    status_value = _grant_status(row)
+    if status_value == "connected":
+        return {
+            "status": "connected",
+            "last_active": row["last_mcp_request"].isoformat(),
+        }
+    return {"status": status_value}
+
+
+@router.get("/ai-connections")
+async def app_ai_connections(
+    user: Annotated[AuthUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """List MCP AI connections for the authenticated user (Block C / Schritt 16).
+
+    Returns active and revoked grants with client_kind / redirect_host.
+    Older app builds keep using ``GET /app/claude-status``.
+    """
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT
+                  client_id,
+                  client_name,
+                  client_kind,
+                  redirect_host,
+                  last_mcp_request,
+                  revoked_at,
+                  created_at
+                FROM connector_grants
+                WHERE user_id = CAST(:uid AS uuid)
+                ORDER BY created_at DESC
+                """
+            ),
+            {"uid": user.user_id},
+        )
+        rows = list(result.mappings())
+
+    connections = []
+    for row in rows:
+        status_value = _grant_status(row)
+        item: dict[str, Any] = {
+            "client_id": row["client_id"],
+            "client_name": row["client_name"],
+            "client_kind": row["client_kind"] or "unknown",
+            "redirect_host": row["redirect_host"],
+            "status": status_value,
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        if row["last_mcp_request"] is not None:
+            item["last_mcp_request"] = row["last_mcp_request"].isoformat()
+        connections.append(item)
+
+    return {"connections": connections}
 
 
 @router.get("/deep-link-config")

@@ -104,6 +104,50 @@ class QdrantClient:
                 f"{exc.__class__.__name__}: {exc}"
             ) from exc
 
+    async def ensure_keyword_index(
+        self,
+        collection: str,
+        *,
+        field_name: str,
+        wait: bool = True,
+    ) -> None:
+        """Ensure a keyword payload index exists (exact match filters)."""
+
+        payload = {"field_name": field_name, "field_schema": {"type": "keyword"}}
+        suffix = "?wait=true" if wait else ""
+        url = f"{self.base_url}/collections/{collection}/index{suffix}"
+        try:
+            async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
+                response = await client.put(url, json=payload)
+                if response.status_code in (200, 201, 409):
+                    return
+                raise RuntimeError(
+                    f"Failed to ensure keyword index '{field_name}' for "
+                    f"'{collection}': {response.status_code} {response.text}"
+                )
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                f"Failed to ensure keyword index '{field_name}' for '{collection}': "
+                f"{exc.__class__.__name__}: {exc}"
+            ) from exc
+
+    async def delete_by_filter(
+        self,
+        collection: str,
+        filter_: Mapping[str, object],
+        *,
+        wait: bool = True,
+    ) -> None:
+        """Delete points matching a payload filter."""
+
+        body = {"filter": dict(filter_), "wait": wait}
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
+            response = await client.post(
+                f"{self.base_url}/collections/{collection}/points/delete",
+                json=body,
+            )
+            response.raise_for_status()
+
     async def upsert_points(
         self,
         collection: str,

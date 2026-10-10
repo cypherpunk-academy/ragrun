@@ -3,6 +3,12 @@
 Diese Hinweise gelten, wenn der Nutzer eine Übergabe aus Philo öffnet
 (`get_handoff`). Sie ergänzen die Server-Instructions des MCP.
 
+## Vorträge
+
+- `list_lectures` mit der internen GA-Nummer (`ga`) listet die Vorträge eines Bandes.
+- `get_lecture_info` liefert Ort, Datum, Zyklus und ob Chunks vorliegen.
+- Titel und `zitierform` ohne GA-Nummer. Vorträge mit Datum und Ort zitieren.
+
 ## Quellenverweise (Korpus-Bände)
 
 - Wenn Tools ein Objekt `citation` mit Feld `zitierform` liefern, diese Zeichenkette

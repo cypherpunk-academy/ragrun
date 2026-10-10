@@ -67,6 +67,13 @@ Fuege neue Eintraege mit `append_to_protocol` hinzu, wenn der Nutzer darum bitte
 Wenn der Nutzer eine Handoff-ID nennt, lies die Uebergabe mit `get_handoff`. \
 Sie enthaelt markierten Text, eine Frage und den Absatzverweis aus der App.
 
+## Vortraege
+`list_volumes` zeigt Buecher und bereits eingespielte Vortraege. Fuer alle Vortraege \
+eines Bandes nutze `list_lectures` mit der internen GA-Nummer (Feld `ga`, nie im Titel). \
+`get_lecture_info` liefert zu einer `source_id` Ort, Datum, Zyklus und ob Textchunks \
+vorliegen. Titel und `zitierform` enthalten keine GA-Nummer. Zitiere Vortraege mit \
+Datum und Ort.
+
 ## Quellenverweise (Korpus-Baende)
 Wenn ein Tool ein Objekt `citation` mit Feld `zitierform` liefert, uebernimm \
 diese Zeichenkette woertlich fuer den Beleg — setze sie nicht selbst zusammen \
@@ -86,7 +93,7 @@ class SupabaseTokenVerifier(TokenVerifier):
     """Verify Supabase-issued OAuth access tokens (JWTs)."""
 
     _THROTTLE_SECONDS = 60
-    _last_grant_update: dict[str, float] = {}  # user_id → monotonic timestamp
+    _last_grant_update: dict[str, float] = {}  # f"{user_id}:{client_id}" → monotonic
 
     async def verify_token(self, token: str) -> AccessToken | None:
         from app.api.auth import parse_bearer_token
@@ -97,39 +104,104 @@ class SupabaseTokenVerifier(TokenVerifier):
             logger.debug("MCP token verification failed")
             return None
 
-        self._track_grant(user.user_id)
+        client_id = user.client_id or "supabase"
+        self._track_grant(user.user_id, client_id)
 
         return AccessToken(
             token=token,
-            client_id="supabase",
+            client_id=client_id,
             scopes=[],
             expires_at=None,
             subject=user.user_id,
-            claims={"email": user.email},
+            claims={"email": user.email, "client_id": user.client_id},
         )
 
-    def _track_grant(self, user_id: str) -> None:
-        """Upsert connector_grants row, throttled to max 1x per minute per user."""
+    def _track_grant(self, user_id: str, client_id: str) -> None:
+        """Upsert connector_grants with client_kind from DCR redirect host.
+
+        OAuth MCP tokens carry ``client_id`` (auth.oauth_clients.id). Tokens
+        without it (app sessions, test magic links) are not written — they are
+        not connector grants.
+        """
         import time
+
+        if not client_id or client_id == "supabase":
+            return
+
+        key = f"{user_id}:{client_id}"
         now = time.monotonic()
-        last = self._last_grant_update.get(user_id, 0.0)
+        last = self._last_grant_update.get(key, 0.0)
         if now - last < self._THROTTLE_SECONDS:
             return
-        self._last_grant_update[user_id] = now
+        self._last_grant_update[key] = now
         try:
             from sqlalchemy import text as sql_text
+
             from app.db.session import get_engine
+            from app.services.ai_clients import classify_oauth_client
+
             engine = get_engine()
             with engine.connect() as conn:
-                conn.execute(sql_text(
-                    "INSERT INTO connector_grants (user_id, client_id, last_mcp_request) "
-                    "VALUES (CAST(:uid AS uuid), 'supabase', now()) "
-                    "ON CONFLICT (user_id, client_id) DO UPDATE "
-                    "SET last_mcp_request = now(), revoked_at = NULL"
-                ), {"uid": user_id})
+                row = conn.execute(
+                    sql_text(
+                        """
+                        SELECT client_name, client_uri, redirect_uris
+                        FROM auth.oauth_clients
+                        WHERE id = CAST(:cid AS uuid) AND deleted_at IS NULL
+                        """
+                    ),
+                    {"cid": client_id},
+                ).mappings().first()
+
+                classified = classify_oauth_client(
+                    client_name=(row["client_name"] if row else None),
+                    redirect_uris=(row["redirect_uris"] if row else None),
+                )
+                if (settings.app_env or "").lower() in {"staging", "development"}:
+                    logger.info(
+                        "MCP OAuth client metadata user=%s client_id=%s name=%s "
+                        "uri=%s redirect_uris=%s → kind=%s host=%s",
+                        user_id,
+                        client_id,
+                        (row["client_name"] if row else None),
+                        (row["client_uri"] if row else None),
+                        (row["redirect_uris"] if row else None),
+                        classified["client_kind"],
+                        classified["redirect_host"],
+                    )
+
+                conn.execute(
+                    sql_text(
+                        """
+                        INSERT INTO connector_grants (
+                          user_id, client_id, client_name, client_kind, redirect_host,
+                          last_mcp_request
+                        )
+                        VALUES (
+                          CAST(:uid AS uuid), :cid, :cname, :ckind, :rhost, now()
+                        )
+                        ON CONFLICT (user_id, client_id) DO UPDATE SET
+                          last_mcp_request = now(),
+                          revoked_at = NULL,
+                          client_name = COALESCE(EXCLUDED.client_name, connector_grants.client_name),
+                          redirect_host = COALESCE(EXCLUDED.redirect_host, connector_grants.redirect_host),
+                          client_kind = CASE
+                            WHEN EXCLUDED.client_kind <> 'unknown' THEN EXCLUDED.client_kind
+                            ELSE connector_grants.client_kind
+                          END
+                        """
+                    ),
+                    {
+                        "uid": user_id,
+                        "cid": client_id,
+                        "cname": classified["client_name"],
+                        "ckind": classified["client_kind"],
+                        "rhost": classified["redirect_host"],
+                    },
+                )
                 conn.commit()
         except Exception:
-            logger.debug("Failed to track connector grant for %s", user_id, exc_info=True)
+            logger.debug("Failed to track connector grant for %s/%s", user_id, client_id, exc_info=True)
 
 
 def _load_philo_voice() -> str:
@@ -179,17 +251,42 @@ def _build_mcp_server() -> MCPServer:
 def _tool_infra_error(exc: BaseException) -> dict[str, Any]:
     """Map infra failures to a structured MCP error (X-04)."""
     name = type(exc).__name__
-    msg = str(exc) or name
+    msg = str(exc).strip() or name
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None:
+        cause_txt = str(cause).strip()
+        if cause_txt:
+            msg = f"{msg} ({type(cause).__name__}: {cause_txt})"
     code = "tool_error"
-    lower = msg.lower()
-    if "qdrant" in lower or "Qdrant" in name:
+    lower = f"{name} {msg}".lower()
+    if "qdrant" in lower:
         code = "qdrant_unavailable"
-    elif "embed" in lower:
+    elif any(tok in lower for tok in ("embed", "openai", "voyage")):
         code = "embeddings_unavailable"
-    elif any(tok in lower for tok in ("postgres", "psycopg", "sqlalchemy", "connection refused", "dsn")):
+    elif name in {
+        "ReadError",
+        "ReadTimeout",
+        "ConnectError",
+        "ConnectTimeout",
+        "TimeoutException",
+        "RemoteProtocolError",
+    }:
+        code = "upstream_unavailable"
+    elif any(
+        tok in lower
+        for tok in (
+            "postgres",
+            "psycopg",
+            "sqlalchemy",
+            "connection refused",
+            "dsn",
+            "operator does not exist",
+        )
+    ):
         code = "db_unavailable"
     logger.exception("MCP tool failed (%s): %s", code, msg)
-    return {"error": msg, "code": code}
+    detail = f"{name}: {msg}" if msg != name else name
+    return {"error": detail, "code": code}
 
 
 def _register_tools(mcp: MCPServer) -> None:
@@ -198,12 +295,16 @@ def _register_tools(mcp: MCPServer) -> None:
         append_to_protocol,
         create_work_text,
         get_handoff,
+        get_lecture_info,
         get_passage,
         get_protocol,
         get_work_text,
+        list_lectures,
         list_volumes,
         list_work_texts,
         search_corpus,
+        search_ga,
+        search_ga_summaries,
         update_work_text,
     )
 
@@ -243,6 +344,58 @@ def _register_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return _tool_infra_error(exc)
 
+    @mcp.tool(name="search_ga")
+    async def tool_search_ga(
+        query: str,
+        ga: str | list[str] | None = None,
+        lecture_id: str | None = None,
+        limit: int = 8,
+    ) -> list[dict] | dict:
+        """Search Rudolf Steiner GA lecture wording (collection rudolf-steiner-ga).
+
+        Secondary to search_corpus. Use to verify training knowledge and for original
+        research in Steiner's wording when search_corpus yields little. Hits are for
+        your understanding — do not pass long continuous passages to the end user.
+        Cite short quotes as (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
+
+        Args:
+            query: Search query (German or English).
+            ga: One volume or list (e.g. "329", "332a"). Empty = all volumes.
+            lecture_id: Optional catalog id (YYYYMMDD[a-z]).
+            limit: Max results (1-20, default 8).
+        """
+        try:
+            return await search_ga(
+                query=query, ga=ga, lecture_id=lecture_id, limit=limit
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="search_ga_summaries")
+    async def tool_search_ga_summaries(
+        query: str,
+        ga: str | list[str] | None = None,
+        lecture_id: str | None = None,
+        limit: int = 5,
+    ) -> list[dict] | dict:
+        """Search per-lecture research summaries (collection rudolf-steiner-ga).
+
+        Secondary to search_corpus. Orientation across lectures; then use search_ga
+        for wording. Same citation rules: (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
+
+        Args:
+            query: Search query (German or English).
+            ga: One volume or list (e.g. "329", "332a"). Empty = all volumes.
+            lecture_id: Optional catalog id (YYYYMMDD[a-z]).
+            limit: Max results (1-20, default 5).
+        """
+        try:
+            return await search_ga_summaries(
+                query=query, ga=ga, lecture_id=lecture_id, limit=limit
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
     @mcp.tool(name="get_passage")
     async def tool_get_passage(paragraph_id: str) -> dict:
         """Read a single paragraph by its UUID.
@@ -262,9 +415,40 @@ def _register_tools(mcp: MCPServer) -> None:
         """List all available books/volumes in the corpus.
 
         Returns source_id, display_name, source_type, is_primary, ga, zyklus.
+        Use list_lectures for every lecture in a GA volume.
         """
         try:
             return await list_volumes()
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="get_lecture_info")
+    async def tool_get_lecture_info(source_id: str) -> dict:
+        """Look up a lecture by UUID or catalog id.
+
+        Returns location, date, cycle, has_chunks, display_title and zitierform
+        without a GA number.
+
+        Args:
+            source_id: Lecture UUID or catalog id (YYYYMMDD[a-z]).
+        """
+        try:
+            return await get_lecture_info(source_id=source_id)
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="list_lectures")
+    async def tool_list_lectures(ga: str) -> dict:
+        """List all lectures in a GA volume.
+
+        `ga` is an internal lookup (e.g. "151", "337b"). Titles and zitierform
+        never include the GA number.
+
+        Args:
+            ga: GA volume number.
+        """
+        try:
+            return await list_lectures(ga=ga)
         except Exception as exc:
             return _tool_infra_error(exc)
 

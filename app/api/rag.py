@@ -77,6 +77,44 @@ class StoreChunksResponse(BaseModel):
     )
 
 
+class UpsertQdrantRequest(BaseModel):
+    """Embed JSONL chunks and upsert directly to Qdrant (no rag_chunks)."""
+
+    chunks_jsonl_content: str = Field(
+        ..., description="JSONL-formatted chunks (one JSON object per line)"
+    )
+    collection_name: str = Field(
+        ...,
+        description="Target Qdrant collection (e.g. rudolf-steiner-ga).",
+    )
+    skip_mirror: bool = Field(
+        True,
+        description="When true, do not write vector_chunks Postgres mirror.",
+    )
+    embedding_model: Optional[str] = Field(None, description="Optional embedding model name")
+    batch_size: Optional[int] = Field(None, ge=1, le=512)
+    prefix_passage: Optional[str] = Field(
+        None,
+        description="Passage prefix for e5 (default from settings: 'passage: ').",
+    )
+
+
+class UpsertQdrantResponse(BaseModel):
+    """Response from upsert-qdrant."""
+
+    ingestion_id: str
+    collection: str
+    requested: int
+    ingested: int
+    duplicates: int = 0
+    unchanged: int = 0
+    new: int = 0
+    changed: int = 0
+    stale_deleted: int = 0
+    embedding_model: str = ""
+    vector_size: int = 0
+
+
 class DeprecateChunkIdsRequest(BaseModel):
     """Mark explicit chunk_ids as deprecated in rag_chunks."""
 
@@ -331,6 +369,110 @@ def _parse_jsonl_chunks(content: str) -> List[ChunkRecord]:
                 detail=f"Invalid JSONL at line {line_no}: {exc}",
             ) from exc
     return chunks
+
+
+@router.post(
+    "/upsert-qdrant",
+    response_model=UpsertQdrantResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def upsert_qdrant(
+    request: UpsertQdrantRequest,
+    service: IngestionService = Depends(get_ingestion_service),
+) -> UpsertQdrantResponse:
+    """Embed JSONL and upsert to Qdrant only — skips rag_chunks (and optionally vector_chunks)."""
+
+    _reject_hf_batch_ingest_loose()
+    chunks = _parse_jsonl_chunks(request.chunks_jsonl_content)
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid chunks found in JSONL content",
+        )
+
+    qdrant = get_qdrant_client()
+    # Ensure keyword indexes for GA band filters (idempotent).
+    try:
+        info = await qdrant.get_collection_info(request.collection_name)
+        if info is not None:
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="ga")
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="chunk_type")
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="lecture_id")
+    except Exception:
+        logger.warning(
+            "upsert-qdrant: keyword index ensure failed for %s",
+            request.collection_name,
+            exc_info=True,
+        )
+
+    active_ids: dict[tuple[str, str], set[str]] = {}
+    for c in chunks:
+        key = (c.metadata.source_id, c.metadata.chunk_type)
+        active_ids.setdefault(key, set()).add(c.metadata.chunk_id)
+
+    try:
+        result = await service.upload_chunks(
+            collection=request.collection_name,
+            chunks=chunks,
+            embedding_model=request.embedding_model,
+            batch_size=request.batch_size,
+            skip_cleanup=False,
+            cleanup_active_ids=active_ids,
+            prefix_passage=request.prefix_passage,
+            skip_mirror=bool(request.skip_mirror),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    # Indexes after collection creation (first ingest)
+    try:
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="ga")
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="chunk_type")
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="lecture_id")
+    except Exception:
+        logger.warning(
+            "upsert-qdrant: post-upsert keyword index ensure failed for %s",
+            request.collection_name,
+            exc_info=True,
+        )
+
+    return UpsertQdrantResponse(
+        ingestion_id=result.ingestion_id,
+        collection=result.collection,
+        requested=result.requested,
+        ingested=result.ingested,
+        duplicates=result.duplicates,
+        unchanged=result.unchanged,
+        new=result.new,
+        changed=result.changed,
+        stale_deleted=result.stale_deleted,
+        embedding_model=result.embedding_model,
+        vector_size=result.vector_size,
+    )
+
+
+def _reject_hf_batch_ingest_loose() -> None:
+    """Same guard as embed-chunks: refuse large ingest while HF embeddings are active."""
+    if (
+        (settings.embeddings_provider or "").strip().lower() in {"huggingface", "hf"}
+        and settings.embeddings_hf_forbid_ingest
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Batch ingest via /rag/upsert-qdrant is blocked while "
+                "RAGRUN_EMBEDDINGS_PROVIDER=huggingface. "
+                "Run ingest locally: set RAGRUN_EMBEDDINGS_PROVIDER=http and "
+                "RAGRUN_EMBEDDINGS_BASE_URL to the personal-embeddings-service "
+                "(e.g. http://localhost:8001)."
+            ),
+        )
 
 
 @router.post(

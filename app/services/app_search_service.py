@@ -98,7 +98,7 @@ async def _lookup_paragraph_ids(
                         apc.chunk_id,
                         apc.paragraph_id
                     FROM app_paragraph_chunk apc
-                    JOIN rag_paragraphs rp ON rp.id = apc.paragraph_id
+                    JOIN rag_paragraphs rp ON rp.id::text = apc.paragraph_id::text
                     WHERE apc.chunk_id = ANY(:ids)
                       AND rp.deprecated_at IS NULL
                     ORDER BY apc.chunk_id, rp.paragraph_number ASC
@@ -467,7 +467,27 @@ async def app_search(
     run_title_search = engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN
     if run_title_search:
         title_coro = _title_match_search(q, chunk_types, engine, limit=k)
-        snippets, title_rows = await asyncio.gather(hybrid_coro, title_coro)
+        hybrid_out, title_out = await asyncio.gather(
+            hybrid_coro, title_coro, return_exceptions=True
+        )
+        if isinstance(hybrid_out, BaseException):
+            logger.exception(
+                "hybrid_retrieve failed (%s): %s",
+                type(hybrid_out).__name__,
+                hybrid_out,
+            )
+            if isinstance(title_out, BaseException):
+                raise hybrid_out
+            snippets, title_rows = [], title_out
+        elif isinstance(title_out, BaseException):
+            logger.exception(
+                "title search failed (%s): %s",
+                type(title_out).__name__,
+                title_out,
+            )
+            snippets, title_rows = hybrid_out, []
+        else:
+            snippets, title_rows = hybrid_out, title_out
     else:
         snippets = await hybrid_coro
         title_rows = []
@@ -549,46 +569,48 @@ async def app_search(
                 item["source_index"] = int(source_index)
         results.append(item)
 
-    if engine is not None and results:
-        await _resolve_quote_explanations(results, engine)
-
-    if engine is not None and results:
-        chunk_ids = _chunk_ids_for_paragraph_lookup(results)
+    async def _enrich_navigation(rows: list[dict[str, Any]]) -> None:
+        if engine is None or not rows:
+            return
+        await _resolve_quote_explanations(rows, engine)
+        chunk_ids = _chunk_ids_for_paragraph_lookup(rows)
         pid_map = await _lookup_paragraph_ids(chunk_ids, engine)
-        for r in results:
+        for r in rows:
             if not r.get("paragraph_id"):
                 r["paragraph_id"] = pid_map.get(str(r.get("chunk_id") or ""))
 
-    # Resolve source_id from rag_paragraphs for all navigation results.
-    # The chunk's source_id may differ from the paragraph's source_id (e.g. quote chunks
-    # stored under a collection-level source_id). Using the paragraph's source_id ensures
-    # the app can load the correct paragraphs from its local database.
-    if engine is not None and results:
         nav_paragraph_ids = [
             str(r["paragraph_id"])
-            for r in results
+            for r in rows
             if r.get("paragraph_id")
             and str(r.get("chunk_type") or "") in _NAVIGATION_CHUNK_TYPES
         ]
         if nav_paragraph_ids:
-            para_source_map = await _lookup_source_ids_for_paragraphs(nav_paragraph_ids, engine)
-            for r in results:
+            para_source_map = await _lookup_source_ids_for_paragraphs(
+                nav_paragraph_ids, engine
+            )
+            for r in rows:
                 pid = r.get("paragraph_id")
                 if pid and str(r.get("chunk_type") or "") in _NAVIGATION_CHUNK_TYPES:
                     resolved_sid = para_source_map.get(str(pid))
                     if resolved_sid:
                         r["source_id"] = resolved_sid
 
-    for r in results:
-        r.pop("_parent_id", None)
-        chunk_type = str(r.get("chunk_type") or "")
-        if chunk_type not in _NAVIGATION_CHUNK_TYPES:
-            continue
-        if not r.get("paragraph_id"):
-            _set_navigation_error(
-                r,
-                "Kein Absatz für diesen Treffer verfügbar — bitte Ingest neu ausführen.",
-            )
+        for r in rows:
+            r.pop("_parent_id", None)
+            chunk_type = str(r.get("chunk_type") or "")
+            if chunk_type not in _NAVIGATION_CHUNK_TYPES:
+                continue
+            if not r.get("paragraph_id"):
+                _set_navigation_error(
+                    r,
+                    "Kein Absatz für diesen Treffer verfügbar — bitte Ingest neu ausführen.",
+                )
+
+    # Title-match hits were previously skipped — lecture titles then had
+    # no paragraph_id / citation (F-5).
+    await _enrich_navigation(results)
+    await _enrich_navigation(title_results)
 
     # Merge title-match results: prepend (sorted by title relevance), then hybrid.
     # Title-match scores (0.5–1.0) are not comparable to RRF scores (~0.01–0.03),

@@ -153,7 +153,7 @@ def fetch_citation(engine: Engine, paragraph_id: str) -> dict[str, Any] | None:
         return None
     with engine.connect() as conn:
         row = conn.execute(
-            text(_CITation_SELECT + " AND p.id = CAST(:pid AS uuid)"),
+            text(_CITation_SELECT + " AND p.id::text = :pid"),
             {"pid": pid},
         ).mappings().first()
     if not row:

@@ -111,6 +111,7 @@ class IngestionService:
         cleanup_active_ids: Mapping[tuple[str, str], set[str]] | None = None,
         prefix_passage: str | None = None,
         shared_book_chunk_type_override: str | None = None,
+        skip_mirror: bool = False,
     ) -> UploadResult:
         """Validate, dedupe, embed, and upsert a batch of chunks.
 
@@ -250,11 +251,16 @@ class IngestionService:
 
         # vector_chunks mirror: write all changed/new rows (including payload-only changes)
         chunks_to_mirror = changed_embed + changed_payload_only + new
-        if chunks_to_mirror:
+        if chunks_to_mirror and not skip_mirror:
             t0 = time.perf_counter()
             logger.info("upload_chunks: mirroring %d chunks to vector_chunks…", len(chunks_to_mirror))
             await self.vector_chunks_repository.upsert_chunks(collection, chunks_to_mirror)
             logger.info("upload_chunks: mirror done in %.2fs", time.perf_counter() - t0)
+        elif chunks_to_mirror and skip_mirror:
+            logger.info(
+                "upload_chunks: skip_mirror — not writing %d rows to vector_chunks",
+                len(chunks_to_mirror),
+            )
 
         # Cleanup stale chunk_ids for involved source_ids (sync-style), unless disabled
         stale_deleted = 0
@@ -455,6 +461,9 @@ class IngestionService:
         "vortragstitel",
         "parent_id",
         "lecture_id",
+        "ga",
+        "page_start",
+        "page_end",
         "body_source_id",
         "paragraph_id",
         "paragraph",

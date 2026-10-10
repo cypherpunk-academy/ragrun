@@ -1,0 +1,16 @@
+# Domain → client_kind for MCP OAuth grants (Block C / Schritt 14–15).
+# Hosts match exactly or as a suffix (www.cursor.com → cursor.com).
+# Do not guess unknown hosts — leave them as unknown and extend this file
+# after inspecting Staging DCR logs.
+
+kinds:
+  claude:
+    hosts:
+      - claude.ai
+  chatgpt:
+    hosts:
+      - chatgpt.com
+      - chat.openai.com
+  cursor:
+    hosts:
+      - cursor.com

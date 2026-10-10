@@ -21,26 +21,6 @@ class ConceptExplainResult:
 
 
 @dataclass(slots=True)
-class WorldviewAnswer:
-    worldview: str
-    main_points: str
-    how_details: str
-    context1_refs: List[str]
-    context2_refs: List[str]
-    sufficiency: str = "medium"
-    errors: Optional[List[str]] = None
-
-
-@dataclass(slots=True)
-class ConceptExplainWorldviewsResult:
-    concept: str
-    concept_explanation: str
-    worldviews: List[WorldviewAnswer]
-    context_refs: List[str]
-    graph_event_id: str | None = None
-
-
-@dataclass(slots=True)
 class AuthenticConceptExplainResult:
     concept: str
     steiner_prior_text: str
@@ -62,8 +42,10 @@ class TypologyExplainResult:
 
 
 @dataclass(slots=True)
-class TranslateToWorldviewResult:
-    input_text: str
-    worldviews: List[WorldviewAnswer]
+class ThoughtExplainResult:
+    thought_id: str
+    explanation: str
+    word_count: int
+    references: Optional[List[Mapping[str, Any]]] = None
     graph_event_id: str | None = None
 
