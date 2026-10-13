@@ -35,7 +35,7 @@ env.bak/
 venv.bak/
 
 # Models and cache
-models/
+/models/
 cache/
 *.model
 *.bin
