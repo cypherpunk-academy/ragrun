@@ -1,0 +1,55 @@
+groups:
+  - name: tuxai
+    rules:
+      - alert: EmbedderDown
+        expr: up{job="embedder"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Embedder ist nicht erreichbar
+
+      - alert: QdrantDown
+        expr: up{job="qdrant"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Qdrant ist nicht erreichbar
+
+      - alert: DiskAbove85
+        expr: >
+          (
+            1 - (
+              node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+              / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+            )
+          ) > 0.85
+        labels:
+          severity: warning
+        annotations:
+          summary: Dateisystem / ist zu mehr als 85 Prozent voll
+
+      - alert: MemoryAbove90
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Weniger als 10 Prozent RAM verfügbar
+
+      - alert: EmbedderSlow
+        expr: >
+          histogram_quantile(0.95, sum by (le) (rate(embedder_encode_seconds_bucket[5m]))) > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 95-%-Quantil der Encode-Zeit liegt über 3 Sekunden
+
+      - alert: HighTemperature
+        expr: node_hwmon_temp_celsius > 90
+        labels:
+          severity: warning
+        annotations:
+          summary: Ein Hardware-Sensor meldet über 90 °C

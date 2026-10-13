@@ -11,3 +11,4 @@ data/backups/
 *.sqlite3
 tests/.env.mcp
 tests/reports/
+deploy/tuxai/monitoring/qdrant_key
