@@ -343,6 +343,22 @@ EMBEDDINGS_MODEL = "T-Systems-onsite/cross-en-de-roberta-sentence-transformer"
 -   `/api/v1/ready` - Readiness check
 -   `/status` - Quick status
 
+### Prometheus `/metrics`
+
+`GET /metrics` is unauthenticated. Prometheus scrapes it on the Docker network at `embedding-service:8001/metrics`. The body never contains request text, vectors, or user data. `/metrics` and `/api/v1/health/simple` are excluded from HTTP instrumentation so scrapes and health polls do not inflate those series. The process runs as a single uvicorn worker, so the counters stay in that process.
+
+`prometheus-fastapi-instrumentator` adds the usual HTTP series: request count, status codes, and duration per route.
+
+Custom series use the prefix `embedder_`:
+
+-   `embedder_requests_total` — embedding requests, labels `endpoint` and `status`.
+-   `embedder_texts_per_request` — histogram of how many texts one request submitted.
+-   `embedder_encode_seconds` — histogram of encode time only, not the HTTP round trip. Buckets run from 0.05 s to 10 s.
+-   `embedder_model_loaded` — gauge, 1 when that model is loaded and 0 otherwise. Label `model`.
+-   `embedder_model_load_seconds` — gauge, seconds the last model load took.
+
+`batch_service` has no queue, so there is no `embedder_batch_queue_size`.
+
 ### Metrics to Monitor
 
 -   Response times
