@@ -62,7 +62,9 @@ start_tailscale() {
   export ALL_PROXY="socks5://${TS_SOCKS5}/"
   export HTTP_PROXY="socks5://${TS_SOCKS5}/"
   export HTTPS_PROXY="socks5://${TS_SOCKS5}/"
-  export NO_PROXY="localhost,127.0.0.1,::1"
+  # Public Supabase (JWKS, Auth API, pooler) must not use Tailscale SOCKS — PyJWKClient uses urllib.
+  export NO_PROXY="localhost,127.0.0.1,::1,supabase.co,.supabase.co,.pooler.supabase.com"
+  export no_proxy="${NO_PROXY}"
   echo "[ragrun] Tailscale up (${ts_ip}); outbound via socks5://${TS_SOCKS5}"
 }
 
