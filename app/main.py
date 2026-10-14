@@ -29,6 +29,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 from fastapi.responses import FileResponse, JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -118,8 +119,6 @@ app = FastAPI(
     version="0.3.0",
     summary="LangChain + Qdrant orchestration service",
     lifespan=lifespan,
-    # Claude POSTs to …/mcp (no slash); avoid 307 → /mcp/ which can drop Bearer on redirect.
-    redirect_slashes=False,
 )
 
 app.state.limiter = limiter
@@ -130,6 +129,15 @@ app.add_middleware(SlowAPIMiddleware)
 # Starlette's redirect responses use https:// instead of http://.
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
+
+@app.middleware("http")
+async def _rewrite_mcp_path_without_trailing_slash(request: Request, call_next):
+    """Claude POSTs to /mcp; Starlette mount serves /mcp/. Rewrite internally (no 307)."""
+    if request.url.path == "/mcp":
+        request.scope["path"] = "/mcp/"
+        request.scope["raw_path"] = b"/mcp/"
+    return await call_next(request)
 
 
 async def _probe(client: httpx.AsyncClient, url: str, headers: dict | None = None) -> Dict[str, Any]:
