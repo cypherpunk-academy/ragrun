@@ -65,7 +65,8 @@ Deploy logs should contain `[ragrun] Tailscale up (100.93.243.73)` (or similar).
 | Qdrant unhealthy, Tailscale OK | Wrong `RAGRUN_QDRANT_API_KEY` vs Pulse `QDRANT_API_KEY` |
 | Timeout on health | ACL blocks Pulse ports; Pulse offline |
 | Works on Mac, not Railway | `TS_AUTHKEY` missing on that service |
+| MCP `401`, logs `JWT verification failed` + `socks5: incompatible SOCKS version` | JWKS fetch hit SOCKS; `NO_PROXY` must include `.supabase.co` (see `entrypoint.sh`) |
 
 Local Docker and Dev MCP stay on `localhost:6333` / `localhost:8001` — no Tailscale in those images unless you export `TS_AUTHKEY` yourself.
 
-**Userspace on Railway:** `tailscaled` runs with `--socks5-server=127.0.0.1:1055`; the entrypoint sets `ALL_PROXY` / `HTTP_PROXY` so httpx (health checks, Qdrant, embedder) uses the tailnet.
+**Userspace on Railway:** `tailscaled` runs with `--socks5-server=127.0.0.1:1055`; the entrypoint sets `ALL_PROXY` / `HTTP_PROXY` so httpx (health checks, Qdrant, embedder) uses the tailnet. Supabase (JWKS, Postgres pooler) stays on `NO_PROXY` and goes out directly.
