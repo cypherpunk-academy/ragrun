@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     qdrant_api_key: Optional[str] = None
     # httpx connect/read/write/pool; large upsert bodies need a high write budget (default was 30s → WriteTimeout).
     qdrant_timeout_seconds: float = 300.0
+    # Cloudflare Access service token (Railway → cloudflared origin for Qdrant/embed).
+    cf_access_client_id: str = ""
+    cf_access_client_secret: str = ""
 
     postgres_dsn: str = "postgresql+psycopg://ragrun:ragrun@postgres:5432/ragrun"
 

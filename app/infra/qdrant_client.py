@@ -13,11 +13,14 @@ class QdrantClient:
     """Minimal client for the subset of Qdrant endpoints we need right now."""
 
     def __init__(self, base_url: str, api_key: str | None = None, timeout: float = 300.0) -> None:
+        from app.infra.service_http_headers import merge_service_http_headers
+
         self.base_url = str(base_url).rstrip("/")
         self.timeout = timeout
         # Single budget for connect/read/write/pool; avoids httpx.WriteTimeout on big upsert JSON.
         self._httpx_timeout = httpx.Timeout(timeout)
-        self.headers = {"api-key": api_key} if api_key else None
+        base_headers = {"api-key": api_key} if api_key else None
+        self.headers = merge_service_http_headers(base_headers)
 
     async def get_version(self) -> str:
         """Return Qdrant server version from GET /."""
