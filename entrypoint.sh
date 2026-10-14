@@ -22,16 +22,17 @@ start_tailscale() {
     --tun=userspace-networking &
   ts_pid=$!
 
+  # Wait for tailscaled API only — "status" fails with NeedsLogin before "up".
   i=0
   while [ "$i" -lt 60 ]; do
-    if tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
+    if tailscale --socket="$TS_SOCKET" version >/dev/null 2>&1; then
       break
     fi
     i=$((i + 1))
     sleep 0.5
   done
 
-  if ! tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
+  if ! tailscale --socket="$TS_SOCKET" version >/dev/null 2>&1; then
     echo "[ragrun] ERROR: tailscaled did not become ready within 30s" >&2
     kill "$ts_pid" 2>/dev/null || true
     exit 1
