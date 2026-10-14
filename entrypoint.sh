@@ -3,6 +3,7 @@ set -eu
 
 TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
 TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"
+TS_SOCKS5="${TS_SOCKS5:-127.0.0.1:1055}"
 
 start_tailscale() {
   authkey="${TS_AUTHKEY:-}"
@@ -15,11 +16,12 @@ start_tailscale() {
 
   mkdir -p "$TS_STATE_DIR" /var/run/tailscale
 
-  # Railway has no /dev/net/tun unless privileged; userspace networking is enough for outbound to tailnet IPs.
+  # Railway has no /dev/net/tun; userspace mode needs SOCKS5 so httpx reaches tailnet IPs (e.g. Tuxai).
   tailscaled \
     --state="${TS_STATE_DIR}/tailscaled.state" \
     --socket="$TS_SOCKET" \
-    --tun=userspace-networking &
+    --tun=userspace-networking \
+    --socks5-server="${TS_SOCKS5}" &
   ts_pid=$!
 
   # Wait for tailscaled API only — "status" fails with NeedsLogin before "up".
@@ -57,7 +59,11 @@ start_tailscale() {
     exit 1
   fi
 
-  echo "[ragrun] Tailscale up (${ts_ip})"
+  export ALL_PROXY="socks5://${TS_SOCKS5}/"
+  export HTTP_PROXY="socks5://${TS_SOCKS5}/"
+  export HTTPS_PROXY="socks5://${TS_SOCKS5}/"
+  export NO_PROXY="localhost,127.0.0.1,::1"
+  echo "[ragrun] Tailscale up (${ts_ip}); outbound via socks5://${TS_SOCKS5}"
 }
 
 start_tailscale
