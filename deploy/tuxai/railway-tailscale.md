@@ -1,6 +1,9 @@
-# Railway → Tuxai over Tailscale
+# Railway → Tuxai over Tailscale (legacy)
 
-Staging (`ragrun-staging`) and Production (`ragrun`) reach Qdrant and the embedder on the Pulse only via the tailnet (`100.93.243.73:6333`, `:8001`). The container joins the tailnet at boot when `TS_AUTHKEY` is set.
+> **Prefer [cloudflare-tunnel.md](./cloudflare-tunnel.md) for Railway Staging/Production.**  
+> Tailscale userspace + SOCKS on Railway caused multi-minute MCP searches and intermittent `search failed`. Keep Tailscale on Tuxai for ops; do not route Railway Qdrant/embed traffic through SOCKS unless you accept that risk.
+
+Staging (`ragrun-staging`) and Production (`ragrun`) **used to** reach Qdrant and the embedder on the Pulse via the tailnet (`100.93.243.73:6333`, `:8001`). The container joins the tailnet at boot when `TS_AUTHKEY` is set.
 
 ## 1. Tailscale admin (once)
 

@@ -45,7 +45,7 @@ Postgres-Passwort in der URI URL-encoden (`*` → `%2A`, `!` → `%21`). Railway
 
 ## Wohin schreiben
 
-Gemeinsam: Staging und Production lesen **denselben** Tuxai-Qdrant (`http://100.93.243.73:6333`) und denselben Embedder (`:8001`) **über Tailscale im Container** (`TS_AUTHKEY`, siehe `deploy/tuxai/railway-tailscale.md`). Nutzerdaten bleiben in getrennten Supabase-Projekten.
+Gemeinsam: Staging und Production lesen **denselben** Tuxai-Qdrant und Embedder. **Empfohlen:** HTTPS über **Cloudflare Tunnel** (`deploy/tuxai/cloudflare-tunnel.md`) — **kein** `TS_AUTHKEY` auf Railway. Legacy: Tailscale SOCKS (`deploy/tuxai/railway-tailscale.md`). Nutzerdaten bleiben in getrennten Supabase-Projekten.
 
 ### Staging — Supabase `duhtxxbynkilpxdpcpsk`
 
@@ -55,9 +55,11 @@ Gemeinsam: Staging und Production lesen **denselben** Tuxai-Qdrant (`http://100.
 | `RAGRUN_SUPABASE_SERVICE_ROLE_KEY` + `SUPABASE_SERVICE_ROLE_KEY` | Railway `ragrun-staging`; `.env.staging` (ragkeep-Hooks) |
 | `RAGRUN_SUPABASE_JWT_SECRET` | optional Railway + `.env.staging` (heute oft leer, JWKS über die URL) |
 | `RAGRUN_POSTGRES_DSN` | Railway `ragrun-staging`; `.env.staging`; `ragprep/.env.staging` |
+| `RAGRUN_QDRANT_URL` / `RAGRUN_EMBEDDINGS_BASE_URL` | Tunnel-HTTPS-URLs (siehe `cloudflare-tunnel.md`) |
 | `RAGRUN_QDRANT_API_KEY` | Railway `ragrun-staging`; `.env.staging`; Pulse `QDRANT_API_KEY` |
-| `TS_AUTHKEY` | Railway `ragrun-staging` (Tailscale auth key, reusable) |
-| `TS_HOSTNAME` | Railway `ragrun-staging` → `ragrun-staging` |
+| `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` | optional; Cloudflare Access Service Token für Tunnel |
+| `TS_AUTHKEY` | **nicht setzen** mit Tunnel; legacy Tailscale-only |
+| `TS_HOSTNAME` | legacy → `ragrun-staging` |
 | `RAGRUN_DEEPSEEK_API_KEY` | Railway `ragrun-staging`; `.env.staging` |
 | `RAGRUN_HF_TOKEN` | Railway `ragrun-staging` (Legacy) |
 | `RAGRUN_INTERNAL_API_KEY` | Railway `ragrun-staging`, wenn du die internen Routen schließen willst |
