@@ -67,3 +67,5 @@ Deploy logs should contain `[ragrun] Tailscale up (100.93.243.73)` (or similar).
 | Works on Mac, not Railway | `TS_AUTHKEY` missing on that service |
 
 Local Docker and Dev MCP stay on `localhost:6333` / `localhost:8001` — no Tailscale in those images unless you export `TS_AUTHKEY` yourself.
+
+**Userspace on Railway:** `tailscaled` runs with `--socks5-server=127.0.0.1:1055`; the entrypoint sets `ALL_PROXY` / `HTTP_PROXY` so httpx (health checks, Qdrant, embedder) uses the tailnet.
