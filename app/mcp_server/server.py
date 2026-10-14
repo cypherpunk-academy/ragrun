@@ -351,19 +351,21 @@ def _register_tools(mcp: MCPServer) -> None:
         lecture_id: str | None = None,
         limit: int = 8,
     ) -> list[dict] | dict:
-        """Search Rudolf Steiner GA lecture wording (collection rudolf-steiner-ga).
+        """Search Rudolf Steiner GA wording (collection rudolf-steiner-ga).
 
-        Secondary to search_corpus. Use to verify training knowledge and for original
-        research in Steiner's wording when search_corpus yields little. Hits are for
-        your understanding — do not pass long continuous passages to the end user.
-        Cite short quotes as (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
+        Vorträge and Schriften (e.g. GA 4, 15, 30). Secondary to search_corpus.
+        Use to verify training knowledge and for original research when
+        search_corpus yields little. Hits are for your understanding — do not
+        pass long continuous passages to the end user. Cite short quotes as
+        (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
 
         Args:
             query: Search query (German or English).
-            ga: One volume or list (e.g. "329", "332a"). Empty = all volumes.
+            ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
             lecture_id: Optional catalog id (YYYYMMDD[a-z]).
             limit: Max results (1-20, default 8).
         """
+
         try:
             return await search_ga(
                 query=query, ga=ga, lecture_id=lecture_id, limit=limit
@@ -378,17 +380,18 @@ def _register_tools(mcp: MCPServer) -> None:
         lecture_id: str | None = None,
         limit: int = 5,
     ) -> list[dict] | dict:
-        """Search per-lecture research summaries (collection rudolf-steiner-ga).
+        """Search chapter/lecture summaries (collection rudolf-steiner-ga).
 
-        Secondary to search_corpus. Orientation across lectures; then use search_ga
+        Secondary to search_corpus. Orientation across volumes; then use search_ga
         for wording. Same citation rules: (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
 
         Args:
             query: Search query (German or English).
-            ga: One volume or list (e.g. "329", "332a"). Empty = all volumes.
+            ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
             lecture_id: Optional catalog id (YYYYMMDD[a-z]).
             limit: Max results (1-20, default 5).
         """
+
         try:
             return await search_ga_summaries(
                 query=query, ga=ga, lecture_id=lecture_id, limit=limit

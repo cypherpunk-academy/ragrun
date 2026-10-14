@@ -12,3 +12,5 @@ data/backups/
 tests/.env.mcp
 tests/reports/
 deploy/tuxai/monitoring/qdrant_key
+scripts/secrets/rotate.env
+scripts/secrets/*.local

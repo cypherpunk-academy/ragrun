@@ -1054,6 +1054,8 @@ def _parse_ga_list(ga: str | list[str] | None) -> tuple[list[str] | None, dict[s
 
 
 async def _known_catalog_gas() -> set[str]:
+    """GA tokens that appear in the lecture catalog (may be empty if table missing)."""
+
     def _query() -> set[str]:
         with get_engine().connect() as conn:
             rows = conn.execute(
@@ -1070,6 +1072,44 @@ async def _known_catalog_gas() -> set[str]:
         return known
 
     return await asyncio.to_thread(_query)
+
+
+async def _ga_present_in_qdrant(ga: str) -> bool:
+    """True if rudolf-steiner-ga has at least one point with this payload.ga.
+
+    Covers Schriften (GA 1–38) and Vorträge that are embedded but not yet in
+    rag_lecture_catalog, so search_ga(..., ga=\"4\") is not rejected as unknown.
+    """
+    from app.core.providers import get_qdrant_client
+
+    client = get_qdrant_client()
+    points = await client.scroll_points(
+        GA_QDRANT_COLLECTION,
+        filter_={"must": [{"key": "ga", "match": {"value": ga}}]},
+        limit=1,
+        with_payload=False,
+        with_vectors=False,
+    )
+    return bool(points)
+
+
+async def _unknown_gas_after_lookup(gas: list[str]) -> list[str]:
+    """GAs neither in lecture catalog nor present in Qdrant rudolf-steiner-ga."""
+    known = await _known_catalog_gas()
+    unknown = [g for g in gas if g not in known]
+    if not unknown:
+        return []
+    still: list[str] = []
+    for g in unknown:
+        try:
+            if await _ga_present_in_qdrant(g):
+                continue
+        except Exception:
+            logger.exception("Qdrant GA existence check failed for %s", g)
+            # Fail open for this token: let retrieval run (empty hits if truly absent).
+            continue
+        still.append(g)
+    return still
 
 
 def _ga_extra_must(
@@ -1101,6 +1141,8 @@ def _ga_hit_from_payload(payload: Mapping[str, Any], *, full: bool) -> dict[str,
         "venue": payload.get("venue"),
         "page_start": payload.get("page_start"),
         "page_end": payload.get("page_end"),
+        "source_type": payload.get("source_type"),
+        "segment_id": payload.get("segment_id"),
     }
     return {k: v for k, v in item.items() if v is not None and v != ""}
 
@@ -1123,14 +1165,12 @@ async def _search_ga_collection(
         return err
 
     if gas:
-        known = await _known_catalog_gas()
-        if known:
-            unknown = [g for g in gas if g not in known]
-            if unknown:
-                return {
-                    "error": f"unknown ga: {', '.join(unknown)}",
-                    "code": "unknown_ga",
-                }
+        unknown = await _unknown_gas_after_lookup(gas)
+        if unknown:
+            return {
+                "error": f"unknown ga: {', '.join(unknown)}",
+                "code": "unknown_ga",
+            }
 
     k = max(1, min(int(limit) if limit is not None else 8, 20))
     extra = _ga_extra_must(gas, lecture_id)
@@ -1180,21 +1220,23 @@ async def search_ga(
     lecture_id: str | None = None,
     limit: int = 8,
 ) -> list[dict[str, Any]] | dict[str, Any]:
-    """Search Rudolf Steiner GA lecture wording in collection rudolf-steiner-ga.
+    """Search Rudolf Steiner GA wording in collection rudolf-steiner-ga.
 
-    Secondary to search_corpus (Philo / assistant corpus). Use to verify or correct
-    what you already believe from training, and for original research in Steiner's
-    wording when search_corpus yields little. Hits are for your understanding —
-    do not pass long continuous passages to the end user. Short citations to the
-    user must use the form (GA <nummer>, S. <seite>, Wortlaut nicht sicher);
-    omit the page part if page_start/page_end is missing, but keep the uncertainty phrase.
+    Covers Vorträge and Schriften (e.g. GA 4, 15, 30) that are embedded in this
+    collection. Secondary to search_corpus (Philo / assistant corpus). Use to verify
+    or correct training knowledge, and for original research when search_corpus
+    yields little. Hits are for your understanding — do not pass long continuous
+    passages to the end user. Short citations to the user must use the form
+    (GA <nummer>, S. <seite>, Wortlaut nicht sicher); omit the page part if
+    page_start/page_end is missing, but keep the uncertainty phrase.
 
     Args:
         query: Search query (German or English).
-        ga: One volume or list (e.g. "329", "332a"). Empty = all volumes.
+        ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
         lecture_id: Optional catalog id (YYYYMMDD[a-z]) to restrict to one lecture.
         limit: Max results (1-20, default 8).
     """
+
     return await _search_ga_collection(
         query=query,
         chunk_types=["ga_text"],
@@ -1211,16 +1253,16 @@ async def search_ga_summaries(
     lecture_id: str | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]] | dict[str, Any]:
-    """Search per-lecture research summaries in collection rudolf-steiner-ga.
+    """Search chapter/lecture research summaries in collection rudolf-steiner-ga.
 
-    Secondary to search_corpus. Use for orientation across lectures, then drill into
+    Secondary to search_corpus. Use for orientation across volumes, then drill into
     search_ga for wording. Returns the full summary text. Same end-user citation
     rules as search_ga: (GA <nummer>, S. <seite>, Wortlaut nicht sicher); do not
     forward long continuous passages to the end user.
 
     Args:
         query: Search query (German or English).
-        ga: One volume or list (e.g. "329", "332a"). Empty = all volumes.
+        ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
         lecture_id: Optional catalog id (YYYYMMDD[a-z]).
         limit: Max results (1-20, default 5).
     """

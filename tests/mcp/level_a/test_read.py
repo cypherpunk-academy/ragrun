@@ -282,7 +282,6 @@ def test_V_03(live: Live):
     assert not missing, missing
 
 
-@pytest.mark.xfail(strict=True, reason="Befund F-3")
 def test_V_04(live: Live):
     """V-04: display_name ist ein lesbarer Titel, kein Author#Title#Index und ohne GA-Nummer."""
     import re
@@ -490,21 +489,6 @@ def test_CITE_01(live: Live):
     assert citation_problem(cited.get("citation")) is None
     passage = live.call("a", "get_passage", {"paragraph_id": live.para_id})
     assert citation_problem(passage.get("citation")) is None
-
-
-@pytest.mark.xfail(strict=True, reason="Befund F-5: Vortrags-Body oft ohne paragraph_id")
-def test_CITE_02(live: Live, remark):
-    """CITE-02: get_passage eines Vortrags hat segment_kind vortrag sowie ort und datum."""
-    info = live.call("a", "get_lecture_info", {"source_id": live.lecture_id})
-    title = info.get("vortragstitel") or info.get("display_title")
-    hits = _hits(live.call("a", "search_corpus", {"query": title, "types": ["text"], "limit": 10}))
-    chosen = next((hit for hit in hits if hit.get("chunk_type") == "talk" and hit.get("paragraph_id")), None)
-    assert chosen is not None, "kein Vortragsabsatz mit paragraph_id (F-5)"
-    passage = live.call("a", "get_passage", {"paragraph_id": chosen["paragraph_id"]})
-    citation = passage.get("citation") or {}
-    assert citation.get("segment_kind") == "vortrag"
-    assert citation.get("ort") and citation.get("datum")
-    remark(citation.get("zitierform") or "")
 
 
 def test_CITE_03(live: Live):

@@ -353,20 +353,6 @@ def test_C_06(live):
     assert not has_stacktrace(empty_content)
 
 
-@pytest.mark.xfail(strict=True, reason="Befund F-4")
-def test_C_07(live):
-    """C-07: content über 1 MB UTF-8 liefert content_too_long."""
-    content = "[TEST] " + ("x" * 1_048_576)
-    body = live.call(
-        "a",
-        "create_work_text",
-        {"title": "[TEST] C-07 zu lang", "content": content},
-        timeout=120,
-    )
-    assert body.get("code") == "content_too_long"
-    assert not has_stacktrace(body)
-
-
 def test_C_08(live):
     """C-08: ein neuer Text erscheint in list_work_texts."""
     created = live.call(

@@ -50,8 +50,8 @@ Seed der `[FIXTURE]`-Notizen, frische Handoffs. Am Ende wieder Cleanup für
 
 Bericht: `tests/reports/ebene_a_<datum>.md`.
 
-V-04 und C-07 sind mit `xfail(strict=True)` markiert (Befunde F-3, F-4).
-CITE-02 ist mit `xfail(strict=True)` markiert (Befund F-5: Vortrags-Body oft ohne `paragraph_id`).
+1-MB-Limit für `create_work_text`: Unit-Test `tests/mcp/test_mcp_citation.py::test_content_too_long_limit` (kein Live-MCP mit Megabyte-Payload).
+
 S-06 (F-1) und G-03 (F-2) laufen ohne Markierung, wenn der Server das Soll erfüllt.
 
 A-03, C-03 und U-04 sind im Testplan offen. Der Test besteht, wenn der Server

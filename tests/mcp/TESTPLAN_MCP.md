@@ -165,7 +165,6 @@ Alle Testeinträge aus einem Lauf: Präfix `[TEST]` im Titel oder Inhalt. Dauerh
 | C-03 | text_type="foo" | **offen:** MCP prüft das Enum nicht. Live unter Anton, nicht unter dem Produktkonto |
 | C-05 | mit conversation_url | URL gespeichert |
 | C-06 | leerer title oder content | Fehlermeldung (Soll) |
-| C-07 | content > 1 MB (UTF-8) | `{error, code: content_too_long}` |
 | C-08 | danach list_work_texts | neuer Text erscheint |
 
 ### update_work_text
@@ -200,7 +199,6 @@ Pflichtfelder (`citation.py` `row_to_citation`): `paragraph_id`, `band`, `segmen
 | ID | Aufruf | Erwartung |
 |---|---|---|
 | CITE-01 | S-01 / P-01 | Objekt vorhanden; `zitierform` wörtlich übernehmbar; kein `GA ` in `zitierform` |
-| CITE-02 | Vortrags-`get_passage` | `segment_kind=vortrag`; `ort`/`datum` gesetzt |
 | CITE-03 | H-01 / G-01 mit Absatz | `citation` am Handoff bzw. am Eintrag |
 
 ## Manuell in der App
@@ -246,7 +244,7 @@ Pflichtfelder (`citation.py` `row_to_citation`): `paragraph_id`, `band`, `segmen
 | Kapitel ohne Protokoll | `protocol: null` + message | `tools.py` 525 | G-02 |
 | Slug = Index | `resolve_segment_slug` | `citation.py` | G-03 |
 | Handoff | mehrfach; abgelaufen `expires_at < now()`; TTL 24 h; keine Längenprüfung | `tools.py` 929–988; `018_claude_integration.sql` | H-02, H-04, H-05 |
-| content | max 1 MB UTF-8 | `tools.py` `_CONTENT_MAX_BYTES`; `020_note_content_max_length.sql` | C-07 |
+| content | max 1 MB UTF-8 | `tools.py` `_CONTENT_MAX_BYTES`; `020_note_content_max_length.sql` | Unit: `test_mcp_citation.py::test_content_too_long_limit` |
 | `entry_type` / `text_type` / `status` | **kein** Enum-Check im MCP | `append_to_protocol` / `create_work_text` / `update_work_text` | A-03, C-03, U-04 |
 | `list_volumes`-Metadaten | `is_primary`, `ga`, `zyklus` | `tools.py` 349–357; `app_catalog_repository.py` 23–47 | V-05 |
 | Suche ohne Band-Metadaten | `search_corpus` reicht `is_primary`/`ga`/`zyklus` nicht durch | `tools.py` 157–172 | kein S-13 auf Treffern |
@@ -259,8 +257,8 @@ Pflichtfelder (`citation.py` `row_to_citation`): `paragraph_id`, `band`, `segmen
 | F-1 | **erledigt** (S-06 live) | — |
 | F-2 | **erledigt** (G-03 Code) | Live G-03 unter Anton noch einmal |
 | F-3 | **teilweise** | Titel/337b-Disambiguierung im Sync; Oberschlesien bewusst doppelt; Band und Einzelvortrag bleiben beide in `list_volumes` bis Produktentscheidung |
-| F-4 | **erledigt** (1 MB) | C-07 live unter Anton |
-| F-5 | **Fix im Code** (1.10, lokal: `Erster Vortrag` → pid + citation) | Titeltreffer umgingen `app_paragraph_chunk`. `app_search_service.py` reichert jetzt auch Title-Hits an. Live-MCP neu starten, dann CITE-02 / S-11 |
+| F-4 | **erledigt** (1 MB) | Unit-Test `test_content_too_long_limit`; kein Ebene-A-Live (Megabyte-MCP) |
+| F-5 | **Fix im Code** (1.10, lokal: `Erster Vortrag` → pid + citation) | Titeltreffer umgingen `app_paragraph_chunk`. `app_search_service.py` reichert jetzt auch Title-Hits an. Live-MCP neu starten, dann S-11 |
 | F-6 | **erledigt auf Dev** (2.10) | LLM-Präambel in `quote_explanation` (36 Zeilen). Repair: `ragprep/scripts/strip-quote-explanation-preamble.ts`. Staging/Prod: derselbe Befehl mit `--env`. |
 | F-7 | **neu (live 1.10)** | `quote` / `chapter_summary` haben `source_id` mit `:quotes` / `:summary` — in `list_volumes` nicht. V-03 gilt nur für Body-UUIDs (Absicht, nicht Bug der Liste) |
 

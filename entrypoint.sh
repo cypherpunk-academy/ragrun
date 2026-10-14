@@ -1,6 +1,66 @@
 #!/usr/bin/env sh
 set -eu
 
+TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
+TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"
+
+start_tailscale() {
+  authkey="${TS_AUTHKEY:-}"
+  if [ -z "$authkey" ]; then
+    return 0
+  fi
+
+  hostname="${TS_HOSTNAME:-ragrun-${RAGRUN_APP_ENV:-railway}}"
+  echo "[ragrun] Starting Tailscale (hostname=${hostname})..."
+
+  mkdir -p "$TS_STATE_DIR" /var/run/tailscale
+
+  # Railway has no /dev/net/tun unless privileged; userspace networking is enough for outbound to tailnet IPs.
+  tailscaled \
+    --state="${TS_STATE_DIR}/tailscaled.state" \
+    --socket="$TS_SOCKET" \
+    --tun=userspace-networking &
+  ts_pid=$!
+
+  i=0
+  while [ "$i" -lt 60 ]; do
+    if tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
+      break
+    fi
+    i=$((i + 1))
+    sleep 0.5
+  done
+
+  if ! tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
+    echo "[ragrun] ERROR: tailscaled did not become ready within 30s" >&2
+    kill "$ts_pid" 2>/dev/null || true
+    exit 1
+  fi
+
+  # shellcheck disable=SC2086
+  tailscale --socket="$TS_SOCKET" up --authkey="$authkey" --hostname="$hostname" ${TS_EXTRA_ARGS:-}
+
+  i=0
+  while [ "$i" -lt 120 ]; do
+    if tailscale --socket="$TS_SOCKET" ip -4 2>/dev/null | grep -q .; then
+      break
+    fi
+    i=$((i + 1))
+    sleep 0.5
+  done
+
+  ts_ip="$(tailscale --socket="$TS_SOCKET" ip -4 2>/dev/null | head -n1 || true)"
+  if [ -z "$ts_ip" ]; then
+    echo "[ragrun] ERROR: Tailscale has no IPv4 address after up" >&2
+    tailscale --socket="$TS_SOCKET" status >&2 || true
+    exit 1
+  fi
+
+  echo "[ragrun] Tailscale up (${ts_ip})"
+}
+
+start_tailscale
+
 echo "[ragrun] Running DB migrations (alembic upgrade head)..."
 
 attempt=0
@@ -23,4 +83,3 @@ if [ "$attempt" -ge "$max_attempts" ]; then
 fi
 
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
-
