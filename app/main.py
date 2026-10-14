@@ -118,6 +118,8 @@ app = FastAPI(
     version="0.3.0",
     summary="LangChain + Qdrant orchestration service",
     lifespan=lifespan,
+    # Claude POSTs to …/mcp (no slash); avoid 307 → /mcp/ which can drop Bearer on redirect.
+    redirect_slashes=False,
 )
 
 app.state.limiter = limiter

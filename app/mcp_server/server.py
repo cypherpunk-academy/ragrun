@@ -100,8 +100,8 @@ class SupabaseTokenVerifier(TokenVerifier):
 
         try:
             user = parse_bearer_token(token)
-        except Exception:
-            logger.debug("MCP token verification failed")
+        except Exception as exc:
+            logger.warning("MCP token verification failed: %s", exc)
             return None
 
         client_id = user.client_id or "supabase"
