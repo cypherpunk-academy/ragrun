@@ -103,6 +103,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     cleanup_task = asyncio.create_task(_talk_cleanup_loop())
     logger.info("Talk cleanup background task started (every %ds)", _TALK_CLEANUP_INTERVAL_SECONDS)
 
+    if settings.use_hybrid_retrieval:
+        try:
+            from app.core.providers import get_sparse_embedder
+
+            await asyncio.to_thread(get_sparse_embedder().embed_query, "warmup")
+            logger.info("Sparse BM25 embedder warmed up")
+        except Exception:
+            logger.exception("Sparse embedder warmup failed (first search may be slow)")
+
     # MCP session manager needs to run for the mounted /mcp sub-app
     mcp = get_mcp_server()
     async with mcp.session_manager.run():
