@@ -1,4 +1,4 @@
-"""Retrieval helpers for concept-explain-worldviews."""
+"""Shared dense/hybrid retrieval helpers for retrieval graphs."""
 from __future__ import annotations
 
 import asyncio
@@ -97,6 +97,7 @@ def payload_filter(
     worldview: str | None,
     book_types: Iterable[str],
     author: str | None = None,
+    extra_must: Sequence[Mapping[str, object]] | None = None,
 ) -> Mapping[str, object]:
     """
     Build a Qdrant payload filter for worldview-, book-type- and author-scoped retrieval.
@@ -105,6 +106,7 @@ def payload_filter(
     - If worldview is None: no filter on worldviews (chunks may be untagged or tagged,
       e.g. Individualismus after text annotation — all are eligible for retrieval).
     - If author is set: only chunks where author matches (e.g. "Rudolf Steiner").
+    - ``extra_must`` appends arbitrary Qdrant must clauses (e.g. ga / lecture_id).
 
     Note: older ingestions stored the type under `chunk_type` (book/secondary_book)
     rather than `book_type`. We prefer `chunk_type` to avoid empty results.
@@ -137,6 +139,9 @@ def payload_filter(
         else:
             must.append({"key": "chunk_type", "match": {"any": chunk_types}})
 
+    if extra_must:
+        must.extend(list(extra_must))
+
     return {"must": must} if must else {}
 
 
@@ -151,11 +156,12 @@ async def dense_retrieve(
     qdrant_client: QdrantClient,
     author: str | None = None,
     query_prefix: str | None = None,
+    extra_must: Sequence[Mapping[str, object]] | None = None,
 ) -> list[RetrievedSnippet]:
     mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
     limit = max(k * mult, k + 30)
     vector = await embed_text(query, embedding_client, query_prefix=query_prefix)
-    pf = payload_filter(worldview, book_types, author=author)
+    pf = payload_filter(worldview, book_types, author=author, extra_must=extra_must)
     hits = await qdrant_client.search_points(
         collection,
         vector=vector,
@@ -179,6 +185,7 @@ async def sparse_retrieve(
     sparse_embedder: SparseEmbedder | None = None,
     author: str | None = None,
     sparse_query: str | None = None,
+    extra_must: Sequence[Mapping[str, object]] | None = None,
 ) -> list[RetrievedSnippet]:
     """Sparse-only BM25 retrieval using fastembed sparse vectors."""
 
@@ -196,7 +203,9 @@ async def sparse_retrieve(
             indices=sv["indices"],
             values=sv["values"],
             limit=limit,
-            filter_=payload_filter(worldview, book_types, author=author),
+            filter_=payload_filter(
+                worldview, book_types, author=author, extra_must=extra_must
+            ),
         )
     except Exception:
         logger.exception("Sparse retrieval failed")
@@ -222,6 +231,7 @@ async def hybrid_retrieve(
     author: str | None = None,
     sparse_query: str | None = None,
     query_prefix: str | None = None,
+    extra_must: Sequence[Mapping[str, object]] | None = None,
 ) -> list[RetrievedSnippet]:
     """Hybrid dense+BM25 with RRF; falls back to dense-only if sparse unavailable."""
 
@@ -232,6 +242,7 @@ async def hybrid_retrieve(
         book_types=book_types,
         collection=collection,
         embedding_client=embedding_client,
+        extra_must=extra_must,
         qdrant_client=qdrant_client,
         author=author,
         query_prefix=query_prefix,
@@ -260,7 +271,9 @@ async def hybrid_retrieve(
             indices=sv["indices"],
             values=sv["values"],
             limit=limit_sparse,
-            filter_=payload_filter(worldview, book_types, author=author),
+            filter_=payload_filter(
+                worldview, book_types, author=author, extra_must=extra_must
+            ),
         )
         sparse_hits = _filter_and_cap_hits(list(sparse or []), k_sparse)
     except Exception:

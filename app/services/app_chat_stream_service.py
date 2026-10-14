@@ -131,7 +131,7 @@ async def _resolve_context_paragraph_text(
                         """
                         SELECT text_raw, segment_title, paragraph_number
                         FROM rag_paragraphs
-                        WHERE id = CAST(:id AS uuid)
+                        WHERE id::text = :id
                           AND deprecated_at IS NULL
                         LIMIT 1
                         """

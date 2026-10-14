@@ -3,20 +3,32 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
-from typing import Any
+from typing import Any, Mapping
 
 import httpx
 from sqlalchemy import text
 
 from app.config import settings
 from app.db.session import get_engine
+from app.mcp_server.citation import (
+    fetch_chapter_citation,
+    fetch_citation,
+    fetch_citations_batch,
+    format_zitierform,
+    note_display_title,
+    resolve_segment_slug,
+    text_return_url,
+)
 from app.services.app_catalog_repository import PostgresCatalogRepository
 from app.services.app_search_service import app_search
 
 logger = logging.getLogger(__name__)
 
 _SNIPPET_LIMIT = 300
+_CONTENT_MAX_BYTES = 1_048_576  # 1 MB
+_ALLOWED_SEARCH_TYPES = frozenset({"text", "concept", "quote", "chapter_summary"})
 
 
 def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
@@ -44,6 +56,38 @@ def _get_raw_token() -> str | None:
     if token is None:
         return None
     return token.token
+
+
+def _content_too_long(content: str | None) -> dict[str, Any] | None:
+    raw = content if content is not None else ""
+    if len(raw.encode("utf-8")) > _CONTENT_MAX_BYTES:
+        return {
+            "error": f"content exceeds maximum length of {_CONTENT_MAX_BYTES} bytes (1 MB)",
+            "code": "content_too_long",
+        }
+    return None
+
+
+def _validate_search_types(types: list[str] | None) -> dict[str, Any] | None:
+    if not types:
+        return None
+    unknown = sorted(
+        {
+            (t or "").strip().lower()
+            for t in types
+            if (t or "").strip() and (t or "").strip().lower() not in _ALLOWED_SEARCH_TYPES
+        }
+    )
+    if unknown:
+        return {
+            "error": (
+                "invalid types: "
+                + ", ".join(unknown)
+                + f"; allowed: {', '.join(sorted(_ALLOWED_SEARCH_TYPES))}"
+            ),
+            "code": "invalid_types",
+        }
+    return None
 
 
 async def _supabase_rpc(
@@ -83,7 +127,7 @@ async def search_corpus(
     query: str,
     types: list[str] | None = None,
     limit: int = 10,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Search the philosophical corpus (books, talks, concepts, quotes).
 
     Returns ranked results with chunk_id, source metadata, and a short snippet.
@@ -94,9 +138,18 @@ async def search_corpus(
         types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
         limit: Max results (1-20, default 10).
     """
-    k = max(1, min(limit or 10, 20))
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query is required", "code": "empty_query"}
+
+    type_err = _validate_search_types(types)
+    if type_err:
+        return type_err
+
+    # limit=0 must clamp to 1 (``limit or 10`` would treat 0 as missing).
+    k = max(1, min(int(limit) if limit is not None else 10, 20))
     results = await app_search(
-        query=query,
+        query=q,
         types=types,
         limit=k,
         engine=get_engine(),
@@ -120,6 +173,15 @@ async def search_corpus(
         if r.get("source_id"):
             item["source_id"] = r["source_id"]
         out.append(item)
+
+    engine = get_engine()
+    pids = [str(i["paragraph_id"]) for i in out if i.get("paragraph_id")]
+    citations = await asyncio.to_thread(fetch_citations_batch, engine, pids)
+    for item in out:
+        pid = item.get("paragraph_id")
+        if pid and pid in citations:
+            item["citation"] = citations[str(pid)]
+
     return out
 
 
@@ -164,7 +226,7 @@ async def get_passage(paragraph_id: str) -> dict[str, Any]:
             ).mappings().first()
         if not row:
             return None
-        return {
+        base = {
             "paragraph_id": row["paragraph_id"],
             "source_id": row["source_id"],
             "source_title": row["source_title"],
@@ -174,10 +236,20 @@ async def get_passage(paragraph_id: str) -> dict[str, Any]:
             "paragraph_number": row["paragraph_number"],
             "text": str(row["text"] or ""),
         }
+        return base
 
     result = await asyncio.to_thread(_query)
     if result is None:
         return {"error": "paragraph not found"}
+
+    engine = get_engine()
+    citation = await asyncio.to_thread(
+        fetch_citation,
+        engine,
+        str(result["paragraph_id"]),
+    )
+    if citation:
+        result["citation"] = citation
     return result
 
 
@@ -186,11 +258,93 @@ async def get_passage(paragraph_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def lecture_display_title(
+    stored_title: str | None,
+    vortragstitel: str | None,
+    anlass: str | None,
+    ort: str | None,
+    datum: str | None,
+    zyklus_titel: str | None,
+    lecture_id: str,
+) -> str:
+    """Display title for a catalog lecture. Never embeds a GA number."""
+    stored = (stored_title or "").strip()
+    if stored:
+        return stored
+    title = (vortragstitel or "").strip()
+    if title:
+        return title
+    location = ", ".join(p for p in ((ort or "").strip(), (datum or "").strip()) if p)
+    anlass_txt = (anlass or "").strip()
+    if anlass_txt:
+        return f"{anlass_txt} ({location})" if location else anlass_txt
+    cycle = (zyklus_titel or "").strip()
+    if cycle and location:
+        return f"{cycle} — {location}"
+    if location:
+        return location
+    return f"Vortrag {lecture_id}"
+
+
+def _lecture_location(ort: str | None, datum: str | None) -> str:
+    return ", ".join(p for p in ((ort or "").strip(), (datum or "").strip()) if p)
+
+
+def _lecture_payload(row: dict[str, Any]) -> dict[str, Any]:
+    lecture_id = str(row.get("lecture_id") or "")
+    display = lecture_display_title(
+        row.get("stored_title"),
+        row.get("vortragstitel"),
+        row.get("anlass"),
+        row.get("ort"),
+        row.get("datum"),
+        row.get("zyklus_titel"),
+        lecture_id,
+    )
+    ort = str(row.get("ort") or "").strip()
+    datum = str(row.get("datum") or "").strip()
+    location = _lecture_location(ort, datum)
+    zyklus = row.get("zyklus")
+    return {
+        "lecture_id": lecture_id,
+        "source_id": str(row["source_id"]) if row.get("source_id") else None,
+        "vortragstitel": (row.get("vortragstitel") or None),
+        "display_title": display,
+        "datum": datum or None,
+        "ort": ort or None,
+        "reihe": (row.get("reihe") or None),
+        "zyklus": int(zyklus) if zyklus is not None else None,
+        "zyklus_titel": (row.get("zyklus_titel") or None),
+        "has_chunks": bool(row.get("has_chunks")),
+        "zitierform": format_zitierform(display, location, None),
+    }
+
+
+_LECTURE_SELECT = """
+    SELECT
+        l.id AS lecture_id,
+        l.uuid::text AS source_id,
+        l.ga,
+        l.vortragstitel,
+        l.datum,
+        l.ort,
+        l.reihe,
+        l.zyklus,
+        l.anlass,
+        l.has_chunks,
+        c.titel AS zyklus_titel,
+        s.title AS stored_title
+    FROM rag_lecture_catalog l
+    LEFT JOIN rag_lecture_cycles c ON c.zyklus = l.zyklus
+    LEFT JOIN rag_sources s ON s.id::text = l.uuid::text
+"""
+
+
 async def list_volumes() -> list[dict[str, Any]]:
     """List all available books/volumes in the corpus.
 
-    Returns source_id, title, author for each volume.
-    Use source_id with get_passage or search_corpus for navigation.
+    Returns source_id, display_name, source_type, is_primary, ga, zyklus for each volume.
+    Use list_lectures(ga) for every lecture in a GA volume (including without chunks).
     """
     catalog = PostgresCatalogRepository(get_engine())
     sources = await catalog.list_sources()
@@ -198,9 +352,91 @@ async def list_volumes() -> list[dict[str, Any]]:
         {
             "source_id": s["source_id"],
             "display_name": s["display_name"],
+            "source_type": s.get("source_type") or "book",
+            "is_primary": bool(s.get("is_primary")),
+            "ga": s.get("ga"),
+            "zyklus": s.get("zyklus"),
         }
         for s in sources
     ]
+
+
+# ---------------------------------------------------------------------------
+# get_lecture_info / list_lectures
+# ---------------------------------------------------------------------------
+
+
+async def get_lecture_info(source_id: str) -> dict[str, Any]:
+    """Look up a lecture by catalog UUID or lecture id (YYYYMMDD[a-z]).
+
+    Returns location, date, cycle, whether chunks exist, and a title without GA.
+    Use list_lectures to list every lecture in the same GA volume.
+
+    Args:
+        source_id: Lecture UUID (rag_sources / catalog) or catalog id.
+    """
+    sid = (source_id or "").strip()
+    if not sid:
+        return {"error": "source_id is required", "code": "empty_source_id"}
+
+    def _query() -> dict[str, Any] | None:
+        with get_engine().connect() as conn:
+            row = conn.execute(
+                text(
+                    _LECTURE_SELECT
+                    + """
+                    WHERE l.uuid::text = :sid OR l.id = :sid
+                    """
+                ),
+                {"sid": sid},
+            ).mappings().first()
+        return dict(row) if row else None
+
+    row = await asyncio.to_thread(_query)
+    if row is None:
+        return {"error": "lecture not found", "code": "lecture_not_found"}
+
+    payload = _lecture_payload(row)
+    payload["ga"] = (str(row["ga"]).strip() if row.get("ga") else None)
+    return payload
+
+
+async def list_lectures(ga: str) -> dict[str, Any]:
+    """List all catalog lectures in a GA volume.
+
+    `ga` is an internal lookup field. Titles and zitierform never include the
+    GA number. The catalog may list lectures that are not yet in rag_sources.
+
+    Args:
+        ga: GA volume number (e.g. "151", "337b").
+    """
+    ga_key = (ga or "").strip()
+    if not ga_key:
+        return {"error": "ga is required", "code": "empty_ga"}
+
+    def _query() -> list[dict[str, Any]]:
+        with get_engine().connect() as conn:
+            rows = conn.execute(
+                text(
+                    _LECTURE_SELECT
+                    + """
+                    WHERE lower(trim(l.ga)) = lower(:ga)
+                       OR (',' || lower(replace(l.ga, ' ', '')) || ',')
+                          LIKE '%,' || lower(:ga) || ',%'
+                    ORDER BY l.lecture_date ASC NULLS LAST, l.id ASC
+                    """
+                ),
+                {"ga": ga_key},
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
+    rows = await asyncio.to_thread(_query)
+    lectures = [_lecture_payload(r) for r in rows]
+    return {
+        "ga": ga_key,
+        "lecture_count": len(lectures),
+        "lectures": lectures,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -225,12 +461,17 @@ async def get_protocol(
         return {"error": "not authenticated"}
 
     sid = (source_id or "").strip()
-    slug = (segment_slug or "").strip()
-    if not sid or not slug:
+    raw_slug = (segment_slug or "").strip()
+    if not sid or not raw_slug:
         return {"error": "source_id and segment_slug are required"}
 
+    engine = get_engine()
+    slug = await asyncio.to_thread(resolve_segment_slug, engine, sid, raw_slug)
+    if not slug:
+        return {"error": f"segment not found: {raw_slug}", "code": "segment_not_found"}
+
     def _query() -> dict[str, Any] | None:
-        with get_engine().connect() as conn:
+        with engine.connect() as conn:
             proto = conn.execute(
                 text(
                     """
@@ -284,6 +525,27 @@ async def get_protocol(
     result = await asyncio.to_thread(_query)
     if result is None:
         return {"protocol": None, "message": "No protocol found for this chapter."}
+
+    chapter = await asyncio.to_thread(
+        fetch_chapter_citation,
+        engine,
+        str(result["source_id"]),
+        str(result["segment_slug"]),
+    )
+    if chapter:
+        result["chapter_citation"] = chapter
+
+    entry_pids = [
+        str(e["paragraph_id"])
+        for e in result.get("entries", [])
+        if e.get("paragraph_id")
+    ]
+    entry_citations = await asyncio.to_thread(fetch_citations_batch, engine, entry_pids)
+    for entry in result.get("entries", []):
+        pid = entry.get("paragraph_id")
+        if pid and str(pid) in entry_citations:
+            entry["citation"] = entry_citations[str(pid)]
+
     return result
 
 
@@ -306,7 +568,8 @@ async def list_work_texts(
     if not user_id:
         return [{"error": "not authenticated"}]
 
-    k = max(1, min(limit or 20, 50))
+    # limit=0 must clamp to 1 (``limit or 20`` would treat 0 as missing).
+    k = max(1, min(int(limit) if limit is not None else 20, 50))
 
     def _query() -> list[dict[str, Any]]:
         params: dict[str, Any] = {"uid": user_id, "lim": k}
@@ -322,6 +585,7 @@ async def list_work_texts(
                     SELECT
                         id,
                         title,
+                        LEFT(content, 2048) AS content_preview,
                         text_type,
                         status,
                         version,
@@ -339,21 +603,41 @@ async def list_work_texts(
                 ),
                 params,
             ).mappings().all()
-        return [
+        return list(rows)
+
+    rows = await asyncio.to_thread(_query)
+    engine = get_engine()
+    anchor_pids = [
+        str(r["paragraph_id"])
+        for r in rows
+        if r.get("paragraph_id")
+    ]
+    anchor_citations = await asyncio.to_thread(fetch_citations_batch, engine, anchor_pids)
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        pid = str(row["paragraph_id"]) if row.get("paragraph_id") else None
+        citation = anchor_citations.get(pid) if pid else None
+        display, source = note_display_title(
+            row.get("title"),
+            row.get("content_preview"),
+            citation,
+        )
+        out.append(
             {
                 "note_id": row["id"],
                 "title": row["title"],
+                "display_title": display,
+                "title_source": source,
                 "text_type": row["text_type"],
                 "status": row["status"],
                 "version": row["version"],
-                "paragraph_id": str(row["paragraph_id"]) if row["paragraph_id"] else None,
+                "paragraph_id": pid,
                 "created_by": row["created_by"],
                 "updated_at": str(row["updated_at"]),
             }
-            for row in rows
-        ]
-
-    return await asyncio.to_thread(_query)
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -404,24 +688,42 @@ async def get_work_text(note_id: str) -> dict[str, Any]:
             ).mappings().first()
         if not row:
             return None
-        return {
-            "note_id": row["id"],
-            "title": row["title"],
-            "content": row["content"],
-            "text_type": row["text_type"],
-            "status": row["status"],
-            "version": row["version"],
-            "paragraph_id": str(row["paragraph_id"]) if row["paragraph_id"] else None,
-            "conversation_url": row["conversation_url"],
-            "created_by": row["created_by"],
-            "created_at": str(row["created_at"]),
-            "updated_at": str(row["updated_at"]),
-        }
+        return dict(row)
 
     result = await asyncio.to_thread(_query)
     if result is None:
         return {"error": "note not found"}
-    return result
+
+    engine = get_engine()
+    pid = str(result["paragraph_id"]) if result.get("paragraph_id") else None
+    citation = None
+    if pid:
+        citation = await asyncio.to_thread(fetch_citation, engine, pid)
+
+    display, source = note_display_title(
+        result.get("title"),
+        result.get("content"),
+        citation,
+    )
+    payload: dict[str, Any] = {
+        "note_id": result["id"],
+        "title": result["title"],
+        "display_title": display,
+        "title_source": source,
+        "content": result["content"],
+        "text_type": result["text_type"],
+        "status": result["status"],
+        "version": result["version"],
+        "paragraph_id": pid,
+        "conversation_url": result["conversation_url"],
+        "created_by": result["created_by"],
+        "created_at": str(result["created_at"]),
+        "updated_at": str(result["updated_at"]),
+        "text_return_url": text_return_url(str(result["id"])),
+    }
+    if citation:
+        payload["citation"] = citation
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +752,10 @@ async def create_work_text(
     raw_token = _get_raw_token()
     if not raw_token:
         return {"error": "not authenticated"}
+
+    too_long = _content_too_long(content)
+    if too_long:
+        return too_long
 
     note_id = str(uuid.uuid4())
     params: dict[str, Any] = {
@@ -500,6 +806,10 @@ async def update_work_text(
     if not nid:
         return {"error": "note_id is required"}
 
+    too_long = _content_too_long(content)
+    if too_long:
+        return too_long
+
     params: dict[str, Any] = {
         "p_id": nid,
         "p_content": content,
@@ -544,13 +854,18 @@ async def append_to_protocol(
         return {"error": "not authenticated"}
 
     sid = (source_id or "").strip()
-    slug = (segment_slug or "").strip()
+    raw_slug = (segment_slug or "").strip()
     etype = (entry_type or "").strip()
-    if not sid or not slug or not etype:
+    if not sid or not raw_slug or not etype:
         return {"error": "source_id, segment_slug, and entry_type are required"}
 
+    engine = get_engine()
+    slug = await asyncio.to_thread(resolve_segment_slug, engine, sid, raw_slug)
+    if not slug:
+        return {"error": f"segment not found: {raw_slug}", "code": "segment_not_found"}
+
     def _write() -> dict[str, Any]:
-        with get_engine().connect() as conn:
+        with engine.connect() as conn:
             # Upsert protocol
             row = conn.execute(
                 text(
@@ -663,20 +978,30 @@ async def get_handoff(handoff_id: str) -> dict[str, Any]:
     if result is None:
         return {"error": "handoff not found"}
 
+    engine = get_engine()
+    paragraph_id = (
+        str(result["paragraph_id"]) if result.get("paragraph_id") else None
+    )
+    citation = None
+    if paragraph_id:
+        citation = await asyncio.to_thread(fetch_citation, engine, paragraph_id)
+
     if result.get("is_expired"):
         out: dict[str, Any] = {
             "expired": True,
             "message": "Diese Uebergabe ist abgelaufen. Du kannst den Absatz aber noch direkt lesen.",
         }
-        if result.get("paragraph_id"):
-            out["paragraph_id"] = str(result["paragraph_id"])
+        if paragraph_id:
+            out["paragraph_id"] = paragraph_id
+        if citation:
+            out["citation"] = citation
         if result.get("user_question"):
             out["user_question"] = result["user_question"]
         return out
 
-    return {
+    payload: dict[str, Any] = {
         "handoff_id": result["id"],
-        "paragraph_id": str(result["paragraph_id"]) if result["paragraph_id"] else None,
+        "paragraph_id": paragraph_id,
         "source_id": result["source_id"],
         "segment_slug": result["segment_slug"],
         "marked_text": result["marked_text"],
@@ -685,3 +1010,267 @@ async def get_handoff(handoff_id: str) -> dict[str, Any]:
         "created_at": str(result["created_at"]),
         "expires_at": str(result["expires_at"]),
     }
+    if citation:
+        payload["citation"] = citation
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# search_ga / search_ga_summaries (Qdrant collection rudolf-steiner-ga only)
+# ---------------------------------------------------------------------------
+
+GA_QDRANT_COLLECTION = "rudolf-steiner-ga"
+_GA_TOKEN_RE = re.compile(r"^0*(\d+)([a-z]{0,2})$", re.IGNORECASE)
+
+
+def _normalize_ga_token(raw: str) -> str | None:
+    m = _GA_TOKEN_RE.match((raw or "").strip())
+    if not m:
+        return None
+    return f"{m.group(1)}{(m.group(2) or '').lower()}"
+
+
+def _parse_ga_list(ga: str | list[str] | None) -> tuple[list[str] | None, dict[str, Any] | None]:
+    """Return (normalized_ga_list or None for all, error_dict or None)."""
+    if ga is None or ga == "" or ga == []:
+        return None, None
+    raw_items: list[str]
+    if isinstance(ga, str):
+        raw_items = [p.strip() for p in ga.split(",") if p.strip()]
+    else:
+        raw_items = [str(p).strip() for p in ga if str(p).strip()]
+    if not raw_items:
+        return None, None
+    out: list[str] = []
+    for item in raw_items:
+        norm = _normalize_ga_token(item)
+        if norm is None:
+            return None, {
+                "error": f"invalid ga: {item!r}; expected e.g. '329' or '332a'",
+                "code": "invalid_ga",
+            }
+        out.append(norm)
+    return out, None
+
+
+async def _known_catalog_gas() -> set[str]:
+    """GA tokens that appear in the lecture catalog (may be empty if table missing)."""
+
+    def _query() -> set[str]:
+        with get_engine().connect() as conn:
+            rows = conn.execute(
+                text("SELECT DISTINCT ga FROM rag_lecture_catalog WHERE ga IS NOT NULL")
+            ).fetchall()
+        known: set[str] = set()
+        for (raw,) in rows:
+            if raw is None:
+                continue
+            for part in str(raw).split(","):
+                norm = _normalize_ga_token(part.strip())
+                if norm:
+                    known.add(norm)
+        return known
+
+    return await asyncio.to_thread(_query)
+
+
+async def _ga_present_in_qdrant(ga: str) -> bool:
+    """True if rudolf-steiner-ga has at least one point with this payload.ga.
+
+    Covers Schriften (GA 1–38) and Vorträge that are embedded but not yet in
+    rag_lecture_catalog, so search_ga(..., ga=\"4\") is not rejected as unknown.
+    """
+    from app.core.providers import get_qdrant_client
+
+    client = get_qdrant_client()
+    points = await client.scroll_points(
+        GA_QDRANT_COLLECTION,
+        filter_={"must": [{"key": "ga", "match": {"value": ga}}]},
+        limit=1,
+        with_payload=False,
+        with_vectors=False,
+    )
+    return bool(points)
+
+
+async def _unknown_gas_after_lookup(gas: list[str]) -> list[str]:
+    """GAs neither in lecture catalog nor present in Qdrant rudolf-steiner-ga."""
+    known = await _known_catalog_gas()
+    unknown = [g for g in gas if g not in known]
+    if not unknown:
+        return []
+    still: list[str] = []
+    for g in unknown:
+        try:
+            if await _ga_present_in_qdrant(g):
+                continue
+        except Exception:
+            logger.exception("Qdrant GA existence check failed for %s", g)
+            # Fail open for this token: let retrieval run (empty hits if truly absent).
+            continue
+        still.append(g)
+    return still
+
+
+def _ga_extra_must(
+    gas: list[str] | None,
+    lecture_id: str | None,
+) -> list[dict[str, Any]]:
+    must: list[dict[str, Any]] = []
+    if gas:
+        if len(gas) == 1:
+            must.append({"key": "ga", "match": {"value": gas[0]}})
+        else:
+            must.append({"key": "ga", "match": {"any": gas}})
+    lid = (lecture_id or "").strip()
+    if lid:
+        must.append({"key": "lecture_id", "match": {"value": lid}})
+    return must
+
+
+def _ga_hit_from_payload(payload: Mapping[str, Any], *, full: bool) -> dict[str, Any]:
+    text_val = str(payload.get("text") or "")
+    item: dict[str, Any] = {
+        "chunk_id": payload.get("chunk_id"),
+        "chunk_type": payload.get("chunk_type"),
+        "text": text_val if full else _snippet(text_val, 500),
+        "ga": payload.get("ga"),
+        "lecture_id": payload.get("lecture_id"),
+        "vortragstitel": payload.get("vortragstitel") or payload.get("segment_title"),
+        "lecture_date": payload.get("lecture_date"),
+        "venue": payload.get("venue"),
+        "page_start": payload.get("page_start"),
+        "page_end": payload.get("page_end"),
+        "source_type": payload.get("source_type"),
+        "segment_id": payload.get("segment_id"),
+    }
+    return {k: v for k, v in item.items() if v is not None and v != ""}
+
+
+async def _search_ga_collection(
+    *,
+    query: str,
+    chunk_types: list[str],
+    ga: str | list[str] | None,
+    lecture_id: str | None,
+    limit: int,
+    full_text: bool,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query is required", "code": "empty_query"}
+
+    gas, err = _parse_ga_list(ga)
+    if err:
+        return err
+
+    if gas:
+        unknown = await _unknown_gas_after_lookup(gas)
+        if unknown:
+            return {
+                "error": f"unknown ga: {', '.join(unknown)}",
+                "code": "unknown_ga",
+            }
+
+    k = max(1, min(int(limit) if limit is not None else 8, 20))
+    extra = _ga_extra_must(gas, lecture_id)
+
+    from app.core.providers import get_embedding_client, get_qdrant_client, get_sparse_embedder
+    from app.retrieval.utils.retrievers import hybrid_retrieve
+
+    prefix_query = settings.embedding_prefix_query or "query: "
+    try:
+        hits = await hybrid_retrieve(
+            query=q,
+            k_dense=k,
+            k_sparse=k,
+            k_fused=k,
+            worldview=None,
+            book_types=chunk_types,
+            collection=GA_QDRANT_COLLECTION,
+            embedding_client=get_embedding_client(),
+            qdrant_client=get_qdrant_client(),
+            sparse_embedder=get_sparse_embedder() if settings.use_hybrid_retrieval else None,
+            force_sparse=settings.use_hybrid_retrieval,
+            query_prefix=prefix_query,
+            extra_must=extra or None,
+        )
+    except Exception as exc:
+        logger.exception("GA collection search failed")
+        return {"error": f"search failed: {exc}", "code": "search_failed"}
+
+    out: list[dict[str, Any]] = []
+    for snip in hits:
+        payload = snip.payload if isinstance(snip.payload, Mapping) else {}
+        inner = payload.get("payload") if isinstance(payload.get("payload"), Mapping) else payload
+        if not isinstance(inner, Mapping):
+            inner = {}
+        meta = dict(inner)
+        if "text" not in meta and snip.text:
+            meta["text"] = snip.text
+        item = _ga_hit_from_payload(meta, full=full_text)
+        item["score"] = round(float(snip.score), 4)
+        out.append(item)
+    return out
+
+
+async def search_ga(
+    query: str,
+    ga: str | list[str] | None = None,
+    lecture_id: str | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Search Rudolf Steiner GA wording in collection rudolf-steiner-ga.
+
+    Covers Vorträge and Schriften (e.g. GA 4, 15, 30) that are embedded in this
+    collection. Secondary to search_corpus (Philo / assistant corpus). Use to verify
+    or correct training knowledge, and for original research when search_corpus
+    yields little. Hits are for your understanding — do not pass long continuous
+    passages to the end user. Short citations to the user must use the form
+    (GA <nummer>, S. <seite>, Wortlaut nicht sicher); omit the page part if
+    page_start/page_end is missing, but keep the uncertainty phrase.
+
+    Args:
+        query: Search query (German or English).
+        ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
+        lecture_id: Optional catalog id (YYYYMMDD[a-z]) to restrict to one lecture.
+        limit: Max results (1-20, default 8).
+    """
+
+    return await _search_ga_collection(
+        query=query,
+        chunk_types=["ga_text"],
+        ga=ga,
+        lecture_id=lecture_id,
+        limit=limit,
+        full_text=True,
+    )
+
+
+async def search_ga_summaries(
+    query: str,
+    ga: str | list[str] | None = None,
+    lecture_id: str | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Search chapter/lecture research summaries in collection rudolf-steiner-ga.
+
+    Secondary to search_corpus. Use for orientation across volumes, then drill into
+    search_ga for wording. Returns the full summary text. Same end-user citation
+    rules as search_ga: (GA <nummer>, S. <seite>, Wortlaut nicht sicher); do not
+    forward long continuous passages to the end user.
+
+    Args:
+        query: Search query (German or English).
+        ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
+        lecture_id: Optional catalog id (YYYYMMDD[a-z]).
+        limit: Max results (1-20, default 5).
+    """
+    return await _search_ga_collection(
+        query=query,
+        chunk_types=["chapter_summary"],
+        ga=ga,
+        lecture_id=lecture_id,
+        limit=limit,
+        full_text=True,
+    )

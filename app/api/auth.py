@@ -25,6 +25,7 @@ class AuthUser:
     user_id: str
     email: str | None
     raw_token: str
+    client_id: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -114,10 +115,13 @@ def parse_bearer_token(token: str) -> AuthUser:
             detail="Token missing sub claim",
         )
     email = claims.get("email")
+    client_raw = claims.get("client_id")
+    client_id = client_raw.strip() if isinstance(client_raw, str) and client_raw.strip() else None
     return AuthUser(
         user_id=sub.strip(),
         email=email if isinstance(email, str) else None,
         raw_token=token,
+        client_id=client_id,
     )
 
 
