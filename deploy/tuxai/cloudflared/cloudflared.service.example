@@ -1,0 +1,18 @@
+# Tuxai (Pulse): /etc/systemd/system/cloudflared-ragrun.service
+#   sudo cp deploy/tuxai/cloudflared/cloudflared.service.example /etc/systemd/system/cloudflared-ragrun.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared-ragrun
+
+[Unit]
+Description=Cloudflare Tunnel (ragrun Qdrant + embed)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/cloudflared --config /etc/cloudflared/config.yml tunnel run
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

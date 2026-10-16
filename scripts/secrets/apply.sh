@@ -161,12 +161,26 @@ railway_set() {
     return 0
   fi
   command -v railway >/dev/null || die "railway CLI fehlt"
-  local extra=(--skip-deploys)
   if [[ "$SKIP_DEPLOYS" -eq 0 ]]; then
-    extra=()
+    printf '%s' "$val" | railway variable set "$key" --stdin \
+      -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" >/dev/null
+  else
+    printf '%s' "$val" | railway variable set "$key" --stdin \
+      -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" --skip-deploys >/dev/null
   fi
-  printf '%s' "$val" | railway variable set "$key" --stdin \
-    -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" "${extra[@]}" >/dev/null
+}
+
+railway_delete() {
+  local env="$1" service="$2" key="$3"
+  plan "railway:$env/$service" "DELETE $key" x
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    return 0
+  fi
+  command -v railway >/dev/null || die "railway CLI fehlt"
+  if railway variable list -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" --json 2>/dev/null \
+    | python3 -c "import json,sys; raw=json.load(sys.stdin); keys=raw.keys() if isinstance(raw, dict) else {v['name'] for v in raw}; sys.exit(0 if sys.argv[1] in keys else 1)" "$key"; then
+    railway variable delete "$key" -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" >/dev/null
+  fi
 }
 
 github_set() {
@@ -187,8 +201,11 @@ restart_service() {
   if [[ "$REDEPLOY" -eq 0 || "$DRY_RUN" -eq 1 ]]; then
     return 0
   fi
-  log "  restart railway:$env/$service"
-  railway restart -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" >/dev/null
+  log "  redeploy railway:$env/$service"
+  if ! railway redeploy -y -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" >/dev/null 2>&1; then
+    log "  redeploy failed, trying restart"
+    railway restart -y -p "$RAILWAY_PROJECT_ID" -e "$env" -s "$service" >/dev/null || true
+  fi
 }
 
 # ---------- Plan / Apply ----------
@@ -203,9 +220,21 @@ if [[ "$APPLY_RAILWAY_STAGING" == "1" ]]; then
   railway_set staging "$RAILWAY_STAGING_SERVICE" SUPABASE_SERVICE_ROLE_KEY "${STAGING_SUPABASE_SERVICE_ROLE_KEY:-}"
   railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_SUPABASE_JWT_SECRET "${STAGING_SUPABASE_JWT_SECRET:-}"
   railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_POSTGRES_DSN "${STAGING_POSTGRES_DSN:-}"
-  railway_set staging "$RAILWAY_STAGING_SERVICE" TS_AUTHKEY "${STAGING_TS_AUTHKEY:-}"
-  if filled "${STAGING_TS_AUTHKEY:-}"; then
-    railway_set staging "$RAILWAY_STAGING_SERVICE" TS_HOSTNAME "ragrun-staging"
+  railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_QDRANT_URL "${TUNNEL_QDRANT_URL:-}"
+  railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_EMBEDDINGS_BASE_URL "${TUNNEL_EMBED_URL:-}"
+  if filled "${TUNNEL_QDRANT_URL:-}" || filled "${TUNNEL_EMBED_URL:-}"; then
+    railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_EMBEDDINGS_PROVIDER "http"
+  fi
+  railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_CF_ACCESS_CLIENT_ID "${STAGING_CF_ACCESS_CLIENT_ID:-}"
+  railway_set staging "$RAILWAY_STAGING_SERVICE" RAGRUN_CF_ACCESS_CLIENT_SECRET "${STAGING_CF_ACCESS_CLIENT_SECRET:-}"
+  if [[ "${CLEAR_RAILWAY_TAILSCALE:-0}" == "1" ]]; then
+    railway_delete staging "$RAILWAY_STAGING_SERVICE" TS_AUTHKEY
+    railway_delete staging "$RAILWAY_STAGING_SERVICE" TS_HOSTNAME
+  else
+    railway_set staging "$RAILWAY_STAGING_SERVICE" TS_AUTHKEY "${STAGING_TS_AUTHKEY:-}"
+    if filled "${STAGING_TS_AUTHKEY:-}"; then
+      railway_set staging "$RAILWAY_STAGING_SERVICE" TS_HOSTNAME "ragrun-staging"
+    fi
   fi
   restart_service staging "$RAILWAY_STAGING_SERVICE"
 else
@@ -223,9 +252,21 @@ if [[ "$APPLY_RAILWAY_PRODUCTION" == "1" ]]; then
   railway_set production "$RAILWAY_PRODUCTION_SERVICE" SUPABASE_SERVICE_ROLE_KEY "${PRODUCTION_SUPABASE_SERVICE_ROLE_KEY:-}"
   railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_SUPABASE_JWT_SECRET "${PRODUCTION_SUPABASE_JWT_SECRET:-}"
   railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_POSTGRES_DSN "${PRODUCTION_POSTGRES_DSN:-}"
-  railway_set production "$RAILWAY_PRODUCTION_SERVICE" TS_AUTHKEY "${PRODUCTION_TS_AUTHKEY:-}"
-  if filled "${PRODUCTION_TS_AUTHKEY:-}"; then
-    railway_set production "$RAILWAY_PRODUCTION_SERVICE" TS_HOSTNAME "ragrun-production"
+  railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_QDRANT_URL "${TUNNEL_QDRANT_URL:-}"
+  railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_EMBEDDINGS_BASE_URL "${TUNNEL_EMBED_URL:-}"
+  if filled "${TUNNEL_QDRANT_URL:-}" || filled "${TUNNEL_EMBED_URL:-}"; then
+    railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_EMBEDDINGS_PROVIDER "http"
+  fi
+  railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_CF_ACCESS_CLIENT_ID "${PRODUCTION_CF_ACCESS_CLIENT_ID:-}"
+  railway_set production "$RAILWAY_PRODUCTION_SERVICE" RAGRUN_CF_ACCESS_CLIENT_SECRET "${PRODUCTION_CF_ACCESS_CLIENT_SECRET:-}"
+  if [[ "${CLEAR_RAILWAY_TAILSCALE:-0}" == "1" ]]; then
+    railway_delete production "$RAILWAY_PRODUCTION_SERVICE" TS_AUTHKEY
+    railway_delete production "$RAILWAY_PRODUCTION_SERVICE" TS_HOSTNAME
+  else
+    railway_set production "$RAILWAY_PRODUCTION_SERVICE" TS_AUTHKEY "${PRODUCTION_TS_AUTHKEY:-}"
+    if filled "${PRODUCTION_TS_AUTHKEY:-}"; then
+      railway_set production "$RAILWAY_PRODUCTION_SERVICE" TS_HOSTNAME "ragrun-production"
+    fi
   fi
   restart_service production "$RAILWAY_PRODUCTION_SERVICE"
 else
@@ -244,6 +285,10 @@ if [[ "$APPLY_LOCAL_RAGRUN" == "1" ]]; then
     fi
     if filled "${STAGING_SUPABASE_JWT_SECRET:-}"; then plan "local:$f" RAGRUN_SUPABASE_JWT_SECRET x; fi
     if filled "${STAGING_POSTGRES_DSN:-}"; then plan "local:$f" RAGRUN_POSTGRES_DSN x; fi
+    if filled "${TUNNEL_QDRANT_URL:-}"; then plan "local:$f" RAGRUN_QDRANT_URL x; fi
+    if filled "${TUNNEL_EMBED_URL:-}"; then plan "local:$f" RAGRUN_EMBEDDINGS_BASE_URL x; fi
+    if filled "${STAGING_CF_ACCESS_CLIENT_ID:-}"; then plan "local:$f" RAGRUN_CF_ACCESS_CLIENT_ID x; fi
+    if filled "${STAGING_CF_ACCESS_CLIENT_SECRET:-}"; then plan "local:$f" RAGRUN_CF_ACCESS_CLIENT_SECRET x; fi
     if [[ "$DRY_RUN" -eq 0 ]]; then
       upsert_env_file "$f" \
         RAGRUN_QDRANT_API_KEY:QDRANT_API_KEY \
@@ -252,7 +297,11 @@ if [[ "$APPLY_LOCAL_RAGRUN" == "1" ]]; then
         RAGRUN_SUPABASE_SERVICE_ROLE_KEY:STAGING_SUPABASE_SERVICE_ROLE_KEY \
         SUPABASE_SERVICE_ROLE_KEY:STAGING_SUPABASE_SERVICE_ROLE_KEY \
         RAGRUN_SUPABASE_JWT_SECRET:STAGING_SUPABASE_JWT_SECRET \
-        RAGRUN_POSTGRES_DSN:STAGING_POSTGRES_DSN
+        RAGRUN_POSTGRES_DSN:STAGING_POSTGRES_DSN \
+        RAGRUN_QDRANT_URL:TUNNEL_QDRANT_URL \
+        RAGRUN_EMBEDDINGS_BASE_URL:TUNNEL_EMBED_URL \
+        RAGRUN_CF_ACCESS_CLIENT_ID:STAGING_CF_ACCESS_CLIENT_ID \
+        RAGRUN_CF_ACCESS_CLIENT_SECRET:STAGING_CF_ACCESS_CLIENT_SECRET
     fi
   done
   for f in "$ROOT/.env.production" "$ROOT/.env.prod"; do
@@ -269,6 +318,10 @@ if [[ "$APPLY_LOCAL_RAGRUN" == "1" ]]; then
     fi
     if filled "${PRODUCTION_SUPABASE_JWT_SECRET:-}"; then plan "local:$f" RAGRUN_SUPABASE_JWT_SECRET x; fi
     if filled "${PRODUCTION_POSTGRES_DSN:-}"; then plan "local:$f" RAGRUN_POSTGRES_DSN x; fi
+    if filled "${TUNNEL_QDRANT_URL:-}"; then plan "local:$f" RAGRUN_QDRANT_URL x; fi
+    if filled "${TUNNEL_EMBED_URL:-}"; then plan "local:$f" RAGRUN_EMBEDDINGS_BASE_URL x; fi
+    if filled "${PRODUCTION_CF_ACCESS_CLIENT_ID:-}"; then plan "local:$f" RAGRUN_CF_ACCESS_CLIENT_ID x; fi
+    if filled "${PRODUCTION_CF_ACCESS_CLIENT_SECRET:-}"; then plan "local:$f" RAGRUN_CF_ACCESS_CLIENT_SECRET x; fi
     if [[ "$DRY_RUN" -eq 0 && -e "$f" ]]; then
       upsert_env_file "$f" \
         RAGRUN_QDRANT_API_KEY:QDRANT_API_KEY \
@@ -278,7 +331,11 @@ if [[ "$APPLY_LOCAL_RAGRUN" == "1" ]]; then
         RAGRUN_SUPABASE_SERVICE_ROLE_KEY:PRODUCTION_SUPABASE_SERVICE_ROLE_KEY \
         SUPABASE_SERVICE_ROLE_KEY:PRODUCTION_SUPABASE_SERVICE_ROLE_KEY \
         RAGRUN_SUPABASE_JWT_SECRET:PRODUCTION_SUPABASE_JWT_SECRET \
-        RAGRUN_POSTGRES_DSN:PRODUCTION_POSTGRES_DSN
+        RAGRUN_POSTGRES_DSN:PRODUCTION_POSTGRES_DSN \
+        RAGRUN_QDRANT_URL:TUNNEL_QDRANT_URL \
+        RAGRUN_EMBEDDINGS_BASE_URL:TUNNEL_EMBED_URL \
+        RAGRUN_CF_ACCESS_CLIENT_ID:PRODUCTION_CF_ACCESS_CLIENT_ID \
+        RAGRUN_CF_ACCESS_CLIENT_SECRET:PRODUCTION_CF_ACCESS_CLIENT_SECRET
     fi
   done
 else
