@@ -398,16 +398,20 @@ Selten; siehe frühere Plan-Version — Rotate token in CF, Tuxai neu starten, H
 
 ## Rollout-Checkliste
 
-- [ ] Tunnel **Healthy** + `cloudflared` auf Tuxai
-- [ ] Zone **`ragxxx.com`** Active; NS bei Chris
-- [ ] DNS 1:1: **Railway**, **GitHub Pages**, MX, TXT
-- [ ] Tunnel-Routes mit Domain **`ragxxx.com`**; qdrant/embed **öffentliche A**, kein fd10-only
-- [ ] Tokens `staging-tuxai`, `prod-tuxai` + Access auf beiden Hostnames
-- [ ] `verify-tunnel.sh` für beide Tokens
-- [ ] Staging Railway + `CLEAR_RAILWAY_TAILSCALE=1`
-- [ ] Staging Healthz + MCP → **7a** (Staging-Key revoken, Tuxai/Compose/Monitoring)
-- [ ] Production Railway + `CLEAR_RAILWAY_TAILSCALE=1`
-- [ ] Production Healthz + MCP → **7b** (Prod-Key revoken)
+Stand **16.10.2026**: Cutover-Abnahme **manuell** (Healthz, MCP in Claude, ggf. `verify-tunnel.sh` vom Mac). Kein automatisierter Ebene-A-Lauf als Gate.
+
+- [x] Tunnel **Healthy** + `cloudflared` auf Tuxai (Qdrant/Embed über Hostnames erreichbar; Railway-Healthz grün)
+- [x] Zone **`ragxxx.com`** Active; NS bei Chris
+- [x] DNS 1:1: **Railway**, **GitHub Pages**, MX, TXT
+- [x] Tunnel-Routes mit Domain **`ragxxx.com`**; qdrant/embed **öffentliche A**, kein fd10-only
+- [x] Tokens `staging-tuxai`, `prod-tuxai` + Access auf beiden Hostnames
+- [ ] `verify-tunnel.sh` für beide Tokens (optional; manuell vom Mac)
+- [x] Staging Railway: Tunnel-URLs, CF Access, `TS_*` entfernt (`CLEAR_RAILWAY_TAILSCALE=1` + Redeploy)
+- [x] Staging Healthz + MCP (manuell) — danach **7a** (Tailscale Admin + Tuxai/Repo, siehe unten)
+- [x] Production Railway: Tunnel-URLs, CF Access, `TS_*` entfernt; `RAGRUN_MCP_BASE_URL=https://api.ragxxx.com`
+- [x] Production Healthz + MCP (manuell); Prod-Supabase-Korpus (Katalog u. a.) von Staging synchronisiert — danach **7b**
+- [ ] **7a / 7b** Tailscale abbauen (Admin Keys revoken, Tuxai `tailscale down`, `git pull` + Compose/Monitoring neu starten). **Repo:** `compose.yaml`, Monitoring, `copy_collection.sh` → Tunnel/127.0.0.1 (16.10.)
+- [ ] `rotate.env` löschen, wenn keine Rotation mehr offen
 - [ ] `RAGRUN_HF_TOKEN` auf Railway optional entfernen (nicht genutzt bei `provider=http`)
 
 ## Monitoring & Incident

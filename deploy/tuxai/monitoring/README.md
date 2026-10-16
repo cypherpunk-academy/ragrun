@@ -8,12 +8,12 @@ Eigenes Compose-Projekt `ragrun-monitoring`. Es tritt dem bestehenden Netz `ragr
 
 | Dienst | Image | Port |
 |---|---|---|
-| prometheus | `prom/prometheus:v3.15.0` | `${TAILSCALE_IP}:9090` |
-| grafana | `grafana/grafana:13.2.3` | `${TAILSCALE_IP}:3000` |
+| prometheus | `prom/prometheus:v3.15.0` | `127.0.0.1:9090` |
+| grafana | `grafana/grafana:13.2.3` | `127.0.0.1:3000` |
 | node-exporter | `prom/node-exporter:v1.12.1` | keiner |
 | cadvisor | `ghcr.io/google/cadvisor:v0.60.6` | keiner |
 
-Die Tags sind die stabilen Stände vom 13.10.2026. cAdvisor wird nicht mehr auf Docker Hub gepflegt; das aktuelle Image liegt auf ghcr.io. Ports hängen nur an der Tailscale-Adresse, nie an `0.0.0.0`.
+Die Tags sind die stabilen Stände vom 13.10.2026. cAdvisor wird nicht mehr auf Docker Hub gepflegt; das aktuelle Image liegt auf ghcr.io. Prometheus und Grafana binden nur **`127.0.0.1`** (kein Tailscale, kein `0.0.0.0`). Vom Mac: `ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 tuxai`.
 
 Prometheus behält Daten 90 Tage. Die Konfiguration, die Alarmregeln und die Datei `qdrant_key` sind read-only eingehängt. Grafana bekommt das Admin-Passwort aus `GRAFANA_ADMIN_PASSWORD`.
 
@@ -32,8 +32,8 @@ Im Repo-Root, in dieser Reihenfolge:
 
 ## Adressen
 
-- Grafana: `http://<Tailscale-IP>:3000`
-- Prometheus: `http://<Tailscale-IP>:9090`
+- Grafana: `http://127.0.0.1:3000` (lokal auf dem Pulse, oder per SSH-Portforward)
+- Prometheus: `http://127.0.0.1:9090`
 
 Das mitgelieferte Dashboard heißt **ragrun TUXAI**. Die Community-Dashboards **1860** (Node Exporter Full) und **14282** (cAdvisor) werden später von Hand in Grafana importiert und liegen nicht in diesem Ordner.
 

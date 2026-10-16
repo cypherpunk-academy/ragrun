@@ -4,8 +4,6 @@ services:
     container_name: qdrant
     restart: unless-stopped
     ports:
-      - "${TAILSCALE_IP}:6333:6333"
-      - "${TAILSCALE_IP}:6334:6334"
       - "127.0.0.1:6333:6333"
     environment:
       - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
@@ -25,7 +23,6 @@ services:
       HF_HOME: /app/models
       SENTENCE_TRANSFORMERS_HOME: /app/models
     ports:
-      - "${TAILSCALE_IP}:8001:8001"
       - "127.0.0.1:8001:8001"
     volumes:
       - embeddings-model-cache:/app/models
