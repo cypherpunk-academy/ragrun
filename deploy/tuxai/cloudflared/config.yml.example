@@ -5,8 +5,8 @@ tunnel: <TUNNEL-UUID>
 credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
 
 ingress:
-  - hostname: tuxai-qdrant.ragxxx.com
+  - hostname: qdrant.ragxxx.com
     service: http://127.0.0.1:6333
-  - hostname: tuxai-embed.ragxxx.com
+  - hostname: embed.ragxxx.com
     service: http://127.0.0.1:8001
   - service: http_status:404
