@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.services.batch_service import batch_service
 from app.services.embedding_service import embedding_service
+from app.services.metrics import track_request
 from app.services.telemetry import telemetry_client
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,12 @@ class BatchRequest(BaseModel):
 async def create_embeddings(request: EmbeddingRequest):
     """Generate embeddings for provided texts."""
 
+    texts = _texts_from_request(request.texts)
+    with track_request("/api/v1/embeddings", len(texts)):
+        return await _create_embeddings(request, texts)
+
+
+async def _create_embeddings(request: EmbeddingRequest, texts: list[str]):
     start_time = time.time()
 
     try:
@@ -84,7 +91,7 @@ async def create_embeddings(request: EmbeddingRequest):
         logger.info(
             "Embedded %d chunks with size %.1fKB",
             count,
-            _input_size_kb(_texts_from_request(request.texts)),
+            _input_size_kb(texts),
         )
 
         await telemetry_client.record_embedding_batch(
@@ -114,6 +121,11 @@ async def create_embeddings(request: EmbeddingRequest):
 async def create_batch_embeddings(request: BatchRequest):
     """Generate embeddings for a large batch of texts."""
 
+    with track_request("/api/v1/embeddings/batch", len(request.texts)):
+        return await _create_batch_embeddings(request)
+
+
+async def _create_batch_embeddings(request: BatchRequest):
     start_time = time.time()
 
     try:
@@ -170,6 +182,12 @@ async def create_batch_embeddings(request: BatchRequest):
 async def similarity_search(request: SimilaritySearchRequest):
     """Perform similarity search using embeddings."""
 
+    text_count = 1 + len(request.documents)
+    with track_request("/api/v1/search", text_count):
+        return await _similarity_search(request)
+
+
+async def _similarity_search(request: SimilaritySearchRequest):
     start_time = time.time()
 
     try:

@@ -17,6 +17,7 @@ CHUNK_TYPE_ENUM = (
     "quote",
     "quote_explanation",
     "typology",
+    "ga_text",
 )
 
 
@@ -75,6 +76,20 @@ class ChunkMetadata(BaseModel):
     lecture_id: Optional[str] = Field(
         None,
         description="Readable catalog lecture id (e.g. 19190525); not rag_chunks source_id.",
+    )
+    ga: Optional[str] = Field(
+        None,
+        description="GA volume id from folder (e.g. 332a, 90b); used by rudolf-steiner-ga search.",
+    )
+    page_start: Optional[int] = Field(
+        None,
+        ge=1,
+        description="First GA print page covered by this chunk (from inline page markers).",
+    )
+    page_end: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Last GA print page covered by this chunk (from inline page markers).",
     )
     paragraph: Optional[int] = Field(
         None,

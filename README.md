@@ -100,16 +100,16 @@ scripts/
 └── testing/            # Testing and diagnostic tools
 ```
 
-**Git submodules** (required for ragprep lecture pipeline):
+**Git submodule** (required for ragprep lecture pipeline):
 
 ```bash
 git clone --recurse-submodules <repo-url>
 # or after clone:
-git submodule update --init --recursive ragkeep steineroriginals
+git submodule update --init ragkeep
 ```
 
 - `ragkeep/` — processed texts, assistants, books
-- `steineroriginals/` — lecture catalog SSOT (`rudolf-steiner-ga-lecture-catalog.yaml`, `reference/lecture-catalog-cycles.yaml`)
+- Lecture catalog SSOT: clone [`steineroriginals`](https://github.com/steineroriginals/steineroriginals) as sibling directory, or set `STEINERORIGINALS_ROOT` env var
 
 ## Installation & Setup
 

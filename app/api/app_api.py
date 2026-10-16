@@ -140,6 +140,122 @@ async def app_health() -> dict[str, Any]:
     }
 
 
+@router.get("/corpus-version")
+async def app_corpus_version() -> dict[str, Any]:
+    """Current corpus version and download URL (no JWT — public)."""
+    return {
+        "version": settings.corpus_version,
+        "download_url": settings.corpus_download_url or None,
+    }
+
+
+def _grant_status(row: Any) -> str:
+    if row["revoked_at"] is not None:
+        return "revoked"
+    if row["last_mcp_request"] is None:
+        return "connected_unused"
+    return "connected"
+
+
+@router.get("/claude-status")
+async def app_claude_status(
+    user: Annotated[AuthUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Connector status for the authenticated user.
+
+    Queries connector_grants for the most recent non-revoked grant.
+    Returns: { status, last_active? }
+    """
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT last_mcp_request, revoked_at "
+                "FROM connector_grants "
+                "WHERE user_id = CAST(:uid AS uuid) "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"uid": user.user_id},
+        )
+        row = result.mappings().first()
+
+    if not row:
+        return {"status": "not_connected"}
+    status_value = _grant_status(row)
+    if status_value == "connected":
+        return {
+            "status": "connected",
+            "last_active": row["last_mcp_request"].isoformat(),
+        }
+    return {"status": status_value}
+
+
+@router.get("/ai-connections")
+async def app_ai_connections(
+    user: Annotated[AuthUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """List MCP AI connections for the authenticated user (Block C / Schritt 16).
+
+    Returns active and revoked grants with client_kind / redirect_host.
+    Older app builds keep using ``GET /app/claude-status``.
+    """
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT
+                  client_id,
+                  client_name,
+                  client_kind,
+                  redirect_host,
+                  last_mcp_request,
+                  revoked_at,
+                  created_at
+                FROM connector_grants
+                WHERE user_id = CAST(:uid AS uuid)
+                ORDER BY created_at DESC
+                """
+            ),
+            {"uid": user.user_id},
+        )
+        rows = list(result.mappings())
+
+    connections = []
+    for row in rows:
+        status_value = _grant_status(row)
+        item: dict[str, Any] = {
+            "client_id": row["client_id"],
+            "client_name": row["client_name"],
+            "client_kind": row["client_kind"] or "unknown",
+            "redirect_host": row["redirect_host"],
+            "status": status_value,
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        if row["last_mcp_request"] is not None:
+            item["last_mcp_request"] = row["last_mcp_request"].isoformat()
+        connections.append(item)
+
+    return {"connections": connections}
+
+
+@router.get("/deep-link-config")
+async def app_deep_link_config() -> dict[str, Any]:
+    """Deep-link configuration for the app (no JWT — public).
+
+    Controls how the app opens external links (e.g. to Claude).
+    Switchable server-side without an app release.
+    """
+    mcp_base = (settings.mcp_base_url or "").strip().rstrip("/")
+    return {
+        "strategy": "native_app",
+        "claude_base_url": "https://claude.ai/new",
+        "auto_send": False,
+        "passage_base_url": f"{mcp_base}/passage" if mcp_base else None,
+        "text_base_url": f"{mcp_base}/text" if mcp_base else None,
+    }
+
+
 @router.get("/personalities", response_model=PersonalitiesResponse)
 async def app_personalities() -> PersonalitiesResponse:
     """List chat personalities (no JWT — public catalogue)."""

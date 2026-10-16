@@ -35,7 +35,7 @@ env.bak/
 venv.bak/
 
 # Models and cache
-models/
+/models/
 cache/
 *.model
 *.bin
@@ -54,9 +54,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
-
-# Docker
-.dockerignore
 
 # Testing
 .pytest_cache/

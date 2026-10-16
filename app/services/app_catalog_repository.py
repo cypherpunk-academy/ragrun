@@ -20,10 +20,14 @@ class PostgresCatalogRepository(CatalogPort):
                 rows = conn.execute(
                     text(
                         """
-                        SELECT id::text AS source_id, title, author, language,
-                               COALESCE(is_primary, false) AS is_primary, sort_order
-                        FROM rag_sources
-                        ORDER BY sort_order ASC, title ASC
+                        SELECT s.id::text AS source_id, s.title, s.author, s.language,
+                               COALESCE(s.is_primary, false) AS is_primary, s.sort_order,
+                               COALESCE(s.source_type, 'book') AS source_type,
+                               s.ga,
+                               lc.zyklus
+                        FROM rag_sources s
+                        LEFT JOIN rag_lecture_catalog lc ON lc.uuid::text = s.id::text
+                        ORDER BY s.sort_order ASC, s.title ASC
                         """
                     )
                 ).mappings().all()
@@ -32,11 +36,15 @@ class PostgresCatalogRepository(CatalogPort):
                 title = str(row["title"] or "")
                 author = str(row["author"] or "")
                 display = f"{author}: {title}" if author and title else title or author
+                zyklus = row["zyklus"]
                 out.append(
                     {
                         "source_id": row["source_id"],
                         "display_name": display,
-                        "source_type": "book",
+                        "source_type": str(row["source_type"]),
+                        "is_primary": bool(row["is_primary"]),
+                        "ga": str(row["ga"]) if row["ga"] is not None else None,
+                        "zyklus": int(zyklus) if zyklus is not None else None,
                     }
                 )
             return out

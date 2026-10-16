@@ -1,6 +1,7 @@
 """Supabase JWT authentication for ragapp /app/* routes."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated
@@ -12,6 +13,8 @@ from jwt import PyJWKClient
 from jwt.exceptions import MissingCryptographyError, PyJWKClientError
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -25,6 +28,7 @@ class AuthUser:
     user_id: str
     email: str | None
     raw_token: str
+    client_id: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -39,9 +43,19 @@ def _jwks_client() -> PyJWKClient | None:
     )
 
 
+def _accepted_jwt_audiences() -> list[str]:
+    """Supabase session JWTs use ``authenticated``; MCP OAuth may bind ``aud`` to the resource URL."""
+    audiences = ["authenticated"]
+    base = (settings.mcp_base_url or "").strip().rstrip("/")
+    if base:
+        audiences.append(f"{base}/mcp")
+    return audiences
+
+
 def _decode_supabase_jwt(token: str) -> dict:
     secret = (settings.supabase_jwt_secret or "").strip()
     decode_options = {"require": ["sub", "exp"]}
+    audiences = _accepted_jwt_audiences()
     jwks_error: Exception | None = None
 
     try:
@@ -58,7 +72,7 @@ def _decode_supabase_jwt(token: str) -> dict:
                     token,
                     signing_key.key,
                     algorithms=_JWT_ALGORITHMS,
-                    audience="authenticated",
+                    audience=audiences,
                     options=decode_options,
                 )
             except MissingCryptographyError as exc:
@@ -76,7 +90,7 @@ def _decode_supabase_jwt(token: str) -> dict:
                 token,
                 secret,
                 algorithms=["HS256"],
-                audience="authenticated",
+                audience=audiences,
                 options=decode_options,
             )
 
@@ -99,6 +113,7 @@ def _decode_supabase_jwt(token: str) -> dict:
             detail="Token expired",
         ) from exc
     except (jwt.InvalidTokenError, PyJWKClientError) as exc:
+        logger.warning("JWT verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
@@ -114,10 +129,13 @@ def parse_bearer_token(token: str) -> AuthUser:
             detail="Token missing sub claim",
         )
     email = claims.get("email")
+    client_raw = claims.get("client_id")
+    client_id = client_raw.strip() if isinstance(client_raw, str) and client_raw.strip() else None
     return AuthUser(
         user_id=sub.strip(),
         email=email if isinstance(email, str) else None,
         raw_token=token,
+        client_id=client_id,
     )
 
 

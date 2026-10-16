@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "philo-dev-anton": {
+      "command": ".venv/bin/python",
+      "args": ["scripts/mcp_tests/proxy.py", "--env", "dev", "--user", "a"]
+    },
+    "philo-dev-antonia": {
+      "command": ".venv/bin/python",
+      "args": ["scripts/mcp_tests/proxy.py", "--env", "dev", "--user", "b"]
+    },
+    "philo-staging-anton": {
+      "command": ".venv/bin/python",
+      "args": ["scripts/mcp_tests/proxy.py", "--env", "staging", "--user", "a"]
+    },
+    "philo-staging-antonia": {
+      "command": ".venv/bin/python",
+      "args": ["scripts/mcp_tests/proxy.py", "--env", "staging", "--user", "b"]
+    }
+  }
+}
