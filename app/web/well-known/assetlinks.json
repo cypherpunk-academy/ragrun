@@ -1,0 +1,18 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "berlin.cypherpunkacademy.ragapp",
+      "sha256_cert_fingerprints": ["1C:03:84:35:9C:FD:9A:DE:BA:CC:1F:D6:3E:10:45:2C:A8:07:E4:7B:2B:86:1F:C6:BE:73:92:81:69:90:63:C3"]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "berlin.cypherpunkacademy.ragapp.staging",
+      "sha256_cert_fingerprints": ["FC:B1:C7:AA:DE:91:2B:E6:26:8D:03:41:ED:67:E4:98:2E:64:38:36:0B:89:09:B6:77:8C:C3:14:F5:3C:0B:D1"]
+    }
+  }
+]

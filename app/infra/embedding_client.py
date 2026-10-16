@@ -43,9 +43,12 @@ class EmbeddingClient:
         hf_forbid_large_batches: bool = True,
         hf_max_batch_texts: int = 32,
     ) -> None:
+        from app.infra.service_http_headers import merge_service_http_headers
+
         self.base_url = str(base_url).rstrip("/")
         self.timeout = timeout
         self.batch_size = batch_size
+        self._http_headers = merge_service_http_headers(None)
         self.provider = (provider or "http").strip().lower()
         self.hf_model = hf_model
         self.hf_forbid_large_batches = hf_forbid_large_batches
@@ -104,7 +107,10 @@ class EmbeddingClient:
         resolved_model = model_name
         dimensions = 0
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=10.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
+            headers=self._http_headers,
+        ) as client:
             for chunk in _chunk_list(texts, resolved_batch_size):
                 payload: dict[str, object] = {"texts": chunk}
                 if model_name:

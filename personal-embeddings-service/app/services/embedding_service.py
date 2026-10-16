@@ -8,6 +8,11 @@ import numpy as np
 
 from app.config import settings
 from app.models.embedding_model import EmbeddingModel
+from app.services.metrics import (
+    embedder_encode_seconds,
+    embedder_model_load_seconds,
+    embedder_model_loaded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +33,22 @@ class LocalEmbeddingService:
 
         target = model_name or settings.model_name
         logger.info("Loading %s model asynchronously", target)
-        success = await asyncio.get_event_loop().run_in_executor(
-            self.executor, _load_model
-        )
+        started = time.perf_counter()
+        try:
+            success = await asyncio.get_event_loop().run_in_executor(
+                self.executor, _load_model
+            )
+        except Exception:
+            embedder_model_loaded.labels(model=target).set(0)
+            raise
+        finally:
+            embedder_model_load_seconds.set(time.perf_counter() - started)
         if success:
             self.ready = True
+            embedder_model_loaded.labels(model=target).set(1)
             logger.info("Embedding service ready")
         else:
+            embedder_model_loaded.labels(model=target).set(0)
             raise RuntimeError("Failed to load embedding model %s", target)
 
     def resolve_model_name(self, requested: Optional[str]) -> str:
@@ -54,9 +68,13 @@ class LocalEmbeddingService:
         def _encode(texts_input: Union[str, List[str]]) -> np.ndarray:
             return self.model.encode(texts_input, resolved)
 
-        embeddings = await asyncio.get_event_loop().run_in_executor(
-            self.executor, _encode, texts
-        )
+        started = time.perf_counter()
+        try:
+            embeddings = await asyncio.get_event_loop().run_in_executor(
+                self.executor, _encode, texts
+            )
+        finally:
+            embedder_encode_seconds.observe(time.perf_counter() - started)
         return embeddings
 
     async def similarity_search(

@@ -3,6 +3,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.router import api_router
 from app.config import settings
@@ -54,6 +55,12 @@ app = FastAPI(
 
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
+
+# Standard HTTP metrics. Health polls and scrapes stay out of the series.
+# excluded_handlers is matched as regex against the route template (instrumentator 6.1).
+Instrumentator(
+    excluded_handlers=["/metrics", "/api/v1/health/simple"],
+).instrument(app).expose(app, endpoint="/metrics")
 
 @app.get("/")
 async def root():

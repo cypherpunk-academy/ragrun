@@ -1,16 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Init submodules only when missing — do not --remote-update: that resets ragkeep
-# to origin/main and fails on local edits (products, manifests, chunk caches).
-for sub in ragkeep steineroriginals; do
-  if [[ ! -e "$sub/.git" ]]; then
-    if ! git submodule update --init "$sub"; then
-      echo "ERROR: git submodule update --init $sub failed; aborting." >&2
-      exit 1
+# Auf dem TUXAI laufen nur Qdrant und der Embedding-Dienst: kein ragkeep, kein ragrun-api.
+if [[ "$(hostname -s)" == "TUXAI" ]]; then
+  cd "$(dirname "$0")"
+  ENV_FILE="${TUXAI_ENV_FILE:-$HOME/ragrun-server/.env}"
+  # -p ragrun-server behält Projektnamen, Netz und das Modell-Volume der bestehenden Installation.
+  DC=(docker compose -p ragrun-server --env-file "$ENV_FILE" -f deploy/tuxai/compose.yaml)
+  "${DC[@]}" build embedding-service
+  "${DC[@]}" up -d qdrant embedding-service
+  echo "Warte auf den Embedding-Dienst (Modell lädt, kann 1-2 Minuten dauern) ..."
+  for _ in $(seq 1 60); do
+    if curl -fs http://127.0.0.1:8001/api/v1/health/simple >/dev/null; then
+      echo "embedding-service: healthy"; exit 0
     fi
+    sleep 5
+  done
+  echo "WARNUNG: embedding-service meldet nach 5 Minuten noch nicht healthy" >&2
+  "${DC[@]}" logs --tail 20 embedding-service >&2
+  exit 1
+fi
+
+# Init ragkeep submodule only when missing — do not --remote-update: that resets
+# ragkeep to origin/main and fails on local edits (products, manifests, chunk caches).
+if [[ ! -e "ragkeep/.git" ]]; then
+  if ! git submodule update --init ragkeep; then
+    echo "ERROR: git submodule update --init ragkeep failed; aborting." >&2
+    exit 1
   fi
-done
+fi
 
 docker compose build --no-cache ragrun-api
 docker compose up -d

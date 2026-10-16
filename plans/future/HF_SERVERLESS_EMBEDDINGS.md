@@ -24,7 +24,7 @@ Heute teilen Query und Ingest dieselbe `RAGRUN_EMBEDDINGS_BASE_URL` ([`app/infra
 
 ## Umsetzungsschritte
 
-1. **Kompatibilitätstest:** `python scripts/compare_hf_embeddings.py` (needs `HF_TOKEN`; optional local `:8001`). Unit: `tests/test_hf_embedding_pooling.py` (mean-pool + L2).
+1. **Kompatibilitätstest:** `python scripts/compare_hf_embeddings.py` (needs `HF_TOKEN`; optional local `:8001`). Unit: `tests/ingestion/test_hf_embedding_pooling.py` (mean-pool + L2).
 2. **Adapter:** `RAGRUN_EMBEDDINGS_PROVIDER=huggingface` → [`app/infra/hf_embedding.py`](../../app/infra/hf_embedding.py) via [`EmbeddingClient`](../../app/infra/embedding_client.py); retries on 429/502/503.
 3. **Env:** `RAGRUN_HF_TOKEN` / `HF_TOKEN`; see [`.env.staging`](../../.env.staging) / [`.env.dev`](../../.env.dev).
 4. **Retries:** built into `HuggingFaceEmbeddingBackend`.
