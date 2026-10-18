@@ -8,8 +8,13 @@ Supabase redirects browsers to Site URL + Authorization Path after
   → http://localhost:8000/oauth/consent?authorization_id=…
 
 The page is static HTML with supabase-js (Email-OTP + Apple/Google).
-Approve/deny uses supabase.auth.oauth.* — Auth issues the code; ragrun
-only hosts the UI.
+Email login is OTP-only on this page (no magic-link redirect). In each
+Supabase project, set **Magic Link** and **Confirm signup** templates to
+use ``{{ .Token }}`` only — do not include ``{{ .ConfirmationURL }}`` in
+either template (Supabase sends a link when that variable is present).
+New users with **Confirm email** enabled receive **Confirm signup**, not
+Magic Link; copy the same OTP HTML there. Approve/deny uses
+supabase.auth.oauth.* — Auth issues the code; ragrun only hosts the UI.
 """
 from __future__ import annotations
 

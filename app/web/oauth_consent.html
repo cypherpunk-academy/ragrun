@@ -312,12 +312,12 @@
         $("btn-send-otp").disabled = true;
         $("btn-resend").disabled = true;
         try {
+          // OTP only: no emailRedirectTo (avoids magic-link emails; bad on mobile).
+          // Supabase templates must use {{ .Token }} only — not {{ .ConfirmationURL }}.
           const { error } = await supabase.auth.signInWithOtp({
             email,
             options: {
               shouldCreateUser: true,
-              // Stay on this consent URL after magic-link click (if used).
-              emailRedirectTo: window.location.href,
             },
           });
           if (error) throw error;
