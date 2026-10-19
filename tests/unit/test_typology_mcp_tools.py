@@ -7,6 +7,7 @@ from app.mcp_server.typology_tools import (
     _build_focus,
     _index_typologies,
     _resolve_typology_slug,
+    _typology_catalog,
     typology_fields_for_search_result,
 )
 
@@ -38,6 +39,29 @@ def _row(
     if counterpart:
         meta["counterpart_chunk_id"] = counterpart
     return {"chunk_id": chunk_id, "source_id": source_id, "text": "x", "meta": meta}
+
+
+def test_typology_catalog_includes_all_overviews():
+    rows = [
+        _row("ov1", "12-weltanschauungen", "overview", segment_title="12 Weltanschauungen"),
+        _row("m1", "12-weltanschauungen", "member", segment_title="Materialismus"),
+        _row("ov2", "soziale-gesundheit", "overview", segment_title="Soziale Gesundheit"),
+        _row(
+            "g1",
+            "soziale-gesundheit",
+            "group",
+            group_id="feld-1",
+            health="gesund",
+        ),
+    ]
+    by_slug = _index_typologies(rows)
+    catalog = _typology_catalog(by_slug)
+    assert len(catalog) == 2
+    slugs = {e["typology_slug"] for e in catalog}
+    assert slugs == {"12-weltanschauungen", "soziale-gesundheit"}
+    sg = next(e for e in catalog if e["typology_slug"] == "soziale-gesundheit")
+    assert sg["has_health"] is True
+    assert sg["group_count"] == 1
 
 
 def test_resolve_typology_by_slug_and_title():

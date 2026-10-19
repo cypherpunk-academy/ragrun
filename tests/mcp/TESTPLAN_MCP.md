@@ -94,6 +94,7 @@ Daten aus `rag_chunks` (Typology-Import). Dev sollte 164 aktive Typology-Chunks 
 
 | ID | Aufruf | Erwartung |
 |---|---|---|
+| T-00 | list_typologies | `count=10`, Eintrag `soziale-gesundheit`, `has_health=true` |
 | T-01 | list_typology name="12 Weltanschauungen" | `typology_slug`, overview, 12 members, `has_health=false` |
 | T-02 | list_typology chunk_id=`<member>` aus T-01 | `focus.same_group` = 11 Geschwister |
 | T-03 | list_typology name="soziale-gesundheit" chunk_id=`<Aspekt gesund>` | `focus.counterpart` krank, `other_groups` |

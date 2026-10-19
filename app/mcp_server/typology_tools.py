@@ -253,6 +253,48 @@ def _build_focus(
     return out
 
 
+def _typology_catalog(by_slug: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    catalog: list[dict[str, Any]] = []
+    for slug, chunks in by_slug.items():
+        overview = next(
+            (c for c in chunks if c["meta"].get("typology_role") == "overview"),
+            None,
+        )
+        if overview is None:
+            continue
+        om = overview["meta"]
+        short = om.get("short_text")
+        entry: dict[str, Any] = {
+            "typology_slug": slug,
+            "title": om.get("segment_title") or om.get("source_title") or slug,
+            "overview_chunk_id": overview["chunk_id"],
+            "has_health": _typology_has_health(chunks),
+            "group_count": sum(
+                1 for c in chunks if c["meta"].get("typology_role") == "group"
+            ),
+            "member_count": sum(
+                1 for c in chunks if c["meta"].get("typology_role") == "member"
+            ),
+        }
+        if short:
+            entry["short_text"] = _snippet(str(short), limit=220)
+        else:
+            entry["short_text"] = _snippet(overview["text"], limit=220)
+        catalog.append(entry)
+    catalog.sort(key=lambda e: str(e.get("title") or e["typology_slug"]).casefold())
+    return catalog
+
+
+async def list_typologies(*, engine: Engine | None = None) -> dict[str, Any]:
+    """All typology overviews from rag_chunks (no vector search)."""
+    eng = engine or get_engine()
+    partition = _assistant_partition()
+    rows = await asyncio.to_thread(_load_typology_rows, eng, partition)
+    by_slug = _index_typologies(rows)
+    catalog = _typology_catalog(by_slug)
+    return {"count": len(catalog), "typologies": catalog}
+
+
 async def list_typology(
     *,
     name: str | None = None,

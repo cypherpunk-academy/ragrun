@@ -47,8 +47,9 @@ strukturierten Korpus von Werken Rudolf Steiners und verwandter Autoren verfuegt
 Der Korpus umfasst Primaerwerke (u.a. Die Philosophie der Freiheit, Die Kernpunkte \
 der sozialen Frage) sowie Sekundaerwerke. Nutze `search_corpus` fuer semantische \
 Suche und `get_passage` fuer den Volltext einzelner Absaetze. Typologien (Weltanschauungen, \
-Soziale Gesundheit, …): `list_typology` fuer den Baum, `search_typology` fuer Suche innerhalb \
-einer Typologie; `search_corpus` findet Typology-Chunks unter type concept.
+Soziale Gesundheit, …): `list_typologies` fuer das Gesamtverzeichnis (alle Ueberblicke), \
+`list_typology` fuer den Baum einer Typologie, `search_typology` fuer semantische Suche \
+(filter `role=overview` nur Ueberblicke); `search_corpus` findet Typology-Chunks unter type concept.
 
 ## Stufenlieferung
 Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
@@ -307,6 +308,7 @@ def _register_tools(mcp: MCPServer) -> None:
         search_corpus,
         search_ga,
         search_ga_summaries,
+        list_typologies,
         list_typology,
         search_typology,
         update_work_text,
@@ -400,6 +402,18 @@ def _register_tools(mcp: MCPServer) -> None:
             return await search_ga_summaries(
                 query=query, ga=ga, lecture_id=lecture_id, limit=limit
             )
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="list_typologies")
+    async def tool_list_typologies() -> dict:
+        """Catalog of all typologies in the corpus (overview per slug, from rag_chunks).
+
+        Use this before guessing via search: returns every typology with title, slug,
+        has_health, and a short overview blurb. Does not use Qdrant.
+        """
+        try:
+            return await list_typologies()
         except Exception as exc:
             return _tool_infra_error(exc)
 

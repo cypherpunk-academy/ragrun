@@ -22,7 +22,7 @@ from app.mcp_server.citation import (
     text_return_url,
 )
 from app.services.app_catalog_repository import PostgresCatalogRepository
-from app.mcp_server.typology_tools import list_typology, search_typology
+from app.mcp_server.typology_tools import list_typologies, list_typology, search_typology
 from app.services.app_search_service import app_search
 
 logger = logging.getLogger(__name__)

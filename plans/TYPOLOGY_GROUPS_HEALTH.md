@@ -240,6 +240,10 @@ Der Lemma-Lookup `_lemma_lookup_multi_typology` trifft weiter über `segment_tit
 
 Zwei neue Tools. `search_corpus` bleibt der unscharfe Einstieg über `concept` und kennt die Struktur nicht. „Die anderen elf Weltanschauungen“ und „das kranke Gegenstück“ sind Nachschlagen, keine Ähnlichkeitssuche.
 
+### `list_typologies`
+
+Keine Argumente. Liefert alle Typologien mit aktivem Übersichts-Chunk aus `rag_chunks` (Assistant-Partition): `count`, `typologies[]` mit `typology_slug`, `title`, `overview_chunk_id`, `has_health`, `group_count`, `member_count`, `short_text`. Keine Vektorsuche — vollständiges Verzeichnis (derzeit zehn YAML-Dateien).
+
 ### `list_typology`
 
 Argumente: `name` oder `chunk_id` (eines reicht).
@@ -320,7 +324,7 @@ Fertig, wenn die Übersicht der zwölf Weltanschauungen ihre bisherige `chunk_id
 
 ### Stufe 5 — MCP
 
-`list_typology` und `search_typology` in `app/mcp_server/typology_tools.py`, registriert in `server.py`. `search_corpus` gibt Typology-Metadaten mit aus (`typology_role`, `group_title`, `health`, `counterpart_chunk_id`, …); `types` ohne `typology`. Unit-Tests: `tests/unit/test_typology_mcp_tools.py`. Live-Checks: `tests/mcp/TESTPLAN_MCP.md` (Typologie-Abschnitt).
+`list_typologies`, `list_typology` und `search_typology` in `app/mcp_server/typology_tools.py`, registriert in `server.py`. `search_corpus` gibt Typology-Metadaten mit aus (`typology_role`, `group_title`, `health`, `counterpart_chunk_id`, …); `types` ohne `typology`. Unit-Tests: `tests/unit/test_typology_mcp_tools.py`. Live-Checks: `tests/mcp/TESTPLAN_MCP.md` (Typologie-Abschnitt).
 
 ---
 
