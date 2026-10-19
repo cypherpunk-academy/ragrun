@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, constr
 
@@ -18,6 +18,16 @@ CHUNK_TYPE_ENUM = (
     "quote_explanation",
     "typology",
     "ga_text",
+)
+
+_TYPOLOGY_OPTIONAL_FIELDS = (
+    "typology_slug",
+    "typology_role",
+    "group_id",
+    "group_title",
+    "health",
+    "counterpart_chunk_id",
+    "short_text",
 )
 
 
@@ -122,6 +132,34 @@ class ChunkMetadata(BaseModel):
         default_factory=list,
         description="Synonyme / Suchbegriffe, die diesen Chunk semantisch triggern (z. B. Typologien).",
     )
+    typology_slug: Optional[str] = Field(
+        None,
+        description="Typology this chunk belongs to (e.g. soziale-gesundheit).",
+    )
+    typology_role: Optional[Literal["overview", "group", "member"]] = Field(
+        None,
+        description="Level in the typology tree.",
+    )
+    group_id: Optional[str] = Field(
+        None,
+        description="Typology group (e.g. feld-1); group and its members only.",
+    )
+    group_title: Optional[str] = Field(
+        None,
+        description="Direction of the typology group (e.g. 'Geist -> Recht').",
+    )
+    health: Optional[Literal["gesund", "krank"]] = Field(
+        None,
+        description="Pole of a typology member; absent means not applicable.",
+    )
+    counterpart_chunk_id: Optional[str] = Field(
+        None,
+        description="Member with the same group_id, the other health and the same segment_index.",
+    )
+    short_text: Optional[str] = Field(
+        None,
+        description="Short text of the typology node; not part of the chunk text.",
+    )
 
     @classmethod
     def json_schema(cls) -> dict:
@@ -170,6 +208,10 @@ class ChunkMetadata(BaseModel):
         cls._normalize_worldviews(payload)
         if payload.get("aliases") is None:
             payload.pop("aliases", None)
+        for key in _TYPOLOGY_OPTIONAL_FIELDS:
+            value = payload.get(key)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                payload.pop(key, None)
         return cls(**payload)
 
 

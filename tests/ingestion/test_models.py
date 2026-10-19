@@ -90,3 +90,62 @@ def test_chunk_metadata_lecture_quote_fields(base_metadata_dict):
     assert dumped["paragraph_id"] == "para-uuid-1"
     assert dumped["quote_span"] == {"start": 10, "end": 42}
     assert dumped["quote_verified"] is True
+
+
+@pytest.fixture
+def typology_member_payload(base_metadata_dict):
+    payload = base_metadata_dict.copy()
+    payload.update(
+        {
+            "chunk_type": "typology",
+            "typology_slug": "soziale-gesundheit",
+            "typology_role": "member",
+            "group_id": "feld-1",
+            "group_title": "Geist -> Recht",
+            "health": "gesund",
+            "counterpart_chunk_id": "counterpart-uuid",
+            "short_text": "Kurztext",
+            "segment_index": 0,
+        }
+    )
+    return payload
+
+
+def test_chunk_metadata_typology_member_fields(typology_member_payload):
+    dumped = ChunkMetadata.from_payload(typology_member_payload).model_dump(mode="json")
+    assert dumped["typology_slug"] == "soziale-gesundheit"
+    assert dumped["typology_role"] == "member"
+    assert dumped["group_id"] == "feld-1"
+    assert dumped["group_title"] == "Geist -> Recht"
+    assert dumped["health"] == "gesund"
+    assert dumped["counterpart_chunk_id"] == "counterpart-uuid"
+    assert dumped["short_text"] == "Kurztext"
+
+
+def test_chunk_metadata_typology_without_health(typology_member_payload):
+    payload = typology_member_payload.copy()
+    for key in ("health", "counterpart_chunk_id", "group_id", "group_title"):
+        payload.pop(key)
+    metadata = ChunkMetadata.from_payload(payload)
+    assert metadata.health is None
+    assert metadata.counterpart_chunk_id is None
+
+
+def test_chunk_metadata_typology_empty_fields_are_absent(typology_member_payload):
+    payload = typology_member_payload.copy()
+    payload["health"] = ""
+    payload["counterpart_chunk_id"] = "  "
+    metadata = ChunkMetadata.from_payload(payload)
+    assert metadata.health is None
+    assert metadata.counterpart_chunk_id is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("typology_role", "leaf"), ("health", "neutral"), ("health", "Gesund")],
+)
+def test_chunk_metadata_typology_rejects_unknown_values(typology_member_payload, field, value):
+    payload = typology_member_payload.copy()
+    payload[field] = value
+    with pytest.raises(ValueError):
+        ChunkMetadata.from_payload(payload)
