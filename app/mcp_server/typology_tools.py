@@ -363,14 +363,18 @@ def _meta_from_snippet(snip: RetrievedSnippet) -> dict[str, Any]:
     return dict(inner) if isinstance(inner, dict) else {}
 
 
-def _hit_from_snippet(snip: RetrievedSnippet) -> dict[str, Any]:
+def _hit_from_snippet(
+    snip: RetrievedSnippet,
+    *,
+    text_override: str | None = None,
+) -> dict[str, Any]:
     meta = _meta_from_snippet(snip)
     short = meta.get("short_text")
-    text_val = snip.text or ""
+    text_val = (text_override if text_override is not None else (snip.text or "")).strip()
     item: dict[str, Any] = {
         "chunk_id": meta.get("chunk_id"),
         "score": round(float(snip.score), 4),
-        "snippet": _snippet(str(short if short else text_val)),
+        "text": text_val,
         "segment_title": meta.get("segment_title"),
         "typology_slug": meta.get("typology_slug"),
         "typology_role": meta.get("typology_role"),
@@ -380,6 +384,8 @@ def _hit_from_snippet(snip: RetrievedSnippet) -> dict[str, Any]:
         "counterpart_chunk_id": meta.get("counterpart_chunk_id"),
         "segment_index": meta.get("segment_index"),
     }
+    if short is not None and str(short).strip():
+        item["short_text"] = str(short).strip()
     return {k: v for k, v in item.items() if v is not None and v != ""}
 
 
@@ -491,7 +497,15 @@ async def search_typology(
         health=health,
         role=role,
     )
-    return [_hit_from_snippet(s) for s in filtered[:k]]
+    by_chunk_id = {r["chunk_id"]: r for r in rows}
+    hits: list[dict[str, Any]] = []
+    for snip in filtered[:k]:
+        meta = _meta_from_snippet(snip)
+        cid = str(meta.get("chunk_id") or "").strip()
+        row = by_chunk_id.get(cid)
+        text_override = str(row["text"]).strip() if row else None
+        hits.append(_hit_from_snippet(snip, text_override=text_override))
+    return hits
 
 
 def typology_fields_for_search_result(meta: Mapping[str, Any]) -> dict[str, Any]:

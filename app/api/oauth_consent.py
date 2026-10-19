@@ -23,7 +23,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.config import settings
 
@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["oauth"])
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "web" / "oauth_consent.html"
+_ASSETS_DIR = Path(__file__).resolve().parent.parent / "web" / "philo"
+_CONSENT_ASSETS: dict[str, str] = {
+    "oauth-background.jpg": "image/jpeg",
+    "avatar.png": "image/png",
+}
 _PLACEHOLDER = "__RAGRUN_OAUTH_CONFIG__"
 
 
@@ -63,3 +68,15 @@ def _render_consent_html() -> str:
 def oauth_consent() -> HTMLResponse:
     """Serve the Philo OAuth consent / login page."""
     return HTMLResponse(content=_render_consent_html(), status_code=200)
+
+
+@router.get("/oauth/consent/assets/{asset_name}")
+def oauth_consent_asset(asset_name: str) -> FileResponse:
+    """Static images for the consent page (bundled under app/web/philo/)."""
+    media_type = _CONSENT_ASSETS.get(asset_name)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    path = _ASSETS_DIR / asset_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Asset missing")
+    return FileResponse(path, media_type=media_type)

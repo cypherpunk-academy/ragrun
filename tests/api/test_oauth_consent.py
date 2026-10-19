@@ -21,6 +21,15 @@ def test_oauth_consent_serves_html(monkeypatch) -> None:
     assert "https://example.supabase.co" in body
     assert "test-anon-key" in body
     assert "__RAGRUN_OAUTH_CONFIG__" not in body
+    assert "/oauth/consent/assets/oauth-background.jpg" in body
+
+
+def test_oauth_consent_assets() -> None:
+    client = TestClient(app)
+    for name in ("oauth-background.jpg", "avatar.png"):
+        response = client.get(f"/oauth/consent/assets/{name}")
+        assert response.status_code == 200
+        assert response.content
 
 
 def test_index_lists_oauth_consent() -> None:

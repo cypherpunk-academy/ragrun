@@ -240,6 +240,8 @@ Der Lemma-Lookup `_lemma_lookup_multi_typology` trifft weiter über `segment_tit
 
 Zwei neue Tools. `search_corpus` bleibt der unscharfe Einstieg über `concept` und kennt die Struktur nicht. „Die anderen elf Weltanschauungen“ und „das kranke Gegenstück“ sind Nachschlagen, keine Ähnlichkeitssuche.
 
+**Antwort-Stil (MCP-Instructions):** Typologie-Texte sind Strukturhilfe, kein zitierfähiger Primärkorpus. Das Modell soll sie zum Denken und Navigieren nutzen, dem Nutzer aber in eigenen Worten antworten — keine wörtlichen Wiedergaben, keine Vorspiegelung als Steiner-Zitat. Belege aus Werken/Vorträgen weiter über `search_corpus` / `get_passage` mit `citation`. Ausnahme: explizite `zitate`-Felder in der YAML, wenn ein Steiner-Beleg nötig ist.
+
 ### `list_typologies`
 
 Keine Argumente. Liefert alle Typologien mit aktivem Übersichts-Chunk aus `rag_chunks` (Assistant-Partition): `count`, `typologies[]` mit `typology_slug`, `title`, `overview_chunk_id`, `has_health`, `group_count`, `member_count`, `short_text`. Keine Vektorsuche — vollständiges Verzeichnis (derzeit zehn YAML-Dateien).
@@ -276,7 +278,7 @@ Argumente:
 - `role` (`overview` | `group` | `member`)
 - `limit` (1–20, Default 8)
 
-Hybrid-Suche mit `chunk_type = typology`, danach derselbe Nachfilter wie heute `filter_snippets_by_typology_source`, erweitert um Slug, Rolle, Gruppe, `health`. Treffer tragen dieselben Strukturfelder wie `list_typology`, plus `score` und `snippet`.
+Hybrid-Suche mit `chunk_type = typology`, danach derselbe Nachfilter wie heute `filter_snippets_by_typology_source`, erweitert um Slug, Rolle, Gruppe, `health`. Treffer tragen dieselben Strukturfelder wie `list_typology`, plus `score` und **`text`** (voller Chunk-Text aus `rag_chunks`, typisch ≤1550 Zeichen). Optional `short_text` aus Metadaten. Kein 300-Zeichen-Snippet wie bei `search_corpus` — es gibt kein `get_passage` für Typologie-Chunks.
 
 `health` an einer Typologie ohne Pol (Weltanschauungen): `health_not_applicable`. Unbekannte Typologie: `unknown_typology`.
 
@@ -325,6 +327,8 @@ Fertig, wenn die Übersicht der zwölf Weltanschauungen ihre bisherige `chunk_id
 ### Stufe 5 — MCP
 
 `list_typologies`, `list_typology` und `search_typology` in `app/mcp_server/typology_tools.py`, registriert in `server.py`. `search_corpus` gibt Typology-Metadaten mit aus (`typology_role`, `group_title`, `health`, `counterpart_chunk_id`, …); `types` ohne `typology`. Unit-Tests: `tests/unit/test_typology_mcp_tools.py`. Live-Checks: `tests/mcp/TESTPLAN_MCP.md` (Typologie-Abschnitt).
+
+Weitere MCP-Tools am Philo-Server: Leitplanke und Obergrenze in `plans/PHILO_MCP_TOOL_BUDGET.md` (~25 Tools weich, keine Ops/Pipeline in MCP).
 
 ---
 

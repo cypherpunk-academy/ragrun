@@ -121,6 +121,20 @@ def test_focus_counterpart_and_group():
     assert any(g["chunk_id"] == "g-k" for g in focus["other_groups"])
 
 
+def test_hit_from_snippet_uses_full_text_override():
+    from app.mcp_server.typology_tools import _hit_from_snippet
+    from app.retrieval.models import RetrievedSnippet
+
+    snip = RetrievedSnippet(
+        score=0.9,
+        text="short from qdrant",
+        payload={"chunk_id": "abc", "typology_role": "member", "segment_title": "X"},
+    )
+    hit = _hit_from_snippet(snip, text_override="full text from rag_chunks table")
+    assert hit["text"] == "full text from rag_chunks table"
+    assert "snippet" not in hit
+
+
 def test_typology_fields_for_search_result():
     meta = {
         "chunk_type": "typology",

@@ -6,7 +6,9 @@ Stand: 1.10.2026 · Gilt für: Philo Dev (ngrok) und Philo Staging · Branch `ph
 
 ## Worum geht es?
 
-Dieser Plan prüft die **13 Tools** des Philo-MCP-Servers direkt (pytest, Cursor-Proxy, MCP Inspector). Sprachmodelle (Claude u. a.) sind nicht Teil der automatisierten Suite. App-Sichtprüfungen (A-09, C-04) bleiben manuell.
+Dieser Plan prüft die MCP-Tools des Philo-Servers direkt (pytest, Cursor-Proxy, MCP Inspector). Sprachmodelle (Claude u. a.) sind nicht Teil der automatisierten Suite. App-Sichtprüfungen (A-09, C-04) bleiben manuell.
+
+**Tool-Budget (neue Tools, Merge-Regeln):** `plans/PHILO_MCP_TOOL_BUDGET.md`. Stand 19.10.2026: **~18** registrierte Tools in `_register_tools()` (inkl. GA-Suche und Typologie-Tools; Tabelle unten ggf. älter).
 
 **Fixtures:** Alle Platzhalter kommen ausschließlich aus der Datei im **ragrun**-Repo (nicht ragkeep): [`tests/mcp/mcp_testdata.yaml`](https://github.com/cypherpunk-academy/ragrun/blob/philo-claude-integration/tests/mcp/mcp_testdata.yaml) — lokal `ragrun/tests/mcp/mcp_testdata.yaml`. Keine IDs hier festschreiben. Handoffs erzeugt `scripts/mcp_tests/test_handoffs.py` vor jedem Lauf neu. Dauerhafte Notizen: `scripts/mcp_tests/seed_fixtures.py` (`[FIXTURE]`). Aufräumen: `scripts/mcp_tests/test_cleanup.py` (nur `[TEST]`).
 
@@ -99,7 +101,7 @@ Daten aus `rag_chunks` (Typology-Import). Dev sollte 164 aktive Typology-Chunks 
 | T-02 | list_typology chunk_id=`<member>` aus T-01 | `focus.same_group` = 11 Geschwister |
 | T-03 | list_typology name="soziale-gesundheit" chunk_id=`<Aspekt gesund>` | `focus.counterpart` krank, `other_groups` |
 | T-04 | list_typology name="unbekannt" | `{code: unknown_typology}` |
-| T-05 | search_typology query="Mathematismus" typology="12-weltanschauungen" | Treffer mit `typology_role=member`, score |
+| T-05 | search_typology query="Mathematismus" typology="12-weltanschauungen" | Treffer mit `typology_role=member`, `text` (voll), score |
 | T-06 | search_typology … health=gesund typology="12-weltanschauungen" | `{code: health_not_applicable}` |
 
 ### get_passage

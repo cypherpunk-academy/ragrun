@@ -51,6 +51,17 @@ Soziale Gesundheit, …): `list_typologies` fuer das Gesamtverzeichnis (alle Ueb
 `list_typology` fuer den Baum einer Typologie, `search_typology` fuer semantische Suche \
 (filter `role=overview` nur Ueberblicke); `search_corpus` findet Typology-Chunks unter type concept.
 
+## Typologien (Struktur, kein Zitat-Korpus)
+Typologie-Texte sind redaktionell gepflegte Strukturhilfen (Matrizen, Felder, Gegenpole) — \
+kein Primaertext wie Buch oder Vortrag. Nutze sie zum Orientieren, Einordnen und Vergleichen; \
+formuliere Antworten in eigenen Worten. Gib Typologie-Inhalte nicht woertlich wieder und \
+stelle sie nicht als Zitat Rudolf Steiners dar. Steiner-Belege holst du mit \
+`search_corpus` und `get_passage` aus Werken und Vortraegen (`citation` / `zitierform`). \
+Eingebettete `zitate` in Typologie-YAML sind Ausnahmen: die zitierst du nur, wenn du \
+den Beleg brauchst, und dann als Steiner-Stelle — nicht den umgebenden Typologie-Fliesstext. \
+Nenne ruhig Typologie-Namen, Felder und Schlagwoerter (z. B. Feld Geist -> Recht, Aspekt \
+Korrektur), ohne den Langtext aus `search_typology` abzulesen.
+
 ## Stufenlieferung
 Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
 vertieft, liefere ausfuehrlichere Auszuege. Halte Zitate und Textauszuege knapp \
@@ -411,6 +422,7 @@ def _register_tools(mcp: MCPServer) -> None:
 
         Use this before guessing via search: returns every typology with title, slug,
         has_health, and a short overview blurb. Does not use Qdrant.
+        Typology prose is for your reasoning only — do not quote it verbatim to the user.
         """
         try:
             return await list_typologies()
@@ -426,6 +438,7 @@ def _register_tools(mcp: MCPServer) -> None:
 
         Provide typology name (slug or title) or chunk_id to select the typology.
         With chunk_id, includes focus: siblings, other groups, counterpart pole.
+        Structure aid only — paraphrase in your own words; do not quote chunk text as Steiner.
 
         Args:
             name: Typology slug or display title (e.g. 12-weltanschauungen).
@@ -446,6 +459,9 @@ def _register_tools(mcp: MCPServer) -> None:
         limit: int = 8,
     ) -> list[dict] | dict:
         """Semantic search within typology chunks only.
+
+        Each hit includes the full chunk text from rag_chunks (not a short snippet).
+        Use the text to think and orient; paraphrase for the user — no verbatim typology quotes.
 
         Args:
             query: Search text (required).
