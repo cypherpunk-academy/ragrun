@@ -86,6 +86,20 @@ Alle Testeinträge aus einem Lauf: Präfix `[TEST]` im Titel oder Inhalt. Dauerh
 | S-10 | query=`<SEARCH_BG>` (YAML: `code is law`, nicht `neutral search`) | Treffer aus `<SOURCE_ID_BG>` (Lessig) |
 | S-11 | `paragraph_id` aus S-01 an `get_passage` | Absatz gefunden, wenn die Treffer-Zeile eine `paragraph_id` hat. Vortrags-Body ohne `paragraph_id` → **F-5**, Kette bricht |
 | S-12 | Umlaute, ß, Sonderzeichen | korrekte Treffer, keine Kodierungsfehler |
+| S-13 | Treffer mit `chunk_type=typology` (types concept) | optional `typology_role`, `group_title`, `health`, `counterpart_chunk_id` |
+
+### list_typology / search_typology
+
+Daten aus `rag_chunks` (Typology-Import). Dev sollte 164 aktive Typology-Chunks haben.
+
+| ID | Aufruf | Erwartung |
+|---|---|---|
+| T-01 | list_typology name="12 Weltanschauungen" | `typology_slug`, overview, 12 members, `has_health=false` |
+| T-02 | list_typology chunk_id=`<member>` aus T-01 | `focus.same_group` = 11 Geschwister |
+| T-03 | list_typology name="soziale-gesundheit" chunk_id=`<Aspekt gesund>` | `focus.counterpart` krank, `other_groups` |
+| T-04 | list_typology name="unbekannt" | `{code: unknown_typology}` |
+| T-05 | search_typology query="Mathematismus" typology="12-weltanschauungen" | Treffer mit `typology_role=member`, score |
+| T-06 | search_typology … health=gesund typology="12-weltanschauungen" | `{code: health_not_applicable}` |
 
 ### get_passage
 

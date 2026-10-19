@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from app.config import settings
 from app.core.providers import get_embedding_client, get_qdrant_client
 from app.retrieval.services.action_prompt_service import load_assistant_embedding_prefixes, load_assistant_rag_collection
+from app.mcp_server.typology_tools import typology_fields_for_search_result
 from app.retrieval.utils.retrievers import hybrid_retrieve
 from app.retrieval.models import RetrievedSnippet
 
@@ -422,6 +423,7 @@ def _title_hit_to_result(row: dict[str, Any], query: str) -> dict[str, Any]:
         item["quote_text"] = text_val
         item["quote_author"] = meta.get("author")
         _apply_quote_nav_fields_from_meta(item, meta)
+    item.update(typology_fields_for_search_result(meta))
 
     return item
 
@@ -567,6 +569,7 @@ async def app_search(
                 source_index = meta.get("segment_index")
             if isinstance(source_index, (int, float)) and not isinstance(source_index, bool):
                 item["source_index"] = int(source_index)
+        item.update(typology_fields_for_search_result(meta))
         results.append(item)
 
     async def _enrich_navigation(rows: list[dict[str, Any]]) -> None:

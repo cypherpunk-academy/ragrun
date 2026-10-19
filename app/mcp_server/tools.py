@@ -22,6 +22,7 @@ from app.mcp_server.citation import (
     text_return_url,
 )
 from app.services.app_catalog_repository import PostgresCatalogRepository
+from app.mcp_server.typology_tools import list_typology, search_typology
 from app.services.app_search_service import app_search
 
 logger = logging.getLogger(__name__)
@@ -172,6 +173,17 @@ async def search_corpus(
             item["paragraph_id"] = r["paragraph_id"]
         if r.get("source_id"):
             item["source_id"] = r["source_id"]
+        for key in (
+            "typology_role",
+            "typology_slug",
+            "group_id",
+            "group_title",
+            "health",
+            "counterpart_chunk_id",
+            "short_text",
+        ):
+            if r.get(key) is not None:
+                item[key] = r[key]
         out.append(item)
 
     engine = get_engine()

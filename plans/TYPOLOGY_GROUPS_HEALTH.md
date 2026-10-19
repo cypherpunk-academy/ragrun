@@ -320,7 +320,7 @@ Fertig, wenn die Übersicht der zwölf Weltanschauungen ihre bisherige `chunk_id
 
 ### Stufe 5 — MCP
 
-`list_typology` und `search_typology` wie oben. `search_corpus` bleibt, gibt die neuen Felder mit aus und bekommt `typology` nicht als Filter. Testplan `tests/mcp/TESTPLAN_MCP.md`: Geschwister einer Weltanschauung, Aspekte eines Feldes, Gegenpol über `counterpart_chunk_id`, `health` an einer Weltanschauung weist ab.
+`list_typology` und `search_typology` in `app/mcp_server/typology_tools.py`, registriert in `server.py`. `search_corpus` gibt Typology-Metadaten mit aus (`typology_role`, `group_title`, `health`, `counterpart_chunk_id`, …); `types` ohne `typology`. Unit-Tests: `tests/unit/test_typology_mcp_tools.py`. Live-Checks: `tests/mcp/TESTPLAN_MCP.md` (Typologie-Abschnitt).
 
 ---
 

@@ -46,7 +46,9 @@ strukturierten Korpus von Werken Rudolf Steiners und verwandter Autoren verfuegt
 ## Korpus
 Der Korpus umfasst Primaerwerke (u.a. Die Philosophie der Freiheit, Die Kernpunkte \
 der sozialen Frage) sowie Sekundaerwerke. Nutze `search_corpus` fuer semantische \
-Suche und `get_passage` fuer den Volltext einzelner Absaetze.
+Suche und `get_passage` fuer den Volltext einzelner Absaetze. Typologien (Weltanschauungen, \
+Soziale Gesundheit, …): `list_typology` fuer den Baum, `search_typology` fuer Suche innerhalb \
+einer Typologie; `search_corpus` findet Typology-Chunks unter type concept.
 
 ## Stufenlieferung
 Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
@@ -305,6 +307,8 @@ def _register_tools(mcp: MCPServer) -> None:
         search_corpus,
         search_ga,
         search_ga_summaries,
+        list_typology,
+        search_typology,
         update_work_text,
     )
 
@@ -395,6 +399,56 @@ def _register_tools(mcp: MCPServer) -> None:
         try:
             return await search_ga_summaries(
                 query=query, ga=ga, lecture_id=lecture_id, limit=limit
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="list_typology")
+    async def tool_list_typology(
+        name: str | None = None,
+        chunk_id: str | None = None,
+    ) -> dict:
+        """List a typology tree from rag_chunks (overview, groups, members).
+
+        Provide typology name (slug or title) or chunk_id to select the typology.
+        With chunk_id, includes focus: siblings, other groups, counterpart pole.
+
+        Args:
+            name: Typology slug or display title (e.g. 12-weltanschauungen).
+            chunk_id: Any chunk in the typology; adds focus navigation.
+        """
+        try:
+            return await list_typology(name=name, chunk_id=chunk_id)
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="search_typology")
+    async def tool_search_typology(
+        query: str,
+        typology: str | None = None,
+        group: str | None = None,
+        health: str | None = None,
+        role: str | None = None,
+        limit: int = 8,
+    ) -> list[dict] | dict:
+        """Semantic search within typology chunks only.
+
+        Args:
+            query: Search text (required).
+            typology: Limit to one typology (slug or title).
+            group: feld-N or direction (e.g. feld-1, Geist -> Recht).
+            health: gesund or krank (only for typologies with poles).
+            role: overview, group, or member.
+            limit: 1-20 (default 8).
+        """
+        try:
+            return await search_typology(
+                query=query,
+                typology=typology,
+                group=group,
+                health=health,
+                role=role,
+                limit=limit,
             )
         except Exception as exc:
             return _tool_infra_error(exc)
