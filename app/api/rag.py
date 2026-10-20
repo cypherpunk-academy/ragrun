@@ -19,6 +19,7 @@ from ..db.session import get_engine
 from ..db.tables import vector_chunks_table, rag_talks_table, rag_turns_table
 from ..core.providers import get_embedding_client, get_qdrant_client, get_sync_engine, get_sparse_embedder
 from ..retrieval.services.providers import get_deepseek_chat, get_embedding_client as get_retrieval_embedding
+from ..retrieval.services.chunk_references_service import compute_chunk_references
 from ..retrieval.services.quote_explain_service import explain_quote
 from ..core.telemetry import telemetry_client as ingestion_telemetry
 from ..ingestion.repositories import RagChunksRepository, VectorChunksRepository
@@ -1686,6 +1687,52 @@ class QuoteExplainResponse(BaseModel):
     text: str
     explanation: str
     metadata: Dict[str, Any]
+
+
+class ChunkReferencesRequest(BaseModel):
+    """Request: Referenzen zu einem vorhandenen Text (Begriffserklärung, Typologie-Langtext) ermitteln."""
+
+    text: str = Field(..., min_length=1, description="Chunk-Text, zu dem Referenzen gesucht werden")
+    assistant: Optional[str] = Field("philo-von-freisinn", description="Assistant name (assistant-manifest.yaml)")
+    collection_name: Optional[str] = Field(None, description="Qdrant-Collection; Default: rag-collection des Assistenten")
+    exclude_chunk_ids: List[str] = Field(default_factory=list, description="Chunk-IDs, die nicht referenziert werden dürfen")
+    k_books: int = Field(8, ge=1, le=30)
+    k_lectures: int = Field(4, ge=0, le=30)
+
+
+class ChunkReferencesResponse(BaseModel):
+    references: List[Dict[str, Any]]
+
+
+@router.post("/chunk-references", response_model=ChunkReferencesResponse)
+async def chunk_references(request: ChunkReferencesRequest) -> ChunkReferencesResponse:
+    """Ermittelt `references` (chunk_id, description, relevance) für einen vorhandenen Text.
+
+    Retrieval in Primärbüchern und Vorträgen, Bewertung mit `evaluate_chunk_relevance`
+    (wie bei `authentic-concept-explain` und `typology-explain`).
+    """
+    assistant = (request.assistant or "philo-von-freisinn").strip()
+    collection = (request.collection_name or "").strip() or assistant
+    try:
+        references = await compute_chunk_references(
+            text=request.text,
+            collection=collection,
+            assistant=assistant,
+            embedding_client=get_retrieval_embedding(),
+            qdrant_client=get_qdrant_client(),
+            chat_client=get_deepseek_chat(),
+            exclude_chunk_ids=request.exclude_chunk_ids,
+            k_books=request.k_books,
+            k_lectures=request.k_lectures,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"chunk-references failed: {exc}",
+        ) from exc
+    return ChunkReferencesResponse(references=references)
 
 
 @router.post("/quote-explain", response_model=QuoteExplainResponse)
