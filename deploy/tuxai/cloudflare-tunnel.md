@@ -2,20 +2,22 @@
 
 Betriebsplan inkl. Rotationsstrategie: [`plan-tuxai-cloudflare-railway.md`](./plan-tuxai-cloudflare-railway.md).
 
-Replaces **Tailscale SOCKS on Railway** for Qdrant and the embedding service. Railway talks **HTTPS** to public hostnames; `cloudflared` on Tuxai forwards to `127.0.0.1:6333` and `:8001`. No `TS_AUTHKEY`, no `ALL_PROXY`.
+Railway talks **HTTPS** to public hostnames; `cloudflared` on Tuxai forwards to `127.0.0.1:6333` and `:8001`.
 
 Use this when Staging MCP searches time out or fail with `search failed` while OAuth works.
 
 ## Architecture
 
 ```
-Claude → staging.ragxxx.com (Railway ragrun)
-              → https://qdrant.ragxxx.com   ──cloudflared──► 127.0.0.1:6333
-              → https://embed.ragxxx.com    ──cloudflared──► 127.0.0.1:8001
-              → Supabase / Hugging Face       (direct, no tunnel)
+Claude → staging.ragxxx.com (Railway ragrun-staging)
+              → https://qdrant-staging.ragxxx.com ──cloudflared──► 127.0.0.1:6334  (Staging Qdrant)
+              → https://embed.ragxxx.com          ──cloudflared──► 127.0.0.1:8001  (shared)
+              → Supabase                          (direct)
+
+Production ragrun → qdrant.ragxxx.com → 127.0.0.1:6333, same embed.ragxxx.com → :8001
 ```
 
-Tuxai `compose.yaml` already binds Qdrant and embedder on `127.0.0.1` plus Tailscale IP — tunnel only needs localhost.
+Tuxai `compose.yaml` binds Qdrant and the embedder on `127.0.0.1`. The tunnel uses that localhost origin.
 
 ## 0. DNS
 
@@ -24,27 +26,25 @@ Tuxai `compose.yaml` already binds Qdrant and embedder on `127.0.0.1` plus Tails
 ## 1. Cloudflare Zero Trust (tunnel)
 
 1. **Networking → Tunnels** → create **`ragrun-tuxai`** (cloudflared on Tuxai).
-2. **Published application** routes (twice):
+2. **Published application** routes:
 
-   | Public hostname | Service URL |
-   |-----------------|-------------|
-   | `qdrant.ragxxx.com` | `http://127.0.0.1:6333` |
-   | `embed.ragxxx.com` | `http://127.0.0.1:8001` |
+   | Public hostname | Service URL | Nutzer |
+   |-----------------|-------------|--------|
+   | `qdrant.ragxxx.com` | `http://127.0.0.1:6333` | Production |
+   | `qdrant-staging.ragxxx.com` | `http://127.0.0.1:6334` | Staging |
+   | `embed.ragxxx.com` | `http://127.0.0.1:8001` | **Staging + Production** (ein Embedder) |
 
-   In the form: Subdomain `qdrant` / `embed`, Domain `ragxxx.com`, or **custom hostname** if `ragxxx.com` is not in the dropdown.
+   Kein `embed-staging` — zweites e5-Modell im RAM entfällt.
+
+   In the form: Subdomain + Domain `ragxxx.com`, or **custom hostname** if `ragxxx.com` is not in the dropdown.
 
    Example config: `deploy/tuxai/cloudflared/config.yml.example`
 
-3. **Access (required):** Zero Trust → **Access** → **Applications** → add both hostnames. Policy: **Service Auth** only — **no** human login.
+3. **Access (required):** Zero Trust → **Access** → **Applications** → **Service Auth** only.
 
-   Create **two** service tokens:
+   **Ein Service Token** für alle Tunnel-Apps (`qdrant`, `qdrant-staging`, `embed`, ggf. `ssh`). Dieselben `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` auf Railway **`ragrun-staging`** und **`ragrun`** (Production).
 
-   | Token name | Railway service |
-   |------------|-----------------|
-   | `staging-tuxai` | `ragrun-staging` |
-   | `prod-tuxai` | `ragrun` |
-
-   Both tokens must be allowed on **both** applications. Store Client ID + Secret per token; never mix staging/prod on the wrong service.
+   Pro App: Policy **Include → Service Token** → dieses eine Token auswählen. Keine getrennten Staging-/Prod-Tokens nötig.
 
 ## 2. Tuxai: run cloudflared
 
@@ -62,16 +62,11 @@ Embed: `GET https://embed.ragxxx.com/api/v1/health/simple`
 
 ## 3. Railway `ragrun-staging`
 
-**Remove** (or leave empty so entrypoint skips Tailscale):
-
-- `TS_AUTHKEY`
-- `TS_HOSTNAME`
-
 **Set:**
 
 | Variable | Example |
 |----------|---------|
-| `RAGRUN_QDRANT_URL` | `https://qdrant.ragxxx.com` |
+| `RAGRUN_QDRANT_URL` | `https://qdrant-staging.ragxxx.com` |
 | `RAGRUN_QDRANT_API_KEY` | same as Tuxai `QDRANT_API_KEY` |
 | `RAGRUN_EMBEDDINGS_BASE_URL` | `https://embed.ragxxx.com` |
 | `RAGRUN_EMBEDDINGS_PROVIDER` | `http` |
@@ -92,7 +87,7 @@ From repo root (local, with staging Supabase vars if needed):
 
 ```bash
 export $(grep -v '^#' .env.staging | grep -v '<' | xargs)
-export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com
+export RAGRUN_QDRANT_URL=https://qdrant-staging.ragxxx.com
 export RAGRUN_EMBEDDINGS_BASE_URL=https://embed.ragxxx.com
 # plus RAGRUN_CF_ACCESS_* if used
 .venv/bin/python scripts/benchmark_retrieval_latency.py --label staging-via-cf
@@ -111,9 +106,4 @@ Same pattern on service `ragrun` when Staging is stable (shared hostnames, separ
 | `403` from tunnel URL | Cloudflare Access: set `RAGRUN_CF_ACCESS_*` on Railway |
 | `401` Qdrant | `RAGRUN_QDRANT_API_KEY` mismatch |
 | NXDOMAIN / SSL | Chris CNAME not set or not propagated |
-| Health OK, MCP still slow | Redeploy after **unset** `TS_AUTHKEY`; confirm logs have **no** `Tailscale up` / `socks5` |
 | SSL errors | URLs must be `https://` on Railway |
-
-## Relation to Tailscale
-
-**Removed entirely** with the tunnel cutover (see plan § Tailscale abbauen). No Tailnet, no `TS_AUTHKEY` on Railway, no fallback path.
