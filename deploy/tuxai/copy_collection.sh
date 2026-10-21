@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
-# Auf dem Mac ausführen (ragrun-qdrant auf localhost:6333, ohne API-Key).
-# Lädt einen Qdrant-Snapshot auf Tuxai hoch (Cloudflare Tunnel + Access).
+# Qdrant collection via snapshot: source → target.
 #
-#   export TUXAI_QDRANT_API_KEY=...   # QDRANT_API_KEY auf dem Pulse
-#   export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com   # optional, Default siehe unten
-#   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...  # shared Access token
+# Mac → Tuxai (Tunnel):
+#   export TUXAI_QDRANT_API_KEY=...
+#   export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com
+#   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...
+#   ./deploy/tuxai/copy_collection.sh philo-von-freisinn
 #
-#   ./deploy/tuxai/copy_collection.sh rudolf-steiner-ga
+# Tuxai Prod → Staging (localhost, schnell):
+#   export TUXAI_QDRANT_API_KEY=...   # ~/ragrun-server/.env QDRANT_API_KEY
+#   export QDRANT_SOURCE_URL=http://127.0.0.1:6333
+#   export QDRANT_TARGET_URL=http://127.0.0.1:6334
 #   ./deploy/tuxai/copy_collection.sh philo-von-freisinn rudolf-steiner-ga
+#
+# Staging via Tunnel (vom Mac):
+#   export RAGRUN_QDRANT_URL=https://qdrant-staging.ragxxx.com
+#   ... (CF + api-key wie oben)
 
 set -euo pipefail
 
-QDRANT_REMOTE="${RAGRUN_QDRANT_URL:-https://qdrant.ragxxx.com}"
-QDRANT_REMOTE="${QDRANT_REMOTE%/}"
+QDRANT_SOURCE="${QDRANT_SOURCE_URL:-http://localhost:6333}"
+QDRANT_SOURCE="${QDRANT_SOURCE%/}"
+QDRANT_TARGET="${QDRANT_TARGET_URL:-${RAGRUN_QDRANT_URL:-https://qdrant.ragxxx.com}}"
+QDRANT_TARGET="${QDRANT_TARGET%/}"
 
 cf_curl_args() {
   CF_ARGS=()
@@ -24,21 +34,66 @@ cf_curl_args() {
   fi
 }
 
+api_key_args() {
+  API_ARGS=()
+  if [[ -n "${TUXAI_QDRANT_API_KEY:-}" ]]; then
+    API_ARGS=(-H "api-key: ${TUXAI_QDRANT_API_KEY}")
+  fi
+}
+
+needs_cf_for_url() {
+  [[ "$1" == https://* ]]
+}
+
+qdrant_json_field() {
+  local field="$1"
+  python3 -c '
+import json, sys
+field = sys.argv[1]
+raw = sys.stdin.read()
+if not raw.strip():
+    print("Qdrant lieferte leere Antwort (api-key fehlt/falsch?)", file=sys.stderr)
+    sys.exit(1)
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    print("Kein JSON von Qdrant:", raw[:500], file=sys.stderr)
+    sys.exit(1)
+if data.get("status") == "error":
+    print("Qdrant error:", data, file=sys.stderr)
+    sys.exit(1)
+print(data["result"][field])
+' "$field"
+}
+
 copy_collection() {
   local C="$1"
-  echo "== Snapshot von $C auf dem Mac erzeugen =="
-  local NAME
-  NAME=$(curl -s -X POST "http://localhost:6333/collections/$C/snapshots" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['name'])") || return 1
-  echo "Snapshot: $NAME"
-  curl -fS -o "/tmp/$C.snapshot" "http://localhost:6333/collections/$C/snapshots/$NAME" || return 1
-  ls -lh "/tmp/$C.snapshot"
-  echo "== Hochladen nach $QDRANT_REMOTE =="
+  echo "== Snapshot von $C ($QDRANT_SOURCE) =="
   cf_curl_args
-  curl -fS -X POST "$QDRANT_REMOTE/collections/$C/snapshots/upload?priority=snapshot" \
-    "${CF_ARGS[@]}" -H "api-key: $TUXAI_QDRANT_API_KEY" -F "snapshot=@/tmp/$C.snapshot" || return 1
+  api_key_args
+  local SRC_CF=() TGT_CF=()
+  if needs_cf_for_url "$QDRANT_SOURCE"; then
+    SRC_CF=("${CF_ARGS[@]}")
+  fi
+  if needs_cf_for_url "$QDRANT_TARGET"; then
+    TGT_CF=("${CF_ARGS[@]}")
+  fi
+  local NAME
+  NAME=$(
+    curl -sS -f -X POST "${SRC_CF[@]}" "${API_ARGS[@]}" \
+      "$QDRANT_SOURCE/collections/$C/snapshots" | qdrant_json_field name
+  ) || return 1
+  echo "Snapshot: $NAME"
+  curl -fS -o "/tmp/$C.snapshot" \
+    "${SRC_CF[@]}" "${API_ARGS[@]}" \
+    "$QDRANT_SOURCE/collections/$C/snapshots/$NAME" || return 1
+  ls -lh "/tmp/$C.snapshot"
+  echo "== Hochladen nach $QDRANT_TARGET =="
+  curl -fS -X POST "$QDRANT_TARGET/collections/$C/snapshots/upload?priority=snapshot" \
+    "${TGT_CF[@]}" "${API_ARGS[@]}" -F "snapshot=@/tmp/$C.snapshot" || return 1
   echo
-  curl -s -X POST "$QDRANT_REMOTE/collections/$C/points/count" \
-    "${CF_ARGS[@]}" -H "api-key: $TUXAI_QDRANT_API_KEY" -H "Content-Type: application/json" -d '{"exact":true}'
+  curl -sS -X POST "$QDRANT_TARGET/collections/$C/points/count" \
+    "${TGT_CF[@]}" "${API_ARGS[@]}" -H "Content-Type: application/json" -d '{"exact":true}'
   echo
 }
 
