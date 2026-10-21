@@ -47,22 +47,23 @@ needs_cf_for_url() {
 
 qdrant_json_field() {
   local field="$1"
-  python3 -c "
+  python3 -c '
 import json, sys
+field = sys.argv[1]
 raw = sys.stdin.read()
 if not raw.strip():
-    print('Qdrant lieferte leere Antwort (api-key fehlt/falsch oder alte copy_collection.sh?)', file=sys.stderr)
+    print("Qdrant lieferte leere Antwort (api-key fehlt/falsch?)", file=sys.stderr)
     sys.exit(1)
 try:
     data = json.loads(raw)
 except json.JSONDecodeError:
-    print('Kein JSON von Qdrant:', raw[:500], file=sys.stderr)
+    print("Kein JSON von Qdrant:", raw[:500], file=sys.stderr)
     sys.exit(1)
-if data.get('status') == 'error':
-    print('Qdrant error:', data.get('status'), data.get('result'), file=sys.stderr)
+if data.get("status") == "error":
+    print("Qdrant error:", data, file=sys.stderr)
     sys.exit(1)
-print(data['result'][field])
-"
+print(data["result"][field])
+' "$field"
 }
 
 copy_collection() {
