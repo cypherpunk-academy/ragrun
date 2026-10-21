@@ -4,7 +4,7 @@
 #
 #   export TUXAI_QDRANT_API_KEY=...   # QDRANT_API_KEY auf dem Pulse
 #   export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com   # optional, Default siehe unten
-#   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...  # prod- oder staging-tuxai
+#   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...  # shared Access token
 #
 #   ./deploy/tuxai/copy_collection.sh rudolf-steiner-ga
 #   ./deploy/tuxai/copy_collection.sh philo-von-freisinn rudolf-steiner-ga
