@@ -13,7 +13,7 @@ Eigenes Compose-Projekt `ragrun-monitoring`. Es tritt dem bestehenden Netz `ragr
 | node-exporter | `prom/node-exporter:v1.12.1` | keiner |
 | cadvisor | `ghcr.io/google/cadvisor:v0.60.6` | keiner |
 
-Die Tags sind die stabilen Stände vom 13.10.2026. cAdvisor wird nicht mehr auf Docker Hub gepflegt; das aktuelle Image liegt auf ghcr.io. Prometheus und Grafana binden nur **`127.0.0.1`** (kein Tailscale, kein `0.0.0.0`). Vom Mac: `ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 tuxai`.
+Die Tags sind die stabilen Stände vom 13.10.2026. cAdvisor wird nicht mehr auf Docker Hub gepflegt; das aktuelle Image liegt auf ghcr.io. Prometheus und Grafana binden nur **`127.0.0.1`**. Vom Mac: `ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 tuxai`.
 
 Prometheus behält Daten 90 Tage. Die Konfiguration, die Alarmregeln und die Datei `qdrant_key` sind read-only eingehängt. Grafana bekommt das Admin-Passwort aus `GRAFANA_ADMIN_PASSWORD`.
 

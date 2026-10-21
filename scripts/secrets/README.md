@@ -26,7 +26,7 @@ Reihenfolge bei einem **Qdrant-Key** (ein Key auf Tuxai, Staging und Production 
 
 Supabase-Keys zuerst im Dashboard erzeugen, dann hier eintragen, dann alte Keys dort ungültig machen (sobald Railway den neuen Wert hat).
 
-**Cloudflare Tunnel + Access:** Zone `ragxxx.com` (Weg A, siehe Plan); URLs `qdrant.ragxxx.com` / `embed.ragxxx.com` via `TUNNEL_QDRANT_URL` / `TUNNEL_EMBED_URL`; Tokens **`staging-tuxai`** / **`prod-tuxai`** → `STAGING_CF_ACCESS_*` / `PRODUCTION_CF_ACCESS_*`; Cutover `CLEAR_RAILWAY_TAILSCALE=1`. Rotation **nur manuell** — `deploy/tuxai/plan-tuxai-cloudflare-railway.md`.
+**Cloudflare Tunnel + Access:** Zone `ragxxx.com`; **ein** Service-Auth-Token für alle Tunnel-Apps. Railway Staging und Prod bekommen **dieselben** `RAGRUN_CF_ACCESS_CLIENT_ID` / `SECRET` (in `rotate.env` kann `STAGING_CF_ACCESS_*` und `PRODUCTION_CF_ACCESS_*` denselben Wert tragen). Rotation manuell — `deploy/tuxai/plan-tuxai-cloudflare-railway.md`.
 
 ## Woher kommen neue Werte
 
@@ -39,7 +39,10 @@ Supabase-Keys zuerst im Dashboard erzeugen, dann hier eintragen, dann alte Keys 
 | `QDRANT_API_KEY` | `openssl rand -hex 32`, dann Pulse | **hoch** — gemeinsamer Korpus |
 | `DEEPSEEK_API_KEY` | DeepSeek Console → API keys | **hoch** — Kosten |
 | `TUNNEL_QDRANT_URL` / `TUNNEL_EMBED_URL` | feste Tunnel-URLs (apply → beide Railway-Services) | niedrig (öffentlich) |
-| `STAGING_CF_ACCESS_*` / `PRODUCTION_CF_ACCESS_*` | Zero Trust → Service Auth | **hoch** |
+| `STAGING_CORPUS_PUBLIC_BASE_URL` / `PRODUCTION_CORPUS_PUBLIC_BASE_URL` | R2 Custom Domains `corpus-staging` / `corpus` | niedrig (öffentlich) |
+| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Cloudflare → R2 → Manage API tokens | **hoch** — Objekt-Schreiben |
+| `STAGING_R2_BUCKET` / `PRODUCTION_R2_BUCKET` | `philo-corpus-staging` / `philo-corpus` | niedrig |
+| `STAGING_CF_ACCESS_*` / `PRODUCTION_CF_ACCESS_*` | Zero Trust → **ein** Service Token (oft identischer Wert) | **hoch** |
 | `HF_TOKEN` | Hugging Face (optional; bei `EMBEDDINGS_PROVIDER=http` nicht nötig auf Railway) | mittel |
 | `RAGRUN_INTERNAL_API_KEY` | `openssl rand -hex 32` (heute leer; sperrt `/api/v1/rag` und `/admin`) | **hoch** |
 | `GRAFANA_ADMIN_PASSWORD` | selbst wählen, Pulse `~/ragrun-server/.env` | hoch |
@@ -49,7 +52,7 @@ Postgres-Passwort in der URI URL-encoden (`*` → `%2A`, `!` → `%21`). Railway
 
 ## Wohin schreiben
 
-Gemeinsam: Staging und Production lesen **denselben** Tuxai-Qdrant und Embedder. **Pfad:** HTTPS über **Cloudflare Tunnel** (`deploy/tuxai/cloudflare-tunnel.md`, Plan + Rotation: `deploy/tuxai/plan-tuxai-cloudflare-railway.md`) — **kein** `TS_AUTHKEY` auf Railway (Tailscale entfällt). Nutzerdaten bleiben in getrennten Supabase-Projekten.
+**Tuxai:** Staging und Production teilen **einen** Embedder (`embed.ragxxx.com` → `:8001`). **Qdrant getrennt:** Prod `qdrant.ragxxx.com` → `:6333`, Staging `qdrant-staging.ragxxx.com` → `:6334` (eigener Container/Storage). Tunnel: `deploy/tuxai/cloudflare-tunnel.md`. Nutzerdaten: getrennte Supabase-Projekte.
 
 ### Staging — Supabase `duhtxxbynkilpxdpcpsk`
 
@@ -61,12 +64,12 @@ Gemeinsam: Staging und Production lesen **denselben** Tuxai-Qdrant und Embedder.
 | `RAGRUN_POSTGRES_DSN` | Railway `ragrun-staging`; `.env.staging`; `ragprep/.env.staging` |
 | `RAGRUN_QDRANT_URL` / `RAGRUN_EMBEDDINGS_BASE_URL` | Tunnel-HTTPS-URLs (siehe `cloudflare-tunnel.md`) |
 | `RAGRUN_QDRANT_API_KEY` | Railway `ragrun-staging`; `.env.staging`; Pulse `QDRANT_API_KEY` |
-| `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` | optional; Cloudflare Zero Trust → Service Auth (Rotation: Plan § A) |
-| `TS_AUTHKEY` | **nicht setzen** mit Tunnel; legacy Tailscale-only |
-| `TS_HOSTNAME` | legacy → `ragrun-staging` |
+| `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` | **Gleiches** Service-Token wie Prod (alle Tunnel-Apps) |
 | `RAGRUN_DEEPSEEK_API_KEY` | Railway `ragrun-staging`; `.env.staging` |
 | `RAGRUN_HF_TOKEN` | Railway `ragrun-staging` (Legacy) |
 | `RAGRUN_INTERNAL_API_KEY` | Railway `ragrun-staging`, wenn du die internen Routen schließen willst |
+| `RAGRUN_CORPUS_PUBLIC_BASE_URL` | Railway `ragrun-staging`; `.env.staging` → `https://corpus-staging.ragxxx.com` |
+| `RAGRUN_R2_*` | Railway `ragrun-staging`; `.env.staging` (Bucket `philo-corpus-staging`) |
 
 API-URL (kein Secret): `https://staging.ragxxx.com`. Keepalive: `.github/workflows/supabase-staging-keepalive.yml`.
 
@@ -81,11 +84,13 @@ Bekannte Falle: `.env.staging` hatte zeitweise den **Dev**-Service-Role zum Stag
 | `RAGRUN_SUPABASE_JWT_SECRET` | Railway `ragrun`; `.env.production` |
 | `RAGRUN_POSTGRES_DSN` | Railway `ragrun`; `.env.production` / `.env.prod`; `ragprep/.env.production`; `.env.dev` Feld `RAGRUN_POSTGRES_DSN_PROD` (Prod→Dev-Sync) |
 | `RAGRUN_QDRANT_API_KEY` | Railway `ragrun`; `.env.production`; Pulse (gleicher Key wie Staging) |
-| `TS_AUTHKEY` | Railway `ragrun` (eigener oder gemeinsamer Tailscale-Key) |
-| `TS_HOSTNAME` | Railway `ragrun` → `ragrun-production` |
+| `RAGRUN_QDRANT_URL` / `RAGRUN_EMBEDDINGS_BASE_URL` | Tunnel-HTTPS-URLs (siehe `cloudflare-tunnel.md`) |
+| `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` | Cloudflare Zero Trust → Service Auth (shared token) |
 | `RAGRUN_DEEPSEEK_API_KEY` | Railway `ragrun`; `.env.production` |
 | `RAGRUN_HF_TOKEN` | Railway `ragrun` |
 | `RAGRUN_INTERNAL_API_KEY` | Railway `ragrun` |
+| `RAGRUN_CORPUS_PUBLIC_BASE_URL` | Railway `ragrun`; `.env.production` → `https://corpus.ragxxx.com` |
+| `RAGRUN_R2_*` | Railway `ragrun`; `.env.production` (Bucket `philo-corpus`) |
 
 API-URL (kein Secret): `https://api.ragxxx.com`.
 

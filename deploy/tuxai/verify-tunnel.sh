@@ -3,7 +3,7 @@
 #   export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com
 #   export RAGRUN_EMBEDDINGS_BASE_URL=https://embed.ragxxx.com
 #   export RAGRUN_QDRANT_API_KEY=...
-#   export RAGRUN_CF_ACCESS_CLIENT_ID=...   # staging-tuxai or prod-tuxai
+#   export RAGRUN_CF_ACCESS_CLIENT_ID=...   # shared Service Auth token
 #   export RAGRUN_CF_ACCESS_CLIENT_SECRET=...
 #   ./deploy/tuxai/verify-tunnel.sh
 set -euo pipefail

@@ -124,7 +124,7 @@ flowchart TB
 | **Staging** | `staging.ragxxx.com` | Staging-Projekt | **Tuxai** (Tunnel) |
 | **Production** | `api.ragxxx.com` | Prod-Projekt | **Tuxai** (dieselbe Instanz) |
 
-**Bewusst nicht im Tunnel:** Postgres/Supabase-API, DeepSeek, App↔Supabase — nur **Qdrant** und **Embedding-HTTP** von Railway über Cloudflare. **Tailscale** entfällt im Zielbild vollständig (siehe § Tailscale abbauen).
+**Bewusst nicht im Tunnel:** Postgres/Supabase-API, DeepSeek, App↔Supabase — nur **Qdrant** und **Embedding-HTTP** von Railway über Cloudflare.
 
 **Abgrenzung dieses Plans:** Kein Umzug von Railway oder Supabase — nur sicherer **HTTPS-Zugang** Railway → Tuxai (DNS Weg A + Tunnel + Access) und Betrieb/Rotation der zugehörigen Secrets.
 
@@ -187,25 +187,15 @@ Tunnel-Hostnames (fix): **`https://qdrant.ragxxx.com`**, **`https://embed.ragxxx
 | Access Service Tokens | **Zwei Tokens:** `staging-tuxai` → `ragrun-staging`, `prod-tuxai` → `ragrun` |
 | Rotation | **Nur manuell** (Leak, Incident, bewusster Cutover — kein Kalender) |
 | Embeddings auf Railway | `RAGRUN_EMBEDDINGS_PROVIDER=http` über Tunnel (kein HF-Pfad) |
-| **Tailscale** | **Vollständig entfernen** (Railway + Tuxai + Doku/Skripte) — siehe § Tailscale abbauen |
+| **Tailscale** | Entfernt (21.10.2026). Kein Paket im Image. `apply.sh` setzt keine `TS_*` mehr und löscht Reste auf Railway. Env-Dateien nutzen die Tunnel-Hostnames. |
 | **DNS** | **Weg A:** Zone **`ragxxx.com`** bei Cloudflare; NS via Chris |
 | Tunnel-Hostnames | `https://qdrant.ragxxx.com`, `https://embed.ragxxx.com` |
 
-## Tailscale abbauen
+## Tailscale
 
-**Kein Fallback** — Tailscale war ein Non-Starter; es gibt keinen Rollback-Pfad über das Tailnet. Tailscale wird **im Zuge des Cutovers** entfernt (`CLEAR_RAILWAY_TAILSCALE=1` beim jeweiligen Railway-Redeploy).
+Abgebaut am 21.10.2026. Der Tunnel ist der einzige Weg von Railway und vom Mac nach Tuxai. `compose.yaml` bindet Qdrant und den Embedder auf `127.0.0.1`. `copy_collection.sh` nutzt `https://qdrant.ragxxx.com`.
 
-| Ebene | Aktion |
-|-------|--------|
-| **Railway** | `CLEAR_RAILWAY_TAILSCALE=1` in `rotate.env` → `apply.sh --apply --redeploy`; `TS_AUTHKEY` / `TS_HOSTNAME` weg; Logs ohne `Tailscale up` / `socks5`. |
-| **Tailscale Admin** | Auth Keys für `ragrun-staging` / `ragrun` **revoken**; ACL-Einträge zu `100.93.243.73:6333/:8001` entfernen, wenn nichts anderes sie braucht. |
-| **Tuxai Host** | `tailscale down` (optional `tailscale logout`); Paket/Dienst deaktivieren, wenn nicht mehr genutzt. |
-| **`deploy/tuxai/compose.yaml`** | Port-Mappings **`${TAILSCALE_IP}:…` entfernen** — nur **`127.0.0.1:6333`** / **`127.0.0.1:8001`** (Origin für `cloudflared`). |
-| **`deploy/tuxai/monitoring/`** | Prometheus/Grafana nicht mehr an Tailscale-IP; auf **`127.0.0.1`** binden oder nur Docker-intern; Zugriff vom Mac über **SSH-Tunnel** (`ssh -L 3000:127.0.0.1:3000 tuxai`) bis ggf. eigene CF-Route. |
-| **Skripte** | `copy_collection.sh`: Ziel-URL **`https://qdrant.ragxxx.com`** + API-Key (+ CF Access vom Mac-Env), nicht `100.93.243.73`. |
-| **Doku / Secrets** | Keine `TS_*` in `rotate.env`; alte Tailscale-Anleitung entfernt — nur noch dieser Plan + [`cloudflare-tunnel.md`](./cloudflare-tunnel.md). |
-
-**Nicht** wiederbeleben: `ALL_PROXY`/SOCKS auf Railway, Qdrant/Embed auf `0.0.0.0` Richtung Internet.
+**Nicht** wiederbeleben: SOCKS-Proxy auf Railway, Qdrant oder Embedder auf `0.0.0.0` Richtung Internet.
 
 ## Datenfluss Railway ↔ Tuxai (Detail)
 
@@ -255,7 +245,7 @@ flowchart LR
 | Client → Railway MCP/API | HTTPS | Supabase OAuth / JWT (Staging vs Prod getrennt) |
 | Railway → Tunnel-Hostname | HTTPS | `CF-Access-Client-Id` / `CF-Access-Client-Secret` (je Umgebung); Qdrant zusätzlich `api-key` |
 | cloudflared → Origin | HTTP localhost | Nur auf dem Host; Ports `127.0.0.1` |
-| Railway → Supabase | HTTPS | JWKS / Tokens (`NO_PROXY` in `entrypoint.sh`) |
+| Railway → Supabase | HTTPS | JWKS / Tokens |
 
 **Nicht** über den Tunnel: Postgres, Supabase, DeepSeek — bleiben projektbezogen auf Railway.
 
@@ -267,7 +257,7 @@ flowchart LR
 | Access Service Token | Cloudflare; Railway | `staging-tuxai` / `prod-tuxai` | **Getrennt** |
 | `QDRANT_API_KEY` | Tuxai + Railway | Beide Services | Geteilt (ein Korpus) |
 
-Railway-Variablen: `RAGRUN_QDRANT_URL`, `RAGRUN_EMBEDDINGS_BASE_URL`, `RAGRUN_QDRANT_API_KEY`, `RAGRUN_CF_ACCESS_CLIENT_ID`, `RAGRUN_CF_ACCESS_CLIENT_SECRET`. **Kein** `TS_AUTHKEY` im Tunnel-Betrieb.
+Railway-Variablen: `RAGRUN_QDRANT_URL`, `RAGRUN_EMBEDDINGS_BASE_URL`, `RAGRUN_QDRANT_API_KEY`, `RAGRUN_CF_ACCESS_CLIENT_ID`, `RAGRUN_CF_ACCESS_CLIENT_SECRET`.
 
 ## Access: zwei Tokens
 
@@ -331,7 +321,6 @@ STAGING_CF_ACCESS_CLIENT_SECRET=...
 PRODUCTION_CF_ACCESS_CLIENT_ID=...
 PRODUCTION_CF_ACCESS_CLIENT_SECRET=...
 QDRANT_API_KEY=...          # nur wenn noch nicht überall gleich
-CLEAR_RAILWAY_TAILSCALE=1
 APPLY_RAILWAY_STAGING=1
 APPLY_RAILWAY_PRODUCTION=0   # Staging zuerst
 ```
@@ -341,7 +330,7 @@ APPLY_RAILWAY_PRODUCTION=0   # Staging zuerst
 ./scripts/secrets/apply.sh --apply --redeploy
 ```
 
-Staging grün → **Staging-Tailscale weg** (§7a), dann `APPLY_RAILWAY_PRODUCTION=1`, Prod-Token eintragen, erneut `--apply --redeploy`.  
+Staging grün → `APPLY_RAILWAY_PRODUCTION=1`, Prod-Token eintragen, erneut `--apply --redeploy`.  
 `rm -P scripts/secrets/rotate.env`
 
 ### 6. Abnahme
@@ -350,26 +339,14 @@ Staging grün → **Staging-Tailscale weg** (§7a), dann `APPLY_RAILWAY_PRODUCTI
 
 ```bash
 curl -s https://staging.ragxxx.com/healthz | jq '.dependencies.qdrant, .dependencies.embedding_service'
-# MCP-Suche; Railway-Logs: kein Tailscale / socks5
+# MCP-Suche
 ```
 
 **Production** analog mit `https://api.ragxxx.com/healthz`.
 
-### 7. Tailscale entfernen (pro Umgebung, kein Warten auf die andere)
+### 7. Tailscale
 
-Railway-`TS_*` sind durch Schritt **5** + `CLEAR_RAILWAY_TAILSCALE=1` beim Redeploy bereits weg. Hier Admin, Tuxai und Repo — **ohne** Tailscale-Fallback.
-
-**7a — Staging grün (§6 Staging):**
-
-- Tailscale Admin: Auth Key für **`ragrun-staging`** **revoken**; ACL-Einträge zu `100.93.243.73:6333/:8001` entfernen, sofern nur Staging sie nutzte.
-- **Tuxai & Repo** (geteilt mit Prod): § **Tailscale abbauen** — Host `tailscale down`, `compose.yaml` / Monitoring ohne `TAILSCALE_IP`, `copy_collection.sh` auf Tunnel-URL.
-
-**7b — Production grün (§6 Prod):**
-
-- Tailscale Admin: Auth Key für **`ragrun`** (Production) **revoken**; restliche ACL bereinigen.
-- Falls 7a schon erledigt: nur noch Prod-Key + finale Prüfung (Logs, kein Tailnet-Traffic).
-
-Stack abgeschlossen, wenn **beide** Healthz grün **und** 7a+7b erledigt sind.
+Erledigt (21.10.2026). Host, Railway und Repo nutzen den Tunnel. Kein Tailnet-Fallback.
 
 ## Schlüssel-Rotationsstrategie
 
@@ -406,11 +383,11 @@ Stand **16.10.2026**: Cutover-Abnahme **manuell** (Healthz, MCP in Claude, ggf. 
 - [x] Tunnel-Routes mit Domain **`ragxxx.com`**; qdrant/embed **öffentliche A**, kein fd10-only
 - [x] Tokens `staging-tuxai`, `prod-tuxai` + Access auf beiden Hostnames
 - [ ] `verify-tunnel.sh` für beide Tokens (optional; manuell vom Mac)
-- [x] Staging Railway: Tunnel-URLs, CF Access, `TS_*` entfernt (`CLEAR_RAILWAY_TAILSCALE=1` + Redeploy)
-- [x] Staging Healthz + MCP (manuell) — danach **7a** (Tailscale Admin + Tuxai/Repo, siehe unten)
-- [x] Production Railway: Tunnel-URLs, CF Access, `TS_*` entfernt; `RAGRUN_MCP_BASE_URL=https://api.ragxxx.com`
-- [x] Production Healthz + MCP (manuell); Prod-Supabase-Korpus (Katalog u. a.) von Staging synchronisiert — danach **7b**
-- [ ] **7a / 7b** Tailscale abbauen (Admin Keys revoken, Tuxai `tailscale down`, `git pull` + Compose/Monitoring neu starten). **Repo:** `compose.yaml`, Monitoring, `copy_collection.sh` → Tunnel/127.0.0.1 (16.10.)
+- [x] Staging Railway: Tunnel-URLs, CF Access
+- [x] Staging Healthz + MCP (manuell)
+- [x] Production Railway: Tunnel-URLs, CF Access; `RAGRUN_MCP_BASE_URL=https://api.ragxxx.com`
+- [x] Production Healthz + MCP (manuell); Prod-Supabase-Korpus (Katalog u. a.) von Staging synchronisiert
+- [x] **7a / 7b** Tailscale abgebaut (21.10.2026). Repo: kein Paket im Image, Tunnel-URLs in den Env-Dateien, `copy_collection.sh` auf `https://qdrant.ragxxx.com`
 - [ ] `rotate.env` löschen, wenn keine Rotation mehr offen
 - [ ] `RAGRUN_HF_TOKEN` auf Railway optional entfernen (nicht genutzt bei `provider=http`)
 
