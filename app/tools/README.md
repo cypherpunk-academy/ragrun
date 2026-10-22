@@ -1,8 +1,8 @@
 # App-Tools (Filo)
 
 Tool-Registry für den App-Chat (`/app/chat/stream`). Siehe
-`plans/ragrun-app-tools-architecture.md` (ragapp-Repo) für die volle
-Architektur und `plans/filo-arbeitstext-contract.md` für den
+`plans/in_progress/ragrun-app-tools-architecture.md` für die volle
+Architektur und `ragxxx/plans/in_progress/filo-work-text-app-ragrun-api-contract.md` für den
 ragapp↔ragrun-Vertrag.
 
 App-Tools sind **nicht** dasselbe wie:

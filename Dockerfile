@@ -6,11 +6,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y ca-certificates curl build-essential git \
-    && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
-      -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
-    && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
-      -o /etc/apt/sources.list.d/tailscale.list \
-    && apt-get update && apt-get install -y tailscale \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

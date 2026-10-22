@@ -423,6 +423,10 @@ def _title_hit_to_result(row: dict[str, Any], query: str) -> dict[str, Any]:
         item["quote_text"] = text_val
         item["quote_author"] = meta.get("author")
         _apply_quote_nav_fields_from_meta(item, meta)
+    if chunk_type in ("begriff", "typology"):
+        refs = meta.get("references")
+        if isinstance(refs, list) and refs:
+            item["references"] = refs
     item.update(typology_fields_for_search_result(meta))
 
     return item
@@ -569,6 +573,10 @@ async def app_search(
                 source_index = meta.get("segment_index")
             if isinstance(source_index, (int, float)) and not isinstance(source_index, bool):
                 item["source_index"] = int(source_index)
+        if chunk_type in ("begriff", "typology"):
+            refs = meta.get("references")
+            if isinstance(refs, list) and refs:
+                item["references"] = refs
         item.update(typology_fields_for_search_result(meta))
         results.append(item)
 

@@ -88,14 +88,22 @@ eines Bandes nutze `list_lectures` mit der internen GA-Nummer (Feld `ga`, nie im
 vorliegen. Titel und `zitierform` enthalten keine GA-Nummer. Zitiere Vortraege mit \
 Datum und Ort.
 
+## GA-Suche (Collection rudolf-steiner-ga)
+Rufe `search_ga` und `search_ga_summaries` nur auf, wenn der Nutzer in diesem Chat \
+das Kuerzel „ga" genannt hat (z. B. „GA 4"; Gross-/Kleinschreibung egal). Einmal im \
+Verlauf reicht; danach darfst du die Tools in weiteren Turns nutzen. Ohne „ga" bleibt \
+`search_corpus` die Suche.
+
 ## Quellenverweise (Korpus-Baende)
 Wenn ein Tool ein Objekt `citation` mit Feld `zitierform` liefert, uebernimm \
 diese Zeichenkette woertlich fuer den Beleg — setze sie nicht selbst zusammen \
-und ergaenze keine GA-Nummer. Nutze optional `citation.return_url` als Link zur Stelle \
-in Philo. Ohne `citation` zitiere Korpus-Baende mit dem vollen deutschen Titel \
-(`band` / `segment_title`), ohne GA-Nummer. Ausnahme: die separate Collection \
-`rudolf-steiner-ga` (Seitenangaben „GA n, S. …") — sie folgt eigenen Regeln und \
-liefert kein `citation`-Objekt im Philo-Format.
+und ergaenze keine GA-Nummer. Hat `citation` eine `return_url`, gib den Beleg \
+immer als Markdown-Link aus: `[zitierform](return_url)`. Ohne `citation` zitiere \
+Korpus-Baende mit dem vollen deutschen Titel (`band` / `segment_title`), ohne \
+GA-Nummer. Ausnahme: die separate Collection `rudolf-steiner-ga` (Seitenangaben \
+„GA n, S. …") — sie folgt eigenen Regeln und liefert kein `citation`-Objekt im \
+Philo-Format. Concept-Treffer tragen `references` mit eigenen `citation`-Objekten; \
+verlinke jede Referenz ebenso.
 
 ## Stil
 Sprich den Nutzer immer mit "du" an. Sei klar, sachlich, praezise. Keine Ironie, \
@@ -367,25 +375,39 @@ def _register_tools(mcp: MCPServer) -> None:
         ga: str | list[str] | None = None,
         lecture_id: str | None = None,
         limit: int = 8,
+        group_by_lecture: bool | None = None,
+        explain: bool = False,
     ) -> list[dict] | dict:
-        """Search Rudolf Steiner GA wording (collection rudolf-steiner-ga).
+        """Only call if the user has mentioned "ga" in this conversation (once is enough).
 
+        Search Rudolf Steiner GA wording (collection rudolf-steiner-ga).
         Vorträge and Schriften (e.g. GA 4, 15, 30). Secondary to search_corpus.
         Use to verify training knowledge and for original research when
         search_corpus yields little. Hits are for your understanding — do not
         pass long continuous passages to the end user. Cite short quotes as
         (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
 
+        Broad topics are grouped by lecture and spread across GA volumes, so one
+        volume does not fill the list. Pass ga or lecture_id to search inside one
+        volume or one lecture; that turns the volume cap off.
+
         Args:
             query: Search query (German or English).
             ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
             lecture_id: Optional catalog id (YYYYMMDD[a-z]).
             limit: Max results (1-20, default 8).
+            group_by_lecture: Group hits by lecture. Omit for the default (true).
+            explain: Include score_parts (rrf, title, rerank) on each hit.
         """
 
         try:
             return await search_ga(
-                query=query, ga=ga, lecture_id=lecture_id, limit=limit
+                query=query,
+                ga=ga,
+                lecture_id=lecture_id,
+                limit=limit,
+                group_by_lecture=group_by_lecture,
+                explain=explain,
             )
         except Exception as exc:
             return _tool_infra_error(exc)
@@ -396,22 +418,36 @@ def _register_tools(mcp: MCPServer) -> None:
         ga: str | list[str] | None = None,
         lecture_id: str | None = None,
         limit: int = 5,
+        group_by_lecture: bool | None = None,
+        explain: bool = False,
     ) -> list[dict] | dict:
-        """Search chapter/lecture summaries (collection rudolf-steiner-ga).
+        """Only call if the user has mentioned "ga" in this conversation (once is enough).
 
+        Search chapter/lecture summaries (collection rudolf-steiner-ga).
         Secondary to search_corpus. Orientation across volumes; then use search_ga
         for wording. Same citation rules: (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
+
+        Broad topics are grouped by lecture and spread across GA volumes. Pass ga
+        or lecture_id to stay inside one volume or one lecture; that turns the
+        volume cap off.
 
         Args:
             query: Search query (German or English).
             ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
             lecture_id: Optional catalog id (YYYYMMDD[a-z]).
             limit: Max results (1-20, default 5).
+            group_by_lecture: Group hits by lecture. Omit for the default (true).
+            explain: Include score_parts (rrf, title, rerank) on each hit.
         """
 
         try:
             return await search_ga_summaries(
-                query=query, ga=ga, lecture_id=lecture_id, limit=limit
+                query=query,
+                ga=ga,
+                lecture_id=lecture_id,
+                limit=limit,
+                group_by_lecture=group_by_lecture,
+                explain=explain,
             )
         except Exception as exc:
             return _tool_infra_error(exc)

@@ -5,7 +5,6 @@ __pycache__/
 .env.dev
 .env.staging
 .env.production
-.env.prod
 data/vector_db/
 data/backups/
 *.sqlite3
@@ -13,4 +12,5 @@ tests/.env.mcp
 tests/reports/
 deploy/tuxai/monitoring/qdrant_key
 scripts/secrets/rotate.env
+scripts/secrets/rotate.old.env
 scripts/secrets/*.local

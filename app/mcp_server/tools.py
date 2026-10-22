@@ -23,13 +23,14 @@ from app.mcp_server.citation import (
 )
 from app.services.app_catalog_repository import PostgresCatalogRepository
 from app.mcp_server.typology_tools import list_typologies, list_typology, search_typology
-from app.services.app_search_service import app_search
+from app.services.app_search_service import _lookup_paragraph_ids, app_search
 
 logger = logging.getLogger(__name__)
 
 _SNIPPET_LIMIT = 300
 _CONTENT_MAX_BYTES = 1_048_576  # 1 MB
 _ALLOWED_SEARCH_TYPES = frozenset({"text", "concept", "quote", "chapter_summary"})
+_REF_CHUNK_TYPES = frozenset({"begriff", "typology"})
 
 
 def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
@@ -37,6 +38,151 @@ def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
     if len(s) <= limit:
         return s
     return s[: limit - 1].rstrip() + "…"
+
+
+def _bare_source_id(source_id: str | None) -> str:
+    sid = (source_id or "").strip()
+    if not sid:
+        return ""
+    for suffix in (":summary", ":quotes"):
+        if sid.endswith(suffix):
+            return sid[: -len(suffix)]
+    return sid
+
+
+def _normalize_chunk_references(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        cid = str(item.get("chunk_id") or "").strip()
+        if not cid:
+            continue
+        entry: dict[str, Any] = {"chunk_id": cid}
+        desc = item.get("description")
+        if isinstance(desc, str) and desc.strip():
+            entry["description"] = desc.strip()
+        rel = item.get("relevance")
+        if isinstance(rel, (int, float)) and not isinstance(rel, bool):
+            entry["relevance"] = float(rel)
+        out.append(entry)
+    return out
+
+
+def _fetch_chunk_references(
+    engine: Any,
+    chunk_ids: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    ids = [c.strip() for c in chunk_ids if c and str(c).strip()]
+    if not ids:
+        return {}
+
+    def _query() -> dict[str, list[dict[str, Any]]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (chunk_id)
+                        chunk_id,
+                        "references" AS refs,
+                        metadata
+                    FROM rag_chunks
+                    WHERE chunk_id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                    ORDER BY chunk_id
+                    """
+                ),
+                {"ids": ids},
+            ).mappings().all()
+        out: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            cid = str(row["chunk_id"])
+            refs = row.get("refs")
+            if not refs:
+                meta = row.get("metadata")
+                if isinstance(meta, Mapping):
+                    refs = meta.get("references")
+            parsed = _normalize_chunk_references(refs)
+            if parsed:
+                out[cid] = parsed
+        return out
+
+    return _query()
+
+
+async def _enrich_corpus_hits(
+    items: list[dict[str, Any]],
+    raw_hits: list[dict[str, Any]],
+    engine: Any,
+) -> None:
+    by_chunk = {str(h.get("chunk_id") or ""): h for h in raw_hits if h.get("chunk_id")}
+    for item in items:
+        raw = by_chunk.get(str(item.get("chunk_id") or ""), {})
+        if raw.get("parent_id"):
+            item["parent_id"] = raw["parent_id"]
+        if raw.get("source_index") is not None:
+            item["source_index"] = raw["source_index"]
+        if raw.get("references"):
+            item["_raw_references"] = raw["references"]
+
+    pids = [str(i["paragraph_id"]) for i in items if i.get("paragraph_id")]
+    citations = await asyncio.to_thread(fetch_citations_batch, engine, pids)
+    for item in items:
+        pid = item.get("paragraph_id")
+        if pid and str(pid) in citations:
+            item["citation"] = citations[str(pid)]
+
+    summary_jobs: list[tuple[dict[str, Any], str, str]] = []
+    for item in items:
+        if str(item.get("chunk_type") or "") != "chapter_summary":
+            continue
+        if item.get("citation") and item["citation"].get("return_url"):
+            continue
+        parent = _bare_source_id(str(item.get("parent_id") or item.get("source_id") or ""))
+        idx = item.get("source_index")
+        slug = str(idx) if idx is not None else ""
+        if parent and slug:
+            summary_jobs.append((item, parent, slug))
+    for item, parent, slug in summary_jobs:
+        chapter = await asyncio.to_thread(fetch_chapter_citation, engine, parent, slug)
+        if chapter:
+            item["citation"] = chapter
+
+    need_refs = [
+        str(i["chunk_id"])
+        for i in items
+        if i.get("chunk_id") and str(i.get("chunk_type") or "") in _REF_CHUNK_TYPES
+    ]
+    db_refs = await asyncio.to_thread(_fetch_chunk_references, engine, need_refs) if need_refs else {}
+    all_ref_ids: list[str] = []
+    for item in items:
+        cid = str(item.get("chunk_id") or "")
+        refs = _normalize_chunk_references(item.pop("_raw_references", None)) or db_refs.get(cid) or []
+        if refs:
+            item["_pending_refs"] = refs
+            all_ref_ids.extend(r["chunk_id"] for r in refs)
+
+    pid_map = await _lookup_paragraph_ids(all_ref_ids, engine) if all_ref_ids else {}
+    ref_pids = [pid for pid in pid_map.values() if pid]
+    ref_citations = await asyncio.to_thread(fetch_citations_batch, engine, ref_pids) if ref_pids else {}
+    for item in items:
+        pending = item.pop("_pending_refs", None)
+        if not pending:
+            continue
+        resolved: list[dict[str, Any]] = []
+        for ref in pending:
+            entry = dict(ref)
+            pid = pid_map.get(ref["chunk_id"])
+            if pid and pid in ref_citations:
+                entry["citation"] = ref_citations[pid]
+            resolved.append(entry)
+        if resolved:
+            item["references"] = resolved
+    for item in items:
+        item.pop("parent_id", None)
+        item.pop("source_index", None)
 
 
 def _get_user_id() -> str | None:
@@ -180,19 +326,13 @@ async def search_corpus(
             "group_title",
             "health",
             "counterpart_chunk_id",
-            "short_text",
         ):
             if r.get(key) is not None:
                 item[key] = r[key]
         out.append(item)
 
     engine = get_engine()
-    pids = [str(i["paragraph_id"]) for i in out if i.get("paragraph_id")]
-    citations = await asyncio.to_thread(fetch_citations_batch, engine, pids)
-    for item in out:
-        pid = item.get("paragraph_id")
-        if pid and pid in citations:
-            item["citation"] = citations[str(pid)]
+    await _enrich_corpus_hits(out, results, engine)
 
     return out
 
@@ -1159,6 +1299,116 @@ def _ga_hit_from_payload(payload: Mapping[str, Any], *, full: bool) -> dict[str,
     return {k: v for k, v in item.items() if v is not None and v != ""}
 
 
+def _ga_rank_flags(
+    variant: str,
+    group_by_lecture: bool | None,
+) -> dict[str, Any]:
+    """Spec defaults for eval variants; ``configured`` follows RAGRUN_GA_SEARCH_*."""
+    group = (
+        settings.ga_search_group_by_lecture
+        if group_by_lecture is None
+        else group_by_lecture
+    )
+    if variant == "candidates":
+        return {
+            "candidates": 100,
+            "pool": 60,
+            "title_weight": 0.0,
+            "use_title_path": False,
+            "group_by_lecture": True if group_by_lecture is None else group_by_lecture,
+            "max_per_ga": 3,
+            "rerank": False,
+        }
+    if variant == "title":
+        return {
+            "candidates": 100,
+            "pool": 60,
+            "title_weight": 0.35,
+            "use_title_path": True,
+            "group_by_lecture": True if group_by_lecture is None else group_by_lecture,
+            "max_per_ga": 3,
+            "rerank": False,
+        }
+    if variant == "rerank":
+        return {
+            "candidates": 100,
+            "pool": 60,
+            "title_weight": 0.35,
+            "use_title_path": True,
+            "group_by_lecture": True if group_by_lecture is None else group_by_lecture,
+            "max_per_ga": 3,
+            "rerank": True,
+        }
+    return {
+        "candidates": settings.ga_search_candidates,
+        "pool": settings.ga_search_pool,
+        "title_weight": settings.ga_search_title_weight,
+        "use_title_path": True,
+        "group_by_lecture": group,
+        "max_per_ga": settings.ga_search_max_per_ga,
+        "rerank": settings.ga_search_rerank,
+    }
+
+
+def _ga_results_from_ranked(ranked: list[Any], *, full: bool, explain: bool) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for hit in ranked:
+        item = _ga_hit_from_payload(hit.meta, full=full)
+        item["score"] = round(float(hit.score), 4)
+        item["lecture_hits"] = int(hit.lecture_hits)
+        if explain:
+            item["score_parts"] = {
+                "rrf": round(float(hit.rrf_norm), 4),
+                "title": round(float(hit.title_score), 4),
+                "rerank": None if hit.rerank is None else round(float(hit.rerank), 4),
+            }
+        out.append(item)
+    return out
+
+
+async def _search_ga_baseline(
+    *,
+    query: str,
+    chunk_types: list[str],
+    extra: list[dict[str, Any]],
+    limit: int,
+    full_text: bool,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Previous hybrid path: k_dense = k_sparse = k_fused = limit, no title signal."""
+    from app.core.providers import get_embedding_client, get_qdrant_client, get_sparse_embedder
+    from app.retrieval.utils.retrievers import hybrid_retrieve
+
+    prefix_query = settings.embedding_prefix_query or "query: "
+    hits = await hybrid_retrieve(
+        query=query,
+        k_dense=limit,
+        k_sparse=limit,
+        k_fused=limit,
+        worldview=None,
+        book_types=chunk_types,
+        collection=GA_QDRANT_COLLECTION,
+        embedding_client=get_embedding_client(),
+        qdrant_client=get_qdrant_client(),
+        sparse_embedder=get_sparse_embedder() if settings.use_hybrid_retrieval else None,
+        force_sparse=settings.use_hybrid_retrieval,
+        query_prefix=prefix_query,
+        extra_must=extra or None,
+    )
+    out: list[dict[str, Any]] = []
+    for snip in hits:
+        payload = snip.payload if isinstance(snip.payload, Mapping) else {}
+        inner = payload.get("payload") if isinstance(payload.get("payload"), Mapping) else payload
+        if not isinstance(inner, Mapping):
+            inner = {}
+        meta = dict(inner)
+        if "text" not in meta and snip.text:
+            meta["text"] = snip.text
+        item = _ga_hit_from_payload(meta, full=full_text)
+        item["score"] = round(float(snip.score), 4)
+        out.append(item)
+    return out
+
+
 async def _search_ga_collection(
     *,
     query: str,
@@ -1167,6 +1417,9 @@ async def _search_ga_collection(
     lecture_id: str | None,
     limit: int,
     full_text: bool,
+    group_by_lecture: bool | None = None,
+    explain: bool = False,
+    variant: str = "configured",
 ) -> list[dict[str, Any]] | dict[str, Any]:
     q = (query or "").strip()
     if not q:
@@ -1188,42 +1441,49 @@ async def _search_ga_collection(
     extra = _ga_extra_must(gas, lecture_id)
 
     from app.core.providers import get_embedding_client, get_qdrant_client, get_sparse_embedder
-    from app.retrieval.utils.retrievers import hybrid_retrieve
 
     prefix_query = settings.embedding_prefix_query or "query: "
     try:
-        hits = await hybrid_retrieve(
+        if variant == "baseline":
+            return await _search_ga_baseline(
+                query=q,
+                chunk_types=chunk_types,
+                extra=extra,
+                limit=k,
+                full_text=full_text,
+            )
+        flags = _ga_rank_flags(variant, group_by_lecture)
+        from app.retrieval.utils.ga_ranking import ga_search_pipeline
+
+        ranked = await ga_search_pipeline(
             query=q,
-            k_dense=k,
-            k_sparse=k,
-            k_fused=k,
-            worldview=None,
-            book_types=chunk_types,
+            chunk_types=chunk_types,
+            extra_must=extra or None,
             collection=GA_QDRANT_COLLECTION,
             embedding_client=get_embedding_client(),
             qdrant_client=get_qdrant_client(),
             sparse_embedder=get_sparse_embedder() if settings.use_hybrid_retrieval else None,
             force_sparse=settings.use_hybrid_retrieval,
             query_prefix=prefix_query,
-            extra_must=extra or None,
+            limit=k,
+            candidates=int(flags["candidates"]),
+            pool=int(flags["pool"]),
+            title_weight=float(flags["title_weight"]),
+            use_title_path=bool(flags["use_title_path"]),
+            group_by_lecture=bool(flags["group_by_lecture"]),
+            max_per_ga=int(flags["max_per_ga"]),
+            apply_ga_cap=not gas and not (lecture_id or "").strip(),
+            gas=gas,
+            rerank=bool(flags["rerank"]),
+            rerank_top=int(settings.ga_search_rerank_top),
+            rerank_timeout_s=float(settings.ga_search_rerank_timeout_s),
+            rerank_url=settings.ga_search_rerank_url or "",
         )
     except Exception as exc:
         logger.exception("GA collection search failed")
         return {"error": f"search failed: {exc}", "code": "search_failed"}
 
-    out: list[dict[str, Any]] = []
-    for snip in hits:
-        payload = snip.payload if isinstance(snip.payload, Mapping) else {}
-        inner = payload.get("payload") if isinstance(payload.get("payload"), Mapping) else payload
-        if not isinstance(inner, Mapping):
-            inner = {}
-        meta = dict(inner)
-        if "text" not in meta and snip.text:
-            meta["text"] = snip.text
-        item = _ga_hit_from_payload(meta, full=full_text)
-        item["score"] = round(float(snip.score), 4)
-        out.append(item)
-    return out
+    return _ga_results_from_ranked(ranked, full=full_text, explain=explain)
 
 
 async def search_ga(
@@ -1231,9 +1491,12 @@ async def search_ga(
     ga: str | list[str] | None = None,
     lecture_id: str | None = None,
     limit: int = 8,
+    group_by_lecture: bool | None = None,
+    explain: bool = False,
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """Search Rudolf Steiner GA wording in collection rudolf-steiner-ga.
 
+    Only call if the user has mentioned "ga" in this conversation (once is enough).
     Covers Vorträge and Schriften (e.g. GA 4, 15, 30) that are embedded in this
     collection. Secondary to search_corpus (Philo / assistant corpus). Use to verify
     or correct training knowledge, and for original research when search_corpus
@@ -1242,11 +1505,19 @@ async def search_ga(
     (GA <nummer>, S. <seite>, Wortlaut nicht sicher); omit the page part if
     page_start/page_end is missing, but keep the uncertainty phrase.
 
+    Broad topics are grouped by lecture and spread across GA volumes, so one
+    volume does not fill the list. Pass ga or lecture_id to search inside one
+    volume or one lecture; that turns the volume cap off. Each hit includes
+    lecture_hits, the number of retrieved chunks from that lecture.
+
     Args:
         query: Search query (German or English).
         ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
         lecture_id: Optional catalog id (YYYYMMDD[a-z]) to restrict to one lecture.
         limit: Max results (1-20, default 8).
+        group_by_lecture: Group hits by lecture. Omit to use
+            RAGRUN_GA_SEARCH_GROUP_BY_LECTURE (default true).
+        explain: Include score_parts (rrf, title, rerank) on each hit.
     """
 
     return await _search_ga_collection(
@@ -1256,6 +1527,8 @@ async def search_ga(
         lecture_id=lecture_id,
         limit=limit,
         full_text=True,
+        group_by_lecture=group_by_lecture,
+        explain=explain,
     )
 
 
@@ -1264,19 +1537,30 @@ async def search_ga_summaries(
     ga: str | list[str] | None = None,
     lecture_id: str | None = None,
     limit: int = 5,
+    group_by_lecture: bool | None = None,
+    explain: bool = False,
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """Search chapter/lecture research summaries in collection rudolf-steiner-ga.
 
+    Only call if the user has mentioned "ga" in this conversation (once is enough).
     Secondary to search_corpus. Use for orientation across volumes, then drill into
     search_ga for wording. Returns the full summary text. Same end-user citation
     rules as search_ga: (GA <nummer>, S. <seite>, Wortlaut nicht sicher); do not
     forward long continuous passages to the end user.
+
+    Broad topics are grouped by lecture and spread across GA volumes. Pass ga or
+    lecture_id to stay inside one volume or one lecture; that turns the volume
+    cap off. Each hit includes lecture_hits, the number of retrieved chunks from
+    that lecture.
 
     Args:
         query: Search query (German or English).
         ga: One volume or list (e.g. "4", "329", "332a"). Empty = all volumes.
         lecture_id: Optional catalog id (YYYYMMDD[a-z]).
         limit: Max results (1-20, default 5).
+        group_by_lecture: Group hits by lecture. Omit to use
+            RAGRUN_GA_SEARCH_GROUP_BY_LECTURE (default true).
+        explain: Include score_parts (rrf, title, rerank) on each hit.
     """
     return await _search_ga_collection(
         query=query,
@@ -1285,4 +1569,6 @@ async def search_ga_summaries(
         lecture_id=lecture_id,
         limit=limit,
         full_text=True,
+        group_by_lecture=group_by_lecture,
+        explain=explain,
     )

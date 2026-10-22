@@ -104,7 +104,6 @@ def typology_member_payload(base_metadata_dict):
             "group_title": "Geist -> Recht",
             "health": "gesund",
             "counterpart_chunk_id": "counterpart-uuid",
-            "short_text": "Kurztext",
             "segment_index": 0,
         }
     )
@@ -119,7 +118,7 @@ def test_chunk_metadata_typology_member_fields(typology_member_payload):
     assert dumped["group_title"] == "Geist -> Recht"
     assert dumped["health"] == "gesund"
     assert dumped["counterpart_chunk_id"] == "counterpart-uuid"
-    assert dumped["short_text"] == "Kurztext"
+    assert "short_text" not in dumped
 
 
 def test_chunk_metadata_typology_without_health(typology_member_payload):

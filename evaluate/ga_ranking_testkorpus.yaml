@@ -1,0 +1,77 @@
+# GA ranking cases for evaluate/eval_ga_ranking.py.
+# relevance 2 = Hauptstelle, relevance 1 = further expected place.
+# Empty expected lists are negative cases: they stay out of recall and nDCG.
+cases:
+  - id: K01
+    query: "Karma Gesetze"
+    limit: 10
+    chunk_types: [ga_text]
+    note: >
+      Unfiltered. The Hauptstelle is Gesetze der Karmabildung
+      (GA 236, Dornach, 11.5.1924, lecture 19240511c). Sibling lectures in
+      GA 235-240 are checked by the accept rule (one of those volumes in the
+      top 5), not as further recall items: the volume cap keeps only a few.
+    expected:
+      - lecture_id: "19240511c"
+        ga: "236"
+        relevance: 2
+    accept:
+      any_ga_in_top5: ["235", "236", "237", "238", "239", "240"]
+      lecture_in_top10: "19240511c"
+
+  - id: K01f
+    query: "Karma Gesetze"
+    ga: ["235", "236", "237", "238", "239", "240"]
+    limit: 10
+    chunk_types: [ga_text]
+    note: Control. With the volume filter the 1924 lecture already ranked first.
+    expected:
+      - lecture_id: "19240511c"
+        ga: "236"
+        relevance: 2
+
+  - id: S01
+    query: "Kernpunkte der sozialen Frage"
+    limit: 10
+    chunk_types: [ga_text]
+    expected:
+      - lecture_id: "19190404"
+        ga: "336"
+        relevance: 2
+      - lecture_id: "19220611b"
+        ga: "83"
+        relevance: 2
+      - lecture_id: "19190428"
+        ga: "330"
+        relevance: 1
+      - ga: "23"
+        relevance: 1
+
+  - id: D01
+    query: "Reinkarnation und Karma"
+    limit: 10
+    chunk_types: [ga_text]
+    note: Same title in 1904 and 1912; used for spread across years and volumes.
+    expected:
+      - lecture_id: "19041020"
+        ga: "53"
+        relevance: 2
+      - lecture_id: "19120220a"
+        ga: "135"
+        relevance: 2
+
+  - id: B01
+    query: "moralische Phantasie"
+    limit: 10
+    chunk_types: [ga_text]
+    note: Book volume. Grouping falls back to segment_id because lecture_id is absent.
+    expected:
+      - ga: "4"
+        relevance: 2
+
+  - id: N01
+    query: "Xylophonquartett Quantenkaffee"
+    limit: 10
+    chunk_types: [ga_text]
+    note: Nothing in the corpus should match. Reported via top scores only.
+    expected: []

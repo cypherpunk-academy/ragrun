@@ -263,7 +263,6 @@ def _typology_catalog(by_slug: dict[str, list[dict[str, Any]]]) -> list[dict[str
         if overview is None:
             continue
         om = overview["meta"]
-        short = om.get("short_text")
         entry: dict[str, Any] = {
             "typology_slug": slug,
             "title": om.get("segment_title") or om.get("source_title") or slug,
@@ -275,11 +274,8 @@ def _typology_catalog(by_slug: dict[str, list[dict[str, Any]]]) -> list[dict[str
             "member_count": sum(
                 1 for c in chunks if c["meta"].get("typology_role") == "member"
             ),
+            "overview_snippet": _snippet(overview["text"], limit=220),
         }
-        if short:
-            entry["short_text"] = _snippet(str(short), limit=220)
-        else:
-            entry["short_text"] = _snippet(overview["text"], limit=220)
         catalog.append(entry)
     catalog.sort(key=lambda e: str(e.get("title") or e["typology_slug"]).casefold())
     return catalog
@@ -369,7 +365,6 @@ def _hit_from_snippet(
     text_override: str | None = None,
 ) -> dict[str, Any]:
     meta = _meta_from_snippet(snip)
-    short = meta.get("short_text")
     text_val = (text_override if text_override is not None else (snip.text or "")).strip()
     item: dict[str, Any] = {
         "chunk_id": meta.get("chunk_id"),
@@ -384,8 +379,6 @@ def _hit_from_snippet(
         "counterpart_chunk_id": meta.get("counterpart_chunk_id"),
         "segment_index": meta.get("segment_index"),
     }
-    if short is not None and str(short).strip():
-        item["short_text"] = str(short).strip()
     return {k: v for k, v in item.items() if v is not None and v != ""}
 
 
@@ -520,7 +513,6 @@ def typology_fields_for_search_result(meta: Mapping[str, Any]) -> dict[str, Any]
         "group_title",
         "health",
         "counterpart_chunk_id",
-        "short_text",
     ):
         val = meta.get(key)
         if val is not None and val != "":

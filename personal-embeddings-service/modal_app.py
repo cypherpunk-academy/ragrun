@@ -5,7 +5,7 @@ DEPRECATED for always-on staging/production queries (2026-07):
     Warm T4 via min_containers=1 was too expensive; scale-to-zero cold starts
     were unacceptable. Current path: Hugging Face serverless for queries,
     local Docker for ingest. Home-GPU Mini-PC is the future reserve — see
-    plans/future/EMBEDDINGS_HOSTING.md. This app should stay stopped unless
+    plans/future/embeddings-hosting-strategy-overview.md. This app should stay stopped unless
     deliberately revived for a GPU burst.
 
 Deploy (only if intentionally using Modal again):

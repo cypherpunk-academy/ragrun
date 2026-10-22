@@ -79,10 +79,21 @@ class QdrantClient:
         *,
         field_name: str = "text",
         wait: bool = True,
+        tokenizer: str | None = None,
+        lowercase: bool | None = None,
     ) -> None:
-        """Ensure a text payload index exists for sparse/BM25 search."""
+        """Ensure a text payload index exists for sparse/BM25 search.
 
-        payload = {"field_name": field_name, "field_schema": {"type": "text"}}
+        ``tokenizer`` and ``lowercase`` are optional. When omitted, Qdrant keeps
+        its default text schema (existing callers stay unchanged).
+        """
+
+        field_schema: dict[str, object] = {"type": "text"}
+        if tokenizer:
+            field_schema["tokenizer"] = tokenizer
+        if lowercase is not None:
+            field_schema["lowercase"] = lowercase
+        payload = {"field_name": field_name, "field_schema": field_schema}
         suffix = "?wait=true" if wait else ""
 
         url = f"{self.base_url}/collections/{collection}/index{suffix}"
@@ -94,6 +105,9 @@ class QdrantClient:
                     return
                 if response.status_code == 409:
                     # Index already exists – treat as success.
+                    return
+                body_lower = (response.text or "").lower()
+                if response.status_code == 400 and "exist" in body_lower:
                     return
                 content_type = response.headers.get("content-type", "<unknown>")
                 body = response.text if getattr(response, "text", None) else "<empty>"

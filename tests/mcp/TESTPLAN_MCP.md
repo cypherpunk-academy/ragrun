@@ -8,7 +8,7 @@ Stand: 1.10.2026 · Gilt für: Philo Dev (ngrok) und Philo Staging · Branch `ph
 
 Dieser Plan prüft die MCP-Tools des Philo-Servers direkt (pytest, Cursor-Proxy, MCP Inspector). Sprachmodelle (Claude u. a.) sind nicht Teil der automatisierten Suite. App-Sichtprüfungen (A-09, C-04) bleiben manuell.
 
-**Tool-Budget (neue Tools, Merge-Regeln):** `plans/PHILO_MCP_TOOL_BUDGET.md`. Stand 19.10.2026: **~18** registrierte Tools in `_register_tools()` (inkl. GA-Suche und Typologie-Tools; Tabelle unten ggf. älter).
+**Tool-Budget / Richtung:** siehe [`ragxxx/plans/in_progress/mcp-functions-and-search.md`](../../../ragxxx/plans/in_progress/mcp-functions-and-search.md) und [`mcp-tool-budget.md`](../../../ragxxx/plans/in_progress/mcp-tool-budget.md). Stand 19.10.2026: **~18** registrierte Tools in `_register_tools()` (inkl. GA-Suche und Typologie-Tools; Tabelle unten ggf. älter). Typologie-Tools sollen weg — weniger Funktionen, Treffer beschreiben sich selbst.
 
 **Fixtures:** Alle Platzhalter kommen ausschließlich aus der Datei im **ragrun**-Repo (nicht ragkeep): [`tests/mcp/mcp_testdata.yaml`](https://github.com/cypherpunk-academy/ragrun/blob/philo-claude-integration/tests/mcp/mcp_testdata.yaml) — lokal `ragrun/tests/mcp/mcp_testdata.yaml`. Keine IDs hier festschreiben. Handoffs erzeugt `scripts/mcp_tests/test_handoffs.py` vor jedem Lauf neu. Dauerhafte Notizen: `scripts/mcp_tests/seed_fixtures.py` (`[FIXTURE]`). Aufräumen: `scripts/mcp_tests/test_cleanup.py` (nur `[TEST]`).
 

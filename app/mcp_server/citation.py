@@ -257,7 +257,12 @@ def fetch_chapter_citation(
             {"sid": sid, "slug": slug},
         ).mappings().first()
         if row:
-            return row_to_citation(dict(row), include_paragraph=False)
+            cit = row_to_citation(dict(row), include_paragraph=False)
+            pid = str(row.get("paragraph_id") or "").strip()
+            if pid:
+                cit["paragraph_id"] = pid
+                cit["return_url"] = passage_return_url(pid)
+            return cit
 
         band_row = conn.execute(
             text(

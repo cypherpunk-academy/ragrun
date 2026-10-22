@@ -27,7 +27,6 @@ _TYPOLOGY_OPTIONAL_FIELDS = (
     "group_title",
     "health",
     "counterpart_chunk_id",
-    "short_text",
 )
 
 
@@ -155,10 +154,6 @@ class ChunkMetadata(BaseModel):
     counterpart_chunk_id: Optional[str] = Field(
         None,
         description="Member with the same group_id, the other health and the same segment_index.",
-    )
-    short_text: Optional[str] = Field(
-        None,
-        description="Short text of the typology node; not part of the chunk text.",
     )
 
     @classmethod
