@@ -342,67 +342,34 @@ async def search_corpus(
 # ---------------------------------------------------------------------------
 
 
-async def get_passage(paragraph_id: str) -> dict[str, Any]:
-    """Read a single paragraph by its UUID.
+async def get_passage(
+    paragraph_id: str | None = None,
+    source_id: str | None = None,
+    segment_index: int | None = None,
+    from_paragraph: int | None = None,
+    to_paragraph: int | None = None,
+    before: int = 0,
+    after: int = 0,
+) -> dict[str, Any]:
+    """Read one or more paragraphs with optional context and nav (plan §4).
 
-    Returns the paragraph text plus source/segment metadata for navigation.
-
-    Args:
-        paragraph_id: UUID of the paragraph (from search results or protocols).
+    Address by ``paragraph_id`` (with optional ``before``/``after``) or by
+    ``source_id``, ``segment_index``, and ``from_paragraph`` (optional ``to_paragraph``).
     """
-    pid = (paragraph_id or "").strip()
-    if not pid:
-        return {"error": "paragraph_id is required"}
-
-    def _query() -> dict[str, Any] | None:
-        with get_engine().connect() as conn:
-            row = conn.execute(
-                text(
-                    """
-                    SELECT
-                        p.id AS paragraph_id,
-                        p.source_id,
-                        p.segment_index,
-                        p.segment_title,
-                        p.paragraph_number,
-                        p.text_raw AS text,
-                        s.title AS source_title,
-                        s.author AS source_author
-                    FROM rag_paragraphs p
-                    LEFT JOIN rag_sources s ON s.id::text = p.source_id
-                    WHERE p.id = :pid
-                      AND p.deprecated_at IS NULL
-                    """
-                ),
-                {"pid": pid},
-            ).mappings().first()
-        if not row:
-            return None
-        base = {
-            "paragraph_id": row["paragraph_id"],
-            "source_id": row["source_id"],
-            "source_title": row["source_title"],
-            "source_author": row["source_author"],
-            "segment_index": row["segment_index"],
-            "segment_title": row["segment_title"],
-            "paragraph_number": row["paragraph_number"],
-            "text": str(row["text"] or ""),
-        }
-        return base
-
-    result = await asyncio.to_thread(_query)
-    if result is None:
-        return {"error": "paragraph not found"}
+    from app.services.passage_read_service import read_passages
 
     engine = get_engine()
-    citation = await asyncio.to_thread(
-        fetch_citation,
+    return await asyncio.to_thread(
+        read_passages,
         engine,
-        str(result["paragraph_id"]),
+        paragraph_id=paragraph_id,
+        source_id=source_id,
+        segment_index=segment_index,
+        from_paragraph=from_paragraph,
+        to_paragraph=to_paragraph,
+        before=before,
+        after=after,
     )
-    if citation:
-        result["citation"] = citation
-    return result
 
 
 # ---------------------------------------------------------------------------

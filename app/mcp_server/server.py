@@ -520,16 +520,31 @@ def _register_tools(mcp: MCPServer) -> None:
             return _tool_infra_error(exc)
 
     @mcp.tool(name="get_passage")
-    async def tool_get_passage(paragraph_id: str) -> dict:
-        """Read a single paragraph by its UUID.
+    async def tool_get_passage(
+        paragraph_id: str | None = None,
+        source_id: str | None = None,
+        segment_index: int | None = None,
+        from_paragraph: int | None = None,
+        to_paragraph: int | None = None,
+        before: int = 0,
+        after: int = 0,
+    ) -> dict:
+        """Read paragraph(s) by UUID or by source segment and paragraph numbers.
 
-        Returns the paragraph text plus source/segment metadata for navigation.
-
-        Args:
-            paragraph_id: UUID of the paragraph (from search results or protocols).
+        Use paragraph_id from search, protocol, or handoff; optional before/after
+        (max 5) for context. Or source_id + segment_index + from_paragraph (and
+        optional to_paragraph, max 12 paragraphs). Response includes nav.prev/next.
         """
         try:
-            return await get_passage(paragraph_id=paragraph_id)
+            return await get_passage(
+                paragraph_id=paragraph_id,
+                source_id=source_id,
+                segment_index=segment_index,
+                from_paragraph=from_paragraph,
+                to_paragraph=to_paragraph,
+                before=before,
+                after=after,
+            )
         except Exception as exc:
             return _tool_infra_error(exc)
 
