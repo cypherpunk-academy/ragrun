@@ -720,7 +720,7 @@ _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 # Chunk types for which navigation resolves to a paragraph (mirrors
 # app_search_service._NAVIGATION_CHUNK_TYPES) — used to fill in paragraph_id
 # when it's missing from a chunk's own metadata.
-_CITATION_NAV_CHUNK_TYPES = frozenset({"book", "secondary_book", "talk", "quote", "quote_explanation"})
+_CITATION_NAV_CHUNK_TYPES = frozenset({"book", "secondary_book", "quote", "quote_explanation"})
 
 
 def _citation_from_meta(

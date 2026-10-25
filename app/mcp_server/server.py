@@ -46,21 +46,23 @@ strukturierten Korpus von Werken Rudolf Steiners und verwandter Autoren verfuegt
 ## Korpus
 Der Korpus umfasst Primaerwerke (u.a. Die Philosophie der Freiheit, Die Kernpunkte \
 der sozialen Frage) sowie Sekundaerwerke. Nutze `search_corpus` fuer semantische \
-Suche und `get_passage` fuer den Volltext einzelner Absaetze. Typologien (Weltanschauungen, \
-Soziale Gesundheit, …): `list_typologies` fuer das Gesamtverzeichnis (alle Ueberblicke), \
-`list_typology` fuer den Baum einer Typologie, `search_typology` fuer semantische Suche \
-(filter `role=overview` nur Ueberblicke); `search_corpus` findet Typology-Chunks unter type concept.
+Suche und `get_passage` fuer den Volltext einzelner Absaetze. Antwort: `hits` \
+(Originale: Werke, Vortraege, verifizierte Zitate, Eigentexte) und `wegweiser` \
+(Begriffe, Typologie, Kapitelzusammenfassungen — nicht woertlich zitieren). \
+Typologie-Verzeichnis: Resource `philo://typologien`. Belege: \
+`search_corpus(ref=<chunk_id>)` mit `wegweiser.ref` oder `gegenpol.ref`. \
+Hinweise einmal in `wegweiser_hinweise`. Gruppe: `kontext.group_chunk_id`. \
+`references_status`: belegt | fehlt (nicht in DB).
 
 ## Typologien (Struktur, kein Zitat-Korpus)
 Typologie-Texte sind redaktionell gepflegte Strukturhilfen (Matrizen, Felder, Gegenpole) — \
 kein Primaertext wie Buch oder Vortrag. Nutze sie zum Orientieren, Einordnen und Vergleichen; \
 formuliere Antworten in eigenen Worten. Gib Typologie-Inhalte nicht woertlich wieder und \
 stelle sie nicht als Zitat Rudolf Steiners dar. Steiner-Belege holst du mit \
-`search_corpus` und `get_passage` aus Werken und Vortraegen (`citation` / `zitierform`). \
-Eingebettete `zitate` in Typologie-YAML sind Ausnahmen: die zitierst du nur, wenn du \
-den Beleg brauchst, und dann als Steiner-Stelle — nicht den umgebenden Typologie-Fliesstext. \
+`search_corpus` und `get_passage` aus Werken und Vortraegen (`citation` / `zitierform`) \
+oder ueber gespeicherte `references` am Knoten (`search_corpus` mit `ref`). \
 Nenne ruhig Typologie-Namen, Felder und Schlagwoerter (z. B. Feld Geist -> Recht, Aspekt \
-Korrektur), ohne den Langtext aus `search_typology` abzulesen.
+Korrektur), ohne Langtexte aus `wegweiser` abzulesen.
 
 ## Stufenlieferung
 Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
@@ -102,8 +104,8 @@ immer als Markdown-Link aus: `[zitierform](return_url)`. Ohne `citation` zitiere
 Korpus-Baende mit dem vollen deutschen Titel (`band` / `segment_title`), ohne \
 GA-Nummer. Ausnahme: die separate Collection `rudolf-steiner-ga` (Seitenangaben \
 „GA n, S. …") — sie folgt eigenen Regeln und liefert kein `citation`-Objekt im \
-Philo-Format. Concept-Treffer tragen `references` mit eigenen `citation`-Objekten; \
-verlinke jede Referenz ebenso.
+Philo-Format. Treffer aus `search_corpus(ref=…)` tragen `citation` wie gewohnt; \
+verlinke Belege mit `return_url`.
 
 ## Stil
 Sprich den Nutzer immer mit "du" an. Sei klar, sachlich, praezise. Keine Ironie, \
@@ -327,9 +329,6 @@ def _register_tools(mcp: MCPServer) -> None:
         search_corpus,
         search_ga,
         search_ga_summaries,
-        list_typologies,
-        list_typology,
-        search_typology,
         update_work_text,
     )
 
@@ -350,22 +349,24 @@ def _register_tools(mcp: MCPServer) -> None:
 
     @mcp.tool(name="search_corpus")
     async def tool_search_corpus(
-        query: str,
+        query: str = "",
         types: list[str] | None = None,
         limit: int = 10,
-    ) -> list[dict] | dict:
-        """Search the philosophical corpus (books, talks, concepts, quotes).
+        ref: str | None = None,
+    ) -> dict:
+        """Search the corpus: originals in hits, augment in wegweiser.
 
-        Returns ranked results with chunk_id, source metadata, and a short snippet.
-        Use get_passage with the paragraph_id from results to read the full text.
+        Use get_passage with paragraph_id from hits. Stored references on a concept
+        or typology node: search_corpus(ref=chunk_id) (query ignored).
 
         Args:
-            query: Search query (German or English).
-            types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
-            limit: Max results (1-20, default 10).
+            query: Search query (German or English). Required unless ref is set.
+            types: text, quote, curated_text (hits); concept, chapter_summary (wegweiser only).
+            limit: Max hits (1-20, default 10).
+            ref: Concept or typology chunk_id to load stored references as hits.
         """
         try:
-            return await search_corpus(query=query, types=types, limit=limit)
+            return await search_corpus(query=query, types=types, limit=limit, ref=ref)
         except Exception as exc:
             return _tool_infra_error(exc)
 
@@ -448,73 +449,6 @@ def _register_tools(mcp: MCPServer) -> None:
                 limit=limit,
                 group_by_lecture=group_by_lecture,
                 explain=explain,
-            )
-        except Exception as exc:
-            return _tool_infra_error(exc)
-
-    @mcp.tool(name="list_typologies")
-    async def tool_list_typologies() -> dict:
-        """Catalog of all typologies in the corpus (overview per slug, from rag_chunks).
-
-        Use this before guessing via search: returns every typology with title, slug,
-        has_health, and a short overview blurb. Does not use Qdrant.
-        Typology prose is for your reasoning only — do not quote it verbatim to the user.
-        """
-        try:
-            return await list_typologies()
-        except Exception as exc:
-            return _tool_infra_error(exc)
-
-    @mcp.tool(name="list_typology")
-    async def tool_list_typology(
-        name: str | None = None,
-        chunk_id: str | None = None,
-    ) -> dict:
-        """List a typology tree from rag_chunks (overview, groups, members).
-
-        Provide typology name (slug or title) or chunk_id to select the typology.
-        With chunk_id, includes focus: siblings, other groups, counterpart pole.
-        Structure aid only — paraphrase in your own words; do not quote chunk text as Steiner.
-
-        Args:
-            name: Typology slug or display title (e.g. 12-weltanschauungen).
-            chunk_id: Any chunk in the typology; adds focus navigation.
-        """
-        try:
-            return await list_typology(name=name, chunk_id=chunk_id)
-        except Exception as exc:
-            return _tool_infra_error(exc)
-
-    @mcp.tool(name="search_typology")
-    async def tool_search_typology(
-        query: str,
-        typology: str | None = None,
-        group: str | None = None,
-        health: str | None = None,
-        role: str | None = None,
-        limit: int = 8,
-    ) -> list[dict] | dict:
-        """Semantic search within typology chunks only.
-
-        Each hit includes the full chunk text from rag_chunks (not a short snippet).
-        Use the text to think and orient; paraphrase for the user — no verbatim typology quotes.
-
-        Args:
-            query: Search text (required).
-            typology: Limit to one typology (slug or title).
-            group: feld-N or direction (e.g. feld-1, Geist -> Recht).
-            health: gesund or krank (only for typologies with poles).
-            role: overview, group, or member.
-            limit: 1-20 (default 8).
-        """
-        try:
-            return await search_typology(
-                query=query,
-                typology=typology,
-                group=group,
-                health=health,
-                role=role,
-                limit=limit,
             )
         except Exception as exc:
             return _tool_infra_error(exc)
@@ -747,6 +681,8 @@ def _register_tools(mcp: MCPServer) -> None:
 
 def _register_resources(mcp: MCPServer) -> None:
     """Register MCP resources."""
+    from app.mcp_server.typology_tools import list_typologies
+
     from .tools import list_volumes
 
     @mcp.resource("philo://corpus/volumes")
@@ -755,6 +691,22 @@ def _register_resources(mcp: MCPServer) -> None:
         volumes = await list_volumes()
         lines = [f"- {v['display_name']} (source_id: {v['source_id']})" for v in volumes]
         return "# Korpus-Baende\n\n" + "\n".join(lines)
+
+    @mcp.resource("philo://typologien")
+    async def typology_catalog() -> str:
+        """Typology slugs and overview blurbs (structure, not Steiner quotes)."""
+        catalog = await list_typologies()
+        items = catalog.get("typologies") if isinstance(catalog, dict) else None
+        if not isinstance(items, list):
+            return "# Typologien\n\n(nicht verfügbar)"
+        lines: list[str] = ["# Typologien\n"]
+        for t in items:
+            if not isinstance(t, dict):
+                continue
+            slug = t.get("typology_slug") or t.get("slug") or "?"
+            title = t.get("title") or slug
+            lines.append(f"- **{title}** (`{slug}`)")
+        return "\n".join(lines)
 
 
 def _register_prompts(mcp: MCPServer) -> None:

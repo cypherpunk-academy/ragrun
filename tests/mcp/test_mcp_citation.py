@@ -155,7 +155,7 @@ def test_validate_search_types_rejects_unknown():
 
 
 def test_validate_search_types_allows_known():
-    assert _validate_search_types(["text", "chapter_summary"]) is None
+    assert _validate_search_types(["text", "chapter_summary", "curated_text"]) is None
 
 
 def test_content_too_long_limit():

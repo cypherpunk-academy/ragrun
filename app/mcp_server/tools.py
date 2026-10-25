@@ -22,15 +22,32 @@ from app.mcp_server.citation import (
     text_return_url,
 )
 from app.services.app_catalog_repository import PostgresCatalogRepository
-from app.mcp_server.typology_tools import list_typologies, list_typology, search_typology
 from app.services.app_search_service import _lookup_paragraph_ids, app_search
+from app.services.corpus_search_policy import is_augment_hit, is_original_hit
 
 logger = logging.getLogger(__name__)
 
 _SNIPPET_LIMIT = 300
 _CONTENT_MAX_BYTES = 1_048_576  # 1 MB
-_ALLOWED_SEARCH_TYPES = frozenset({"text", "concept", "quote", "chapter_summary"})
-_REF_CHUNK_TYPES = frozenset({"begriff", "typology"})
+_ALLOWED_SEARCH_TYPES = frozenset(
+    {"text", "quote", "curated_text", "concept", "chapter_summary"}
+)
+_REF_ANCHOR_CHUNK_TYPES = frozenset({"begriff", "typology"})
+_MAX_WEGWEISER = 5
+_MAX_MEMBERS_PER_GROUP = 2
+_WEGWEISER_HINWEISE_REF = (
+    "search_corpus(ref=…) mit wegweiser[].ref oder gegenpol.ref (UUID). "
+    "Typologie-Slug (z. B. soziale-gesundheit) → Übersichtsknoten. "
+    "Feld feld-N: kontext.group_chunk_id der Gruppe (nicht group_id)."
+)
+_WEGWEISER_HINWEISE_BELEGE = (
+    "references_status fehlt = keine Referenzen in rag_chunks — Typologie mit "
+    "ragprep neu chunken/embedden, oder Steiner-Belege per Textsuche."
+)
+_CHUNK_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
@@ -62,6 +79,12 @@ def _normalize_chunk_references(raw: Any) -> list[dict[str, Any]]:
             continue
         entry: dict[str, Any] = {"chunk_id": cid}
         desc = item.get("description")
+        if not (isinstance(desc, str) and desc.strip()):
+            for key in ("begruendung", "relation"):
+                alt = item.get(key)
+                if isinstance(alt, str) and alt.strip():
+                    desc = alt.strip()
+                    break
         if isinstance(desc, str) and desc.strip():
             entry["description"] = desc.strip()
         rel = item.get("relevance")
@@ -150,39 +173,12 @@ async def _enrich_corpus_hits(
         if chapter:
             item["citation"] = chapter
 
-    need_refs = [
-        str(i["chunk_id"])
-        for i in items
-        if i.get("chunk_id") and str(i.get("chunk_type") or "") in _REF_CHUNK_TYPES
-    ]
-    db_refs = await asyncio.to_thread(_fetch_chunk_references, engine, need_refs) if need_refs else {}
-    all_ref_ids: list[str] = []
     for item in items:
-        cid = str(item.get("chunk_id") or "")
-        refs = _normalize_chunk_references(item.pop("_raw_references", None)) or db_refs.get(cid) or []
-        if refs:
-            item["_pending_refs"] = refs
-            all_ref_ids.extend(r["chunk_id"] for r in refs)
-
-    pid_map = await _lookup_paragraph_ids(all_ref_ids, engine) if all_ref_ids else {}
-    ref_pids = [pid for pid in pid_map.values() if pid]
-    ref_citations = await asyncio.to_thread(fetch_citations_batch, engine, ref_pids) if ref_pids else {}
-    for item in items:
-        pending = item.pop("_pending_refs", None)
-        if not pending:
-            continue
-        resolved: list[dict[str, Any]] = []
-        for ref in pending:
-            entry = dict(ref)
-            pid = pid_map.get(ref["chunk_id"])
-            if pid and pid in ref_citations:
-                entry["citation"] = ref_citations[pid]
-            resolved.append(entry)
-        if resolved:
-            item["references"] = resolved
-    for item in items:
+        item.pop("_raw_references", None)
         item.pop("parent_id", None)
         item.pop("source_index", None)
+        if str(item.get("chunk_type") or "") == "curated_text" and item.get("citation"):
+            item.pop("citation", None)
 
 
 def _get_user_id() -> str | None:
@@ -270,21 +266,692 @@ async def _supabase_rpc(
 # ---------------------------------------------------------------------------
 
 
+def _references_status(raw_hits: list[dict[str, Any]], meta: Mapping[str, Any]) -> str:
+    refs = meta.get("references")
+    if isinstance(refs, list) and refs:
+        return "belegt"
+    for h in raw_hits:
+        if isinstance(h.get("references"), list) and h["references"]:
+            return "belegt"
+    return "fehlt"
+
+
+def _kuratiert_from_meta(meta: Mapping[str, Any]) -> bool:
+    val = meta.get("kuratiert")
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes", "ja")
+    return False
+
+
+def _wegweiser_titel(raw: Mapping[str, Any], meta: Mapping[str, Any]) -> str:
+    for key in ("segment_title", "title", "schlagwort", "source_title"):
+        val = raw.get(key) or meta.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return str(raw.get("chunk_id") or "")
+
+
+def _wegweiser_kontext(meta: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    group_id = meta.get("group_id")
+    if isinstance(group_id, str) and group_id.strip():
+        out["group_id"] = group_id.strip()
+    slug = meta.get("typology_slug")
+    if isinstance(slug, str) and slug.strip():
+        out["typology_slug"] = slug.strip()
+    parent = meta.get("parent_id")
+    if isinstance(parent, str) and parent.strip():
+        out["group_chunk_id"] = parent.strip()
+    return out
+
+
+def _build_wegweiser(
+    raw: dict[str, Any],
+    meta: Mapping[str, Any],
+) -> dict[str, Any]:
+    chunk_type = str(raw.get("chunk_type") or meta.get("chunk_type") or "")
+    kind = "chapter_summary" if chunk_type == "chapter_summary" else chunk_type
+    ref = str(raw.get("chunk_id") or "")
+    kuratiert = _kuratiert_from_meta(meta)
+    entry: dict[str, Any] = {
+        "kind": kind,
+        "titel": _wegweiser_titel(raw, meta),
+        "ref": ref,
+        "references_status": _references_status([raw], meta),
+        "herkunft": "kuratiert" if kuratiert else "augment",
+        "zitierbar": False,
+        "score": round(float(raw.get("score", 0)), 4),
+    }
+    kontext = _wegweiser_kontext(meta)
+    if kontext:
+        entry["kontext"] = kontext
+    role = str(raw.get("typology_role") or meta.get("typology_role") or "")
+    if role:
+        entry["typology_role"] = role
+    if role == "group":
+        entry.setdefault("kontext", {})["group_chunk_id"] = ref
+    for key in ("group_title", "health"):
+        val = raw.get(key) if raw.get(key) is not None else meta.get(key)
+        if val is not None and val != "":
+            entry[key] = val
+    if kuratiert:
+        for key in ("schlagsatz", "kurztext"):
+            val = meta.get(key)
+            if isinstance(val, str) and val.strip():
+                entry[key] = _snippet(val.strip(), limit=300)
+    cp = meta.get("counterpart_chunk_id")
+    if isinstance(cp, str) and cp.strip():
+        entry["_counterpart_chunk_id"] = cp.strip()
+    return entry
+
+
+def _typology_role_of(raw: Mapping[str, Any]) -> str:
+    return str(raw.get("typology_role") or "").strip().lower()
+
+
+def _raw_references_belegt(raw: Mapping[str, Any]) -> bool:
+    refs = raw.get("references")
+    return isinstance(refs, list) and len(refs) > 0
+
+
+def _wegweiser_priority_tier(raw: Mapping[str, Any]) -> int:
+    """Lower tier = higher priority in wegweiser list."""
+    role = _typology_role_of(raw)
+    belegt = _raw_references_belegt(raw)
+    if role == "member":
+        return 0 if belegt else 1
+    if role == "group":
+        return 2 if belegt else 4
+    if str(raw.get("chunk_type") or "") == "chapter_summary":
+        return 3 if belegt else 5
+    if str(raw.get("chunk_type") or "") == "begriff":
+        return 6
+    return 7
+
+
+def _sort_wegweiser_raw(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda r: (_wegweiser_priority_tier(r), -float(r.get("score", 0))),
+    )
+
+
+def _dedupe_wegweiser_raw(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    best: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        cid = str(r.get("chunk_id") or "")
+        if not cid:
+            continue
+        prev = best.get(cid)
+        if prev is None or float(r.get("score", 0)) > float(prev.get("score", 0)):
+            best[cid] = r
+    return list(best.values())
+
+
+def _rag_row_to_weg_raw(row: Mapping[str, Any], score: float) -> dict[str, Any]:
+    from app.mcp_server.typology_tools import typology_fields_for_search_result
+
+    meta = _meta_from_row(row)
+    meta_with_type = {**meta, "chunk_type": row.get("chunk_type") or meta.get("chunk_type") or "typology"}
+    text_val = str(row.get("text") or "")
+    refs_norm = _normalize_stored_references(row)
+    out: dict[str, Any] = {
+        "chunk_id": str(row["chunk_id"]),
+        "chunk_type": str(row.get("chunk_type") or "typology"),
+        "score": score,
+        "snippet": _snippet(text_val),
+        "text": text_val,
+        "segment_title": meta.get("segment_title"),
+        "title": meta.get("source_title"),
+    }
+    out.update(typology_fields_for_search_result(meta_with_type))
+    for key in ("schlagwort", "schlagsatz", "kurztext", "kuratiert"):
+        val = meta.get(key)
+        if val is not None and val != "":
+            out[key] = val
+    if refs_norm:
+        out["references"] = refs_norm
+    return out
+
+
+def _fetch_typology_members_for_group(
+    engine: Any,
+    *,
+    group_id: str,
+    health: str | None,
+    typology_slug: str | None,
+    partition: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+
+    def _query() -> list[dict[str, Any]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, source_id, chunk_type, text, metadata, "references" AS refs
+                    FROM rag_chunks
+                    WHERE rag_partition = :part
+                      AND chunk_type = 'typology'
+                      AND deprecated_at IS NULL
+                      AND metadata->>'typology_role' = 'member'
+                      AND metadata->>'group_id' = :gid
+                      AND (
+                        CAST(:health AS text) IS NULL
+                        OR metadata->>'health' = CAST(:health AS text)
+                      )
+                      AND (
+                        CAST(:slug AS text) IS NULL
+                        OR metadata->>'typology_slug' = CAST(:slug AS text)
+                      )
+                    ORDER BY
+                      CASE
+                        WHEN "references" IS NOT NULL
+                          AND jsonb_typeof("references") = 'array'
+                          AND jsonb_array_length("references") > 0
+                          THEN 0
+                        WHEN metadata->'references' IS NOT NULL
+                          AND jsonb_typeof(metadata->'references') = 'array'
+                          AND jsonb_array_length(metadata->'references') > 0
+                          THEN 0
+                        ELSE 1
+                      END,
+                      updated_at DESC
+                    LIMIT :lim
+                    """
+                ),
+                {
+                    "part": partition,
+                    "gid": gid,
+                    "health": (health or "").strip() or None,
+                    "slug": (typology_slug or "").strip() or None,
+                    "lim": max(1, limit),
+                },
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
+    return _query()
+
+
+async def _expand_and_rank_wegweiser(
+    weg_raw: list[dict[str, Any]],
+    engine: Any,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    from app.config import settings
+    from app.retrieval.services.action_prompt_service import load_assistant_rag_collection
+
+    partition = load_assistant_rag_collection(settings.app_default_assistant_slug)
+    pool = list(weg_raw)
+    groups_seen: set[tuple[str, str, str]] = set()
+
+    for r in weg_raw:
+        if _typology_role_of(r) != "group":
+            continue
+        gid = str(r.get("group_id") or "").strip()
+        if not gid:
+            continue
+        health = str(r.get("health") or "").strip()
+        slug = str(r.get("typology_slug") or "").strip()
+        key = (gid, health, slug)
+        if key in groups_seen:
+            continue
+        groups_seen.add(key)
+        base_score = float(r.get("score", 0))
+        member_rows = await asyncio.to_thread(
+            _fetch_typology_members_for_group,
+            engine,
+            group_id=gid,
+            health=health or None,
+            typology_slug=slug or None,
+            partition=partition,
+            limit=_MAX_MEMBERS_PER_GROUP,
+        )
+        for i, row in enumerate(member_rows):
+            member_score = (
+                base_score * (0.98 - i * 0.01)
+                if base_score > 0
+                else max(0.02, 0.05 - i * 0.005)
+            )
+            pool.append(_rag_row_to_weg_raw(row, member_score))
+
+    pool = _dedupe_wegweiser_raw(pool)
+    pool = _sort_wegweiser_raw(pool)
+    return pool[:limit]
+
+
+def _split_hits_and_wegweiser(
+    raw_results: list[dict[str, Any]],
+    *,
+    limit_hits: int,
+    limit_wegweiser: int | None = _MAX_WEGWEISER,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    hits_raw: list[dict[str, Any]] = []
+    weg_raw: list[dict[str, Any]] = []
+    for r in raw_results:
+        ct = str(r.get("chunk_type") or "")
+        if is_original_hit(ct):
+            hits_raw.append(r)
+        elif is_augment_hit(ct):
+            weg_raw.append(r)
+
+    hits_raw.sort(key=lambda x: float(x.get("score", 0)), reverse=True)
+    weg_raw.sort(key=lambda x: float(x.get("score", 0)), reverse=True)
+    if limit_wegweiser is not None:
+        weg_raw = weg_raw[:limit_wegweiser]
+    return hits_raw[:limit_hits], weg_raw
+
+
+def _raw_hit_to_mcp_item(r: dict[str, Any]) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "chunk_id": r.get("chunk_id"),
+        "chunk_type": r.get("chunk_type"),
+        "score": round(float(r.get("score", 0)), 4),
+        "snippet": _snippet(r.get("snippet") or r.get("text") or ""),
+    }
+    for key in (
+        "title",
+        "segment_title",
+        "author",
+        "paragraph_id",
+        "source_id",
+        "navigation_error",
+        "quote_verified",
+    ):
+        if r.get(key) is not None:
+            item[key] = r[key]
+    return item
+
+
+def _assistant_rag_partition() -> str:
+    from app.retrieval.services.action_prompt_service import load_assistant_rag_collection
+
+    return load_assistant_rag_collection(settings.app_default_assistant_slug)
+
+
+def _fetch_chunks_by_ids(engine: Any, chunk_ids: list[str]) -> dict[str, dict[str, Any]]:
+    ids = [c.strip() for c in chunk_ids if c and str(c).strip()]
+    if not ids:
+        return {}
+
+    def _query() -> dict[str, dict[str, Any]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, source_id, chunk_type, text, metadata, "references" AS refs
+                    FROM rag_chunks
+                    WHERE chunk_id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                    """
+                ),
+                {"ids": ids},
+            ).mappings().all()
+        return {str(r["chunk_id"]): dict(r) for r in rows}
+
+    return _query()
+
+
+def _references_status_from_row(row: Mapping[str, Any] | None) -> tuple[str, int]:
+    if row is None:
+        return "unbekannt", 0
+    stored = _normalize_stored_references(row)
+    count = len(stored)
+    return ("belegt" if count else "fehlt"), count
+
+
+def _build_gegenpol_block(
+    cp_row: Mapping[str, Any],
+    *,
+    pole_health: str | None,
+) -> dict[str, Any]:
+    cp_meta = _meta_from_row(cp_row)
+    cp_ref = str(cp_row["chunk_id"])
+    status, count = _references_status_from_row(cp_row)
+    block: dict[str, Any] = {
+        "ref": cp_ref,
+        "titel": _wegweiser_titel({"chunk_id": cp_ref}, cp_meta),
+        "references_status": status,
+        "references_count": count,
+    }
+    health = cp_meta.get("health")
+    if isinstance(health, str) and health.strip():
+        block["health"] = health.strip()
+    elif pole_health in ("gesund", "krank"):
+        block["health"] = "krank" if pole_health == "gesund" else "gesund"
+    return block
+
+
+def _fetch_group_chunk_ids(
+    engine: Any,
+    keys: list[tuple[str, str, str]],
+    partition: str,
+) -> dict[tuple[str, str, str], str]:
+    """Map (group_id, health, typology_slug) → group chunk UUID."""
+    if not keys:
+        return {}
+    unique = list(dict.fromkeys(keys))
+    gids = list({k[0] for k in unique})
+
+    def _query() -> dict[tuple[str, str, str], str]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, metadata
+                    FROM rag_chunks
+                    WHERE rag_partition = :part
+                      AND chunk_type = 'typology'
+                      AND deprecated_at IS NULL
+                      AND metadata->>'typology_role' = 'group'
+                      AND metadata->>'group_id' = ANY(:gids)
+                    """
+                ),
+                {"part": partition, "gids": gids},
+            ).mappings().all()
+        out: dict[tuple[str, str, str], str] = {}
+        for row in rows:
+            meta = _meta_from_row(row)
+            gid = str(meta.get("group_id") or "").strip()
+            health = str(meta.get("health") or "").strip()
+            slug = str(meta.get("typology_slug") or "").strip()
+            key = (gid, health, slug)
+            if key in unique:
+                out[key] = str(row["chunk_id"])
+        return out
+
+    return _query()
+
+
+def _compact_wegweiser_entry(entry: dict[str, Any]) -> None:
+    entry.pop("_counterpart_chunk_id", None)
+    entry.pop("via", None)
+    entry.pop("counterpart_chunk_id", None)
+    entry.pop("ref_hinweis", None)
+    entry.pop("belege_hinweis", None)
+    kontext = entry.get("kontext")
+    if isinstance(kontext, dict):
+        for key in ("group_id", "typology_slug"):
+            entry.pop(key, None)
+
+
+def _wegweiser_response_meta(entries: list[dict[str, Any]]) -> dict[str, str]:
+    meta: dict[str, str] = {"ref": _WEGWEISER_HINWEISE_REF}
+    if any(
+        e.get("references_count") == 0
+        and e.get("typology_role") in ("member", "group", "overview")
+        for e in entries
+    ):
+        meta["belege"] = _WEGWEISER_HINWEISE_BELEGE
+    return meta
+
+
+async def _enrich_wegweiser_from_db(
+    engine: Any,
+    entries: list[dict[str, Any]],
+) -> None:
+    if not entries:
+        return
+    partition = _assistant_rag_partition()
+    ids: list[str] = []
+    group_keys: list[tuple[str, str, str]] = []
+    for e in entries:
+        ref = str(e.get("ref") or "")
+        if ref:
+            ids.append(ref)
+        cp = e.get("_counterpart_chunk_id")
+        if isinstance(cp, str) and cp.strip():
+            ids.append(cp.strip())
+        ctx = e.get("kontext")
+        if isinstance(ctx, dict) and ctx.get("group_id") and not ctx.get("group_chunk_id"):
+            group_keys.append(
+                (
+                    str(ctx["group_id"]),
+                    str(e.get("health") or ""),
+                    str(ctx.get("typology_slug") or ""),
+                )
+            )
+
+    rows = await asyncio.to_thread(_fetch_chunks_by_ids, engine, list(dict.fromkeys(ids)))
+    group_map = await asyncio.to_thread(
+        _fetch_group_chunk_ids, engine, group_keys, partition
+    )
+
+    for e in entries:
+        ref = str(e.get("ref") or "")
+        row = rows.get(ref)
+        status, count = _references_status_from_row(row)
+        e["references_status"] = status
+        e["references_count"] = count
+
+        ctx = e.get("kontext")
+        if isinstance(ctx, dict):
+            if not ctx.get("group_chunk_id") and row is not None:
+                parent = _meta_from_row(row).get("parent_id")
+                if isinstance(parent, str) and parent.strip():
+                    ctx["group_chunk_id"] = parent.strip()
+            gk = (
+                str(ctx.get("group_id") or ""),
+                str(e.get("health") or ""),
+                str(ctx.get("typology_slug") or ""),
+            )
+            if gk in group_map and not ctx.get("group_chunk_id"):
+                ctx["group_chunk_id"] = group_map[gk]
+
+        cp_id = e.get("_counterpart_chunk_id")
+        if isinstance(cp_id, str) and cp_id.strip() and cp_id in rows:
+            e["gegenpol"] = _build_gegenpol_block(
+                rows[cp_id.strip()],
+                pole_health=str(e.get("health") or "") or None,
+            )
+
+    for e in entries:
+        _compact_wegweiser_entry(e)
+
+
+def _resolve_ref_identifier(engine: Any, ref: str) -> str | None:
+    """Map typology slug to overview chunk_id; pass through UUID chunk_ids."""
+    s = (ref or "").strip()
+    if not s:
+        return None
+    if _CHUNK_ID_RE.match(s):
+        return s
+    partition = _assistant_rag_partition()
+
+    def _overview_id_for_slug(slug: str) -> str | None:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id
+                    FROM rag_chunks
+                    WHERE rag_partition = :part
+                      AND chunk_type = 'typology'
+                      AND deprecated_at IS NULL
+                      AND metadata->>'typology_role' = 'overview'
+                      AND lower(trim(metadata->>'typology_slug')) = lower(trim(:slug))
+                    LIMIT 1
+                    """
+                ),
+                {"part": partition, "slug": slug},
+            ).mappings().first()
+        return str(row["chunk_id"]) if row else None
+
+    return _overview_id_for_slug(s)
+
+
+def _fetch_chunk_row(engine: Any, chunk_id: str) -> dict[str, Any] | None:
+    cid = (chunk_id or "").strip()
+    if not cid:
+        return None
+
+    def _query() -> dict[str, Any] | None:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, source_id, chunk_type, text, metadata, "references" AS refs
+                    FROM rag_chunks
+                    WHERE chunk_id = :cid AND deprecated_at IS NULL
+                    """
+                ),
+                {"cid": cid},
+            ).mappings().first()
+        return dict(row) if row else None
+
+    return _query()
+
+
+def _meta_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    meta = row.get("metadata")
+    if isinstance(meta, Mapping):
+        return dict(meta)
+    return {}
+
+
+def _normalize_stored_references(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    refs = row.get("refs")
+    meta = _meta_from_row(row)
+    if not refs:
+        refs = meta.get("references")
+    return _normalize_chunk_references(refs)
+
+
+async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
+    engine = get_engine()
+    raw_ref = (ref or "").strip()
+    resolved = await asyncio.to_thread(_resolve_ref_identifier, engine, raw_ref)
+    if resolved is None:
+        hint = (
+            "ref must be a chunk UUID (wegweiser.ref / via.counterpart_ref) "
+            "or a typology slug for the overview chunk."
+        )
+        if raw_ref.startswith("feld-"):
+            hint += (
+                " group_id (feld-N) is not a ref — use wegweiser.kontext.group_chunk_id "
+                "or a member ref (UUID)."
+            )
+        return {"error": hint, "code": "ref_not_found", "ref": raw_ref}
+
+    row = await asyncio.to_thread(_fetch_chunk_row, engine, resolved)
+    if row is None:
+        return {"error": "ref not found", "code": "ref_not_found", "ref": raw_ref}
+
+    anchor_type = str(row.get("chunk_type") or "")
+    if anchor_type not in _REF_ANCHOR_CHUNK_TYPES:
+        return {
+            "error": "ref must be a concept or typology chunk_id",
+            "code": "ref_invalid_kind",
+        }
+
+    meta = _meta_from_row(row)
+    stored = _normalize_stored_references(row)
+    anchor_weg = _build_wegweiser(
+        {
+            "chunk_id": row["chunk_id"],
+            "chunk_type": anchor_type,
+            "score": 1.0,
+            "segment_title": meta.get("segment_title"),
+            "title": meta.get("source_title"),
+        },
+        meta,
+    )
+
+    await _enrich_wegweiser_from_db(engine, [anchor_weg])
+
+    if not stored:
+        hinweise = _wegweiser_response_meta([anchor_weg])
+        return {
+            "hits": [],
+            "wegweiser": [anchor_weg],
+            "wegweiser_hinweise": hinweise,
+            "references_status": anchor_weg.get("references_status", "fehlt"),
+            "references_count": anchor_weg.get("references_count", 0),
+        }
+
+    ref_ids = [r["chunk_id"] for r in stored[: max(1, min(limit, 20))]]
+    body_rows: list[dict[str, Any]] = []
+
+    def _load_bodies() -> list[dict[str, Any]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, source_id, chunk_type, text, metadata
+                    FROM rag_chunks
+                    WHERE chunk_id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                      AND chunk_type IN ('book', 'secondary_book')
+                    """
+                ),
+                {"ids": ref_ids},
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
+    bodies = await asyncio.to_thread(_load_bodies)
+    by_id = {str(r["chunk_id"]): r for r in bodies}
+    kind = "typology" if anchor_type == "typology" else "begriff"
+    via_base = {"kind": kind, "ref": ref, "weg": "references"}
+
+    for ref_entry in stored:
+        cid = ref_entry["chunk_id"]
+        body = by_id.get(cid)
+        if body is None:
+            continue
+        bmeta = _meta_from_row(body)
+        text_val = str(body.get("text") or "")
+        item = _raw_hit_to_mcp_item(
+            {
+                "chunk_id": body["chunk_id"],
+                "chunk_type": body.get("chunk_type"),
+                "source_id": body.get("source_id"),
+                "score": float(ref_entry.get("relevance") or 1.0),
+                "snippet": text_val,
+                "text": text_val,
+                "title": bmeta.get("book_title") or bmeta.get("source_title"),
+                "segment_title": bmeta.get("segment_title"),
+                "author": bmeta.get("author"),
+            }
+        )
+        item["via"] = dict(via_base)
+        desc = ref_entry.get("description")
+        if desc:
+            item["reference_note"] = desc
+        body_rows.append(item)
+
+    chunk_ids = [str(h["chunk_id"]) for h in body_rows if h.get("chunk_id")]
+    pid_map = await _lookup_paragraph_ids(chunk_ids, engine) if chunk_ids else {}
+    for h in body_rows:
+        if not h.get("paragraph_id"):
+            h["paragraph_id"] = pid_map.get(str(h.get("chunk_id") or ""))
+
+    await _enrich_corpus_hits(body_rows, body_rows, engine)
+    return {
+        "hits": body_rows,
+        "wegweiser": [anchor_weg],
+        "wegweiser_hinweise": _wegweiser_response_meta([anchor_weg]),
+        "references_status": "belegt",
+    }
+
+
 async def search_corpus(
     query: str,
     types: list[str] | None = None,
     limit: int = 10,
-) -> list[dict[str, Any]] | dict[str, Any]:
-    """Search the philosophical corpus (books, talks, concepts, quotes).
+    ref: str | None = None,
+) -> dict[str, Any]:
+    """Search the corpus: original sources in ``hits``, augment in ``wegweiser``."""
+    ref_id = (ref or "").strip()
+    if ref_id:
+        k = max(1, min(int(limit) if limit is not None else 10, 20))
+        return await _search_corpus_by_ref(ref_id, limit=k)
 
-    Returns ranked results with chunk_id, source metadata, and a short snippet.
-    Use get_passage to read the full paragraph text for a result.
-
-    Args:
-        query: Search query (German or English).
-        types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
-        limit: Max results (1-20, default 10).
-    """
     q = (query or "").strip()
     if not q:
         return {"error": "query is required", "code": "empty_query"}
@@ -293,48 +960,52 @@ async def search_corpus(
     if type_err:
         return type_err
 
-    # limit=0 must clamp to 1 (``limit or 10`` would treat 0 as missing).
     k = max(1, min(int(limit) if limit is not None else 10, 20))
-    results = await app_search(
+    # Retrieve enough candidates so augment can fill wegweiser after the split.
+    fetch_k = min(50, max(k * 3, k + _MAX_WEGWEISER))
+    raw_results = await app_search(
         query=q,
         types=types,
-        limit=k,
+        limit=fetch_k,
         engine=get_engine(),
     )
-    out: list[dict[str, Any]] = []
-    for r in results:
-        item: dict[str, Any] = {
-            "chunk_id": r.get("chunk_id"),
-            "chunk_type": r.get("chunk_type"),
-            "score": round(float(r.get("score", 0)), 4),
-            "snippet": _snippet(r.get("snippet") or r.get("text") or ""),
-        }
-        if r.get("title"):
-            item["title"] = r["title"]
-        if r.get("segment_title"):
-            item["segment_title"] = r["segment_title"]
-        if r.get("author"):
-            item["author"] = r["author"]
-        if r.get("paragraph_id"):
-            item["paragraph_id"] = r["paragraph_id"]
-        if r.get("source_id"):
-            item["source_id"] = r["source_id"]
-        for key in (
-            "typology_role",
-            "typology_slug",
-            "group_id",
-            "group_title",
-            "health",
-            "counterpart_chunk_id",
-        ):
-            if r.get(key) is not None:
-                item[key] = r[key]
-        out.append(item)
 
+    only_originals = types is not None and all(
+        (t or "").strip().lower() in ("text", "quote", "curated_text") for t in types
+    )
+    only_augment = types is not None and all(
+        (t or "").strip().lower() in ("concept", "chapter_summary") for t in types
+    )
+
+    hits_raw, weg_raw = _split_hits_and_wegweiser(
+        raw_results,
+        limit_hits=k,
+        limit_wegweiser=None if not only_originals else 0,
+    )
+    if only_augment:
+        hits_raw = []
+
+    out_hits = [_raw_hit_to_mcp_item(r) for r in hits_raw]
     engine = get_engine()
-    await _enrich_corpus_hits(out, results, engine)
+    await _enrich_corpus_hits(out_hits, hits_raw, engine)
 
-    return out
+    if not only_originals and weg_raw:
+        weg_raw = await _expand_and_rank_wegweiser(
+            weg_raw, engine, limit=_MAX_WEGWEISER
+        )
+
+    wegweiser: list[dict[str, Any]] = []
+    for r in weg_raw:
+        meta = dict(r)
+        wegweiser.append(_build_wegweiser(r, meta))
+
+    if wegweiser:
+        await _enrich_wegweiser_from_db(engine, wegweiser)
+
+    payload: dict[str, Any] = {"hits": out_hits, "wegweiser": wegweiser}
+    if wegweiser:
+        payload["wegweiser_hinweise"] = _wegweiser_response_meta(wegweiser)
+    return payload
 
 
 # ---------------------------------------------------------------------------

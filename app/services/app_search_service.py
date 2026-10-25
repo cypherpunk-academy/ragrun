@@ -16,12 +16,17 @@ from app.retrieval.services.action_prompt_service import load_assistant_embeddin
 from app.mcp_server.typology_tools import typology_fields_for_search_result
 from app.retrieval.utils.retrievers import hybrid_retrieve
 from app.retrieval.models import RetrievedSnippet
+from app.services.corpus_search_policy import (
+    apply_quote_hit_policy,
+    chunk_types_for_title_search,
+)
 
 _APP_TYPE_TO_CHUNK_TYPES: dict[str, list[str]] = {
-    "text": ["book", "secondary_book", "talk"],
+    "text": ["book", "secondary_book"],
     "concept": ["begriff", "typology"],
     "quote": ["quote", "quote_explanation"],
     "chapter_summary": ["chapter_summary"],
+    "curated_text": ["curated_text"],
 }
 
 ALLOWED_APP_SEARCH_TYPES = frozenset(_APP_TYPE_TO_CHUNK_TYPES.keys())
@@ -29,7 +34,6 @@ ALLOWED_APP_SEARCH_TYPES = frozenset(_APP_TYPE_TO_CHUNK_TYPES.keys())
 _NAVIGATION_CHUNK_TYPES = frozenset({
     "book",
     "secondary_book",
-    "talk",
     "quote",
     "quote_explanation",
 })
@@ -40,12 +44,12 @@ def _resolve_chunk_types(types: Iterable[str] | None) -> list[str]:
         return [
             "book",
             "secondary_book",
-            "talk",
             "chapter_summary",
             "quote",
             "quote_explanation",
             "begriff",
             "typology",
+            "curated_text",
         ]
     out: list[str] = []
     for t in types:
@@ -470,9 +474,12 @@ async def app_search(
         force_sparse=settings.use_hybrid_retrieval,
     )
 
-    run_title_search = engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN
+    title_types = chunk_types_for_title_search(chunk_types)
+    run_title_search = (
+        engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN and bool(title_types)
+    )
     if run_title_search:
-        title_coro = _title_match_search(q, chunk_types, engine, limit=k)
+        title_coro = _title_match_search(q, title_types, engine, limit=k)
         hybrid_out, title_out = await asyncio.gather(
             hybrid_coro, title_coro, return_exceptions=True
         )
@@ -632,4 +639,5 @@ async def app_search(
     else:
         merged = results
 
-    return _cap_summary_results(merged)
+    merged = _cap_summary_results(merged)
+    return apply_quote_hit_policy(merged)
