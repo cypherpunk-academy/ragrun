@@ -47,8 +47,15 @@ strukturierten Korpus von Werken Rudolf Steiners und verwandter Autoren verfuegt
 Der Korpus umfasst Primaerwerke (u.a. Die Philosophie der Freiheit, Die Kernpunkte \
 der sozialen Frage) sowie Sekundaerwerke. Nutze `search_corpus` fuer semantische \
 Suche und `get_passage` fuer den Volltext einzelner Absaetze. Antwort: `hits` \
-(Originale: Werke, Vortraege, verifizierte Zitate, Eigentexte) und `wegweiser` \
+(Originale: Werke, Vortraege, verifizierte Zitate) und `wegweiser` \
 (Begriffe, Typologie, Kapitelzusammenfassungen — nicht woertlich zitieren). \
+Eigentexte (`curated_text`) erscheinen nie in `hits` oder `wegweiser`; bei \
+Treffer werden gespeicherte Korpus-Belege (`book` / `secondary_book`) und \
+ggf. GA-Angaben (`ga_text`, `zitierbar: false`) in `hits` expandiert. \
+Treffer mit `zitierbar: false` (GA-Angaben) tragen `chunk_id`: Volltext bei Bedarf \
+mit `get_ga_chunk(chunk_id)` nachladen — immer erlaubt fuer diese IDs. Kurzsnippet \
+reicht oft; langen Wortlaut nicht an den Nutzer weitergeben; keine `zitierform` \
+erfinden. Korpus-Treffer mit `citation` bleiben zitierbar. \
 Typologie-Verzeichnis: Resource `philo://typologien`. Belege: \
 `search_corpus(ref=<chunk_id>)` mit `wegweiser.ref` oder `gegenpol.ref`. \
 Hinweise einmal in `wegweiser_hinweise`. Gruppe: `kontext.group_chunk_id`. \
@@ -90,11 +97,12 @@ eines Bandes nutze `list_lectures` mit der internen GA-Nummer (Feld `ga`, nie im
 vorliegen. Titel und `zitierform` enthalten keine GA-Nummer. Zitiere Vortraege mit \
 Datum und Ort.
 
-## GA-Suche (Collection rudolf-steiner-ga)
-Rufe `search_ga` und `search_ga_summaries` nur auf, wenn der Nutzer in diesem Chat \
-das Kuerzel „ga" genannt hat (z. B. „GA 4"; Gross-/Kleinschreibung egal). Einmal im \
-Verlauf reicht; danach darfst du die Tools in weiteren Turns nutzen. Ohne „ga" bleibt \
-`search_corpus` die Suche.
+## GA (Collection rudolf-steiner-ga)
+`get_ga_chunk(chunk_id)`: bekannten GA-Chunk nachladen (z. B. aus curated-Angaben \
+in `hits`) — immer erlaubt, wenn du die `chunk_id` hast. \
+`search_ga` / `search_ga_summaries` (freie Textsuche): nur nach **explizitem** \
+Nutzerwunsch, in der Gesamtausgabe / GA nachzuschauen (nicht allein weil „GA" \
+in Metadaten steht). Sonst bleibt `search_corpus` die Suche.
 
 ## Quellenverweise (Korpus-Baende)
 Wenn ein Tool ein Objekt `citation` mit Feld `zitierform` liefert, uebernimm \
@@ -318,6 +326,7 @@ def _register_tools(mcp: MCPServer) -> None:
     from .tools import (
         append_to_protocol,
         create_work_text,
+        get_ga_chunk,
         get_handoff,
         get_lecture_info,
         get_passage,
@@ -356,17 +365,37 @@ def _register_tools(mcp: MCPServer) -> None:
     ) -> dict:
         """Search the corpus: originals in hits, augment in wegweiser.
 
-        Use get_passage with paragraph_id from hits. Stored references on a concept
-        or typology node: search_corpus(ref=chunk_id) (query ignored).
+        Use get_passage with paragraph_id from hits. Stored references on a concept,
+        typology, or curated_text node: search_corpus(ref=chunk_id) (query ignored).
+        curated_text never appears in hits/wegweiser — expanded book/secondary_book
+        and optional ga_text Angaben (zitierbar false). Load GA full text via get_ga_chunk.
 
         Args:
             query: Search query (German or English). Required unless ref is set.
-            types: text, quote, curated_text (hits); concept, chapter_summary (wegweiser only).
+            types: text, quote (hits); curated_text (expand refs to hits); concept, chapter_summary (wegweiser).
             limit: Max hits (1-20, default 10).
-            ref: Concept or typology chunk_id to load stored references as hits.
+            ref: Concept, typology, or curated_text chunk_id to load stored references as hits.
         """
         try:
             return await search_corpus(query=query, types=types, limit=limit, ref=ref)
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="get_ga_chunk")
+    async def tool_get_ga_chunk(chunk_id: str) -> dict:
+        """Fetch one GA chunk by chunk_id from rudolf-steiner-ga.
+
+        Always allowed when you already have a chunk_id (e.g. from search_corpus
+        hits with chunk_type ga_text / zitierbar false). Returns full text for
+        understanding — do not forward long passages to the user. Prefer this over
+        search_ga when the ID is known. search_ga remains for explicit user requests
+        to explore the Gesamtausgabe.
+
+        Args:
+            chunk_id: Payload chunk_id from a GA hit or curated Angabe.
+        """
+        try:
+            return await get_ga_chunk(chunk_id)
         except Exception as exc:
             return _tool_infra_error(exc)
 
@@ -379,18 +408,15 @@ def _register_tools(mcp: MCPServer) -> None:
         group_by_lecture: bool | None = None,
         explain: bool = False,
     ) -> list[dict] | dict:
-        """Only call if the user has mentioned "ga" in this conversation (once is enough).
+        """Only call after an explicit user request to search the GA / Gesamtausgabe.
 
-        Search Rudolf Steiner GA wording (collection rudolf-steiner-ga).
-        Vorträge and Schriften (e.g. GA 4, 15, 30). Secondary to search_corpus.
-        Use to verify training knowledge and for original research when
-        search_corpus yields little. Hits are for your understanding — do not
-        pass long continuous passages to the end user. Cite short quotes as
-        (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
+        Free-text search in rudolf-steiner-ga (Vorträge and Schriften). Secondary to
+        search_corpus. Prefer get_ga_chunk(chunk_id) when you already have an ID from
+        hits. Hits are for understanding — do not pass long continuous passages to the
+        end user. Cite short quotes as (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
 
-        Broad topics are grouped by lecture and spread across GA volumes, so one
-        volume does not fill the list. Pass ga or lecture_id to search inside one
-        volume or one lecture; that turns the volume cap off.
+        Broad topics are grouped by lecture and spread across GA volumes. Pass ga or
+        lecture_id to search inside one volume or one lecture.
 
         Args:
             query: Search query (German or English).
@@ -422,15 +448,10 @@ def _register_tools(mcp: MCPServer) -> None:
         group_by_lecture: bool | None = None,
         explain: bool = False,
     ) -> list[dict] | dict:
-        """Only call if the user has mentioned "ga" in this conversation (once is enough).
+        """Only call after an explicit user request to search the GA / Gesamtausgabe.
 
-        Search chapter/lecture summaries (collection rudolf-steiner-ga).
-        Secondary to search_corpus. Orientation across volumes; then use search_ga
-        for wording. Same citation rules: (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
-
-        Broad topics are grouped by lecture and spread across GA volumes. Pass ga
-        or lecture_id to stay inside one volume or one lecture; that turns the
-        volume cap off.
+        Chapter/lecture summaries in rudolf-steiner-ga. Secondary to search_corpus;
+        then search_ga for wording. Same citation rules as search_ga.
 
         Args:
             query: Search query (German or English).

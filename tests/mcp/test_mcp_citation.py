@@ -242,3 +242,10 @@ def test_resolve_chunk_types_ignores_unknown():
     types = _resolve_chunk_types(["bogus_type", "chapter_summary"])
     assert types == ["chapter_summary"]
     assert "bogus_type" not in types
+
+
+def test_resolve_chunk_types_ga():
+    from app.services.app_search_service import _resolve_chunk_types
+
+    assert _resolve_chunk_types(["ga"]) == ["ga_text"]
+    assert _resolve_chunk_types(["text", "ga"]) == ["book", "secondary_book", "ga_text"]

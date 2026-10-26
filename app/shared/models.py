@@ -17,6 +17,7 @@ CHUNK_TYPE_ENUM = (
     "quote",
     "quote_explanation",
     "typology",
+    "curated_text",
     "ga_text",
 )
 

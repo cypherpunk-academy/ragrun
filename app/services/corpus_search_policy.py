@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
-ORIGINAL_HIT_CHUNK_TYPES = frozenset({"book", "secondary_book", "quote", "curated_text"})
+ORIGINAL_HIT_CHUNK_TYPES = frozenset({"book", "secondary_book", "quote"})
 AUGMENT_CHUNK_TYPES = frozenset({"begriff", "typology", "chapter_summary"})
+# curated_text is routing-only: never in hits/wegweiser; expand via rag_chunks.references
 
-_CHUNK_RANK = {"book": 3, "secondary_book": 2, "quote": 1, "curated_text": 0}
+_CHUNK_RANK = {"book": 3, "secondary_book": 2, "quote": 1}
 
 
 def chunk_types_for_title_search(resolved_chunk_types: list[str]) -> list[str]:

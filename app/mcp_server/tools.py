@@ -32,7 +32,7 @@ _CONTENT_MAX_BYTES = 1_048_576  # 1 MB
 _ALLOWED_SEARCH_TYPES = frozenset(
     {"text", "quote", "curated_text", "concept", "chapter_summary"}
 )
-_REF_ANCHOR_CHUNK_TYPES = frozenset({"begriff", "typology"})
+_REF_ANCHOR_CHUNK_TYPES = frozenset({"begriff", "typology", "curated_text"})
 _MAX_WEGWEISER = 5
 _MAX_MEMBERS_PER_GROUP = 2
 _WEGWEISER_HINWEISE_REF = (
@@ -78,6 +78,11 @@ def _normalize_chunk_references(raw: Any) -> list[dict[str, Any]]:
         if not cid:
             continue
         entry: dict[str, Any] = {"chunk_id": cid}
+        chunk_type = str(item.get("chunk_type") or "").strip()
+        if chunk_type:
+            entry["chunk_type"] = chunk_type
+        if item.get("zitierbar") is False:
+            entry["zitierbar"] = False
         desc = item.get("description")
         if not (isinstance(desc, str) and desc.strip()):
             for key in ("begruendung", "relation"):
@@ -87,11 +92,37 @@ def _normalize_chunk_references(raw: Any) -> list[dict[str, Any]]:
                     break
         if isinstance(desc, str) and desc.strip():
             entry["description"] = desc.strip()
+        snippet = item.get("snippet") or item.get("text")
+        if isinstance(snippet, str) and snippet.strip():
+            entry["snippet"] = snippet.strip()
+        for key in (
+            "source_id",
+            "segment_slug",
+            "title",
+            "segment_title",
+            "vortragstitel",
+            "lecture_id",
+            "ga",
+        ):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                entry[key] = val.strip()
+        for key in ("page_start", "page_end", "paragraph_number"):
+            val = item.get(key)
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                entry[key] = int(val)
         rel = item.get("relevance")
         if isinstance(rel, (int, float)) and not isinstance(rel, bool):
             entry["relevance"] = float(rel)
         out.append(entry)
     return out
+
+
+def _is_ga_angabe_ref(ref: Mapping[str, Any]) -> bool:
+    """Stored GA fallback refs: not citable; resolved from denormalized fields."""
+    if str(ref.get("chunk_type") or "").strip() == "ga_text":
+        return True
+    return ref.get("zitierbar") is False
 
 
 def _fetch_chunk_references(
@@ -823,6 +854,193 @@ def _normalize_stored_references(row: Mapping[str, Any]) -> list[dict[str, Any]]
     return _normalize_chunk_references(refs)
 
 
+def _via_kind_for_anchor(anchor_type: str) -> str:
+    if anchor_type == "typology":
+        return "typology"
+    if anchor_type == "curated_text":
+        return "curated_text"
+    return "begriff"
+
+
+def _score_from_ref(
+    ref_entry: Mapping[str, Any],
+    parent_score: float | None,
+) -> float:
+    score = float(ref_entry.get("relevance") or 1.0)
+    if parent_score is not None and parent_score > 0:
+        score = min(1.0, score * float(parent_score))
+    return score
+
+
+def _hit_from_ga_angabe_ref(
+    ref_entry: Mapping[str, Any],
+    *,
+    via_base: dict[str, Any],
+    parent_score: float | None,
+) -> dict[str, Any]:
+    """Build a non-citable hit from denormalized GA reference fields (no DB body)."""
+    text_val = str(ref_entry.get("snippet") or ref_entry.get("description") or "")
+    title = (
+        ref_entry.get("title")
+        or ref_entry.get("vortragstitel")
+        or ref_entry.get("segment_title")
+    )
+    item = _raw_hit_to_mcp_item(
+        {
+            "chunk_id": ref_entry["chunk_id"],
+            "chunk_type": "ga_text",
+            "source_id": ref_entry.get("source_id"),
+            "score": _score_from_ref(ref_entry, parent_score),
+            "snippet": text_val,
+            "text": text_val,
+            "title": title,
+            "segment_title": ref_entry.get("segment_title")
+            or ref_entry.get("vortragstitel"),
+        }
+    )
+    item["via"] = dict(via_base)
+    item["zitierbar"] = False
+    item.pop("citation", None)
+    for key in ("ga", "lecture_id", "page_start", "page_end", "vortragstitel"):
+        if ref_entry.get(key) is not None and ref_entry.get(key) != "":
+            item[key] = ref_entry[key]
+    desc = ref_entry.get("description")
+    if desc:
+        item["reference_note"] = desc
+    return item
+
+
+async def _hits_from_stored_references(
+    engine: Any,
+    *,
+    stored: list[dict[str, Any]],
+    via_base: dict[str, Any],
+    limit: int,
+    parent_score: float | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve stored references into MCP hits (corpus citable; ga_text Angaben not)."""
+    if not stored:
+        return []
+    capped = stored[: max(1, min(limit, 20))]
+    book_ids = [
+        r["chunk_id"]
+        for r in capped
+        if not _is_ga_angabe_ref(r)
+    ]
+
+    def _load_bodies() -> list[dict[str, Any]]:
+        if not book_ids:
+            return []
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id, source_id, chunk_type, text, metadata
+                    FROM rag_chunks
+                    WHERE chunk_id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                      AND chunk_type IN ('book', 'secondary_book')
+                    """
+                ),
+                {"ids": book_ids},
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
+    bodies = await asyncio.to_thread(_load_bodies)
+    by_id = {str(r["chunk_id"]): r for r in bodies}
+    body_rows: list[dict[str, Any]] = []
+    corpus_rows: list[dict[str, Any]] = []
+    for ref_entry in capped:
+        if _is_ga_angabe_ref(ref_entry):
+            body_rows.append(
+                _hit_from_ga_angabe_ref(
+                    ref_entry, via_base=via_base, parent_score=parent_score
+                )
+            )
+            continue
+        cid = ref_entry["chunk_id"]
+        body = by_id.get(cid)
+        if body is None:
+            continue
+        bmeta = _meta_from_row(body)
+        text_val = str(body.get("text") or "")
+        item = _raw_hit_to_mcp_item(
+            {
+                "chunk_id": body["chunk_id"],
+                "chunk_type": body.get("chunk_type"),
+                "source_id": body.get("source_id"),
+                "score": _score_from_ref(ref_entry, parent_score),
+                "snippet": text_val,
+                "text": text_val,
+                "title": bmeta.get("book_title") or bmeta.get("source_title"),
+                "segment_title": bmeta.get("segment_title"),
+                "author": bmeta.get("author"),
+            }
+        )
+        item["via"] = dict(via_base)
+        desc = ref_entry.get("description")
+        if desc:
+            item["reference_note"] = desc
+        body_rows.append(item)
+        corpus_rows.append(item)
+
+    chunk_ids = [str(h["chunk_id"]) for h in corpus_rows if h.get("chunk_id")]
+    pid_map = await _lookup_paragraph_ids(chunk_ids, engine) if chunk_ids else {}
+    for h in corpus_rows:
+        if not h.get("paragraph_id"):
+            h["paragraph_id"] = pid_map.get(str(h.get("chunk_id") or ""))
+    await _enrich_corpus_hits(corpus_rows, corpus_rows, engine)
+    for h in body_rows:
+        if h.get("zitierbar") is False:
+            h.pop("citation", None)
+    return body_rows
+
+
+async def _expand_curated_matches_to_hits(
+    engine: Any,
+    curated_raw: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Turn curated_text search matches into corpus hits via stored references (no wegweiser)."""
+    if not curated_raw:
+        return []
+    curated_raw = sorted(
+        curated_raw, key=lambda x: float(x.get("score", 0)), reverse=True
+    )
+    seen_hit: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for raw in curated_raw:
+        cid = str(raw.get("chunk_id") or "").strip()
+        if not cid:
+            continue
+        row = await asyncio.to_thread(_fetch_chunk_row, engine, cid)
+        if row is None:
+            continue
+        stored = _normalize_stored_references(row)
+        via_base = {
+            "kind": "curated_text",
+            "ref": cid,
+            "weg": "references",
+        }
+        hits = await _hits_from_stored_references(
+            engine,
+            stored=stored,
+            via_base=via_base,
+            limit=limit,
+            parent_score=float(raw.get("score") or 0) or None,
+        )
+        for h in hits:
+            hid = str(h.get("chunk_id") or "")
+            if not hid or hid in seen_hit:
+                continue
+            seen_hit.add(hid)
+            out.append(h)
+            if len(out) >= limit:
+                return out
+    return out
+
+
 async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
     engine = get_engine()
     raw_ref = (ref or "").strip()
@@ -846,12 +1064,25 @@ async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
     anchor_type = str(row.get("chunk_type") or "")
     if anchor_type not in _REF_ANCHOR_CHUNK_TYPES:
         return {
-            "error": "ref must be a concept or typology chunk_id",
+            "error": "ref must be a concept, typology, or curated_text chunk_id",
             "code": "ref_invalid_kind",
         }
 
-    meta = _meta_from_row(row)
     stored = _normalize_stored_references(row)
+    via_base = {
+        "kind": _via_kind_for_anchor(anchor_type),
+        "ref": ref,
+        "weg": "references",
+    }
+
+    # curated_text: only expanded corpus hits — never a wegweiser anchor
+    if anchor_type == "curated_text":
+        body_rows = await _hits_from_stored_references(
+            engine, stored=stored, via_base=via_base, limit=limit
+        )
+        return {"hits": body_rows, "wegweiser": []}
+
+    meta = _meta_from_row(row)
     anchor_weg = _build_wegweiser(
         {
             "chunk_id": row["chunk_id"],
@@ -875,63 +1106,9 @@ async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
             "references_count": anchor_weg.get("references_count", 0),
         }
 
-    ref_ids = [r["chunk_id"] for r in stored[: max(1, min(limit, 20))]]
-    body_rows: list[dict[str, Any]] = []
-
-    def _load_bodies() -> list[dict[str, Any]]:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT chunk_id, source_id, chunk_type, text, metadata
-                    FROM rag_chunks
-                    WHERE chunk_id = ANY(:ids)
-                      AND deprecated_at IS NULL
-                      AND chunk_type IN ('book', 'secondary_book')
-                    """
-                ),
-                {"ids": ref_ids},
-            ).mappings().all()
-        return [dict(r) for r in rows]
-
-    bodies = await asyncio.to_thread(_load_bodies)
-    by_id = {str(r["chunk_id"]): r for r in bodies}
-    kind = "typology" if anchor_type == "typology" else "begriff"
-    via_base = {"kind": kind, "ref": ref, "weg": "references"}
-
-    for ref_entry in stored:
-        cid = ref_entry["chunk_id"]
-        body = by_id.get(cid)
-        if body is None:
-            continue
-        bmeta = _meta_from_row(body)
-        text_val = str(body.get("text") or "")
-        item = _raw_hit_to_mcp_item(
-            {
-                "chunk_id": body["chunk_id"],
-                "chunk_type": body.get("chunk_type"),
-                "source_id": body.get("source_id"),
-                "score": float(ref_entry.get("relevance") or 1.0),
-                "snippet": text_val,
-                "text": text_val,
-                "title": bmeta.get("book_title") or bmeta.get("source_title"),
-                "segment_title": bmeta.get("segment_title"),
-                "author": bmeta.get("author"),
-            }
-        )
-        item["via"] = dict(via_base)
-        desc = ref_entry.get("description")
-        if desc:
-            item["reference_note"] = desc
-        body_rows.append(item)
-
-    chunk_ids = [str(h["chunk_id"]) for h in body_rows if h.get("chunk_id")]
-    pid_map = await _lookup_paragraph_ids(chunk_ids, engine) if chunk_ids else {}
-    for h in body_rows:
-        if not h.get("paragraph_id"):
-            h["paragraph_id"] = pid_map.get(str(h.get("chunk_id") or ""))
-
-    await _enrich_corpus_hits(body_rows, body_rows, engine)
+    body_rows = await _hits_from_stored_references(
+        engine, stored=stored, via_base=via_base, limit=limit
+    )
     return {
         "hits": body_rows,
         "wegweiser": [anchor_weg],
@@ -985,9 +1162,32 @@ async def search_corpus(
     if only_augment:
         hits_raw = []
 
+    curated_raw = [
+        r
+        for r in raw_results
+        if str(r.get("chunk_type") or "") == "curated_text"
+    ]
+
     out_hits = [_raw_hit_to_mcp_item(r) for r in hits_raw]
     engine = get_engine()
     await _enrich_corpus_hits(out_hits, hits_raw, engine)
+
+    # curated_text never in hits/wegweiser — expand stored references into corpus hits
+    if curated_raw and not only_augment:
+        expanded = await _expand_curated_matches_to_hits(
+            engine, curated_raw, limit=k
+        )
+        seen = {str(h.get("chunk_id") or "") for h in out_hits}
+        for h in expanded:
+            hid = str(h.get("chunk_id") or "")
+            if not hid or hid in seen:
+                continue
+            seen.add(hid)
+            out_hits.append(h)
+            if len(out_hits) >= k:
+                break
+        out_hits.sort(key=lambda x: float(x.get("score", 0)), reverse=True)
+        out_hits = out_hits[:k]
 
     if not only_originals and weg_raw:
         weg_raw = await _expand_and_rank_wegweiser(
@@ -1806,10 +2006,64 @@ async def get_handoff(handoff_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# search_ga / search_ga_summaries (Qdrant collection rudolf-steiner-ga only)
+# search_ga / search_ga_summaries / get_ga_chunk (rudolf-steiner-ga)
 # ---------------------------------------------------------------------------
 
 GA_QDRANT_COLLECTION = "rudolf-steiner-ga"
+
+
+async def get_ga_chunk(chunk_id: str) -> dict[str, Any]:
+    """Fetch one GA chunk by ``chunk_id`` from collection rudolf-steiner-ga.
+
+    Always allowed when you already have a ``chunk_id`` (e.g. from ``search_corpus``
+    hits with ``chunk_type: ga_text`` / ``zitierbar: false``). Returns full text for
+    your understanding — do not pass long continuous passages to the end user; keep
+    ``zitierbar: false`` (short cite only as ``(GA <n>, S. <seite>, Wortlaut nicht sicher)``
+    if needed). For open-ended GA exploration use ``search_ga`` only after an
+    explicit user request.
+
+    Args:
+        chunk_id: Payload ``chunk_id`` from a GA hit / curated Angabe.
+    """
+    cid = (chunk_id or "").strip()
+    if not cid:
+        return {"error": "chunk_id is required", "code": "empty_chunk_id"}
+
+    from app.core.providers import get_qdrant_client
+
+    client = get_qdrant_client()
+    try:
+        points = await client.scroll_points(
+            GA_QDRANT_COLLECTION,
+            filter_={"must": [{"key": "chunk_id", "match": {"value": cid}}]},
+            limit=3,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as exc:
+        logger.exception("get_ga_chunk Qdrant scroll failed")
+        return {"error": f"lookup failed: {exc}", "code": "lookup_failed"}
+
+    if not points:
+        return {"error": "chunk not found", "code": "not_found", "chunk_id": cid}
+
+    raw_point = points[0]
+    payload = raw_point.get("payload") if isinstance(raw_point, Mapping) else {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    inner = payload.get("payload") if isinstance(payload.get("payload"), Mapping) else payload
+    if not isinstance(inner, Mapping):
+        inner = {}
+    meta = dict(inner)
+    if "text" not in meta and isinstance(payload.get("text"), str):
+        meta["text"] = payload["text"]
+    if "chunk_id" not in meta:
+        meta["chunk_id"] = cid
+
+    item = _ga_hit_from_payload(meta, full=True)
+    item["zitierbar"] = False
+    item.pop("citation", None)
+    return item
 _GA_TOKEN_RE = re.compile(r"^0*(\d+)([a-z]{0,2})$", re.IGNORECASE)
 
 
@@ -2134,14 +2388,11 @@ async def search_ga(
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """Search Rudolf Steiner GA wording in collection rudolf-steiner-ga.
 
-    Only call if the user has mentioned "ga" in this conversation (once is enough).
-    Covers Vorträge and Schriften (e.g. GA 4, 15, 30) that are embedded in this
-    collection. Secondary to search_corpus (Philo / assistant corpus). Use to verify
-    or correct training knowledge, and for original research when search_corpus
-    yields little. Hits are for your understanding — do not pass long continuous
-    passages to the end user. Short citations to the user must use the form
-    (GA <nummer>, S. <seite>, Wortlaut nicht sicher); omit the page part if
-    page_start/page_end is missing, but keep the uncertainty phrase.
+    Only call after an explicit user request to search the GA / Gesamtausgabe.
+    Prefer ``get_ga_chunk`` when a ``chunk_id`` is already known. Secondary to
+    search_corpus. Hits are for understanding — do not pass long continuous
+    passages to the end user. Short citations: (GA <nummer>, S. <seite>, Wortlaut
+    nicht sicher); omit the page part if missing, keep the uncertainty phrase.
 
     Broad topics are grouped by lecture and spread across GA volumes, so one
     volume does not fill the list. Pass ga or lecture_id to search inside one
@@ -2180,11 +2431,9 @@ async def search_ga_summaries(
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """Search chapter/lecture research summaries in collection rudolf-steiner-ga.
 
-    Only call if the user has mentioned "ga" in this conversation (once is enough).
-    Secondary to search_corpus. Use for orientation across volumes, then drill into
-    search_ga for wording. Returns the full summary text. Same end-user citation
-    rules as search_ga: (GA <nummer>, S. <seite>, Wortlaut nicht sicher); do not
-    forward long continuous passages to the end user.
+    Only call after an explicit user request to search the GA / Gesamtausgabe.
+    Secondary to search_corpus. Prefer get_ga_chunk when a chunk_id is known.
+    Same citation rules as search_ga; do not forward long continuous passages.
 
     Broad topics are grouped by lecture and spread across GA volumes. Pass ga or
     lecture_id to stay inside one volume or one lecture; that turns the volume

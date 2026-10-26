@@ -9,10 +9,12 @@ Diese Hinweise gelten, wenn der Nutzer eine Übergabe aus Philo öffnet
 - `get_lecture_info` liefert Ort, Datum, Zyklus und ob Chunks vorliegen.
 - Titel und `zitierform` ohne GA-Nummer. Vorträge mit Datum und Ort zitieren.
 
-## GA-Suche
+## GA
 
-- `search_ga` und `search_ga_summaries` nur aufrufen, wenn der Nutzer in diesem Chat
-  „ga“ genannt hat (z. B. „GA 4“; Groß-/Kleinschreibung egal). Einmal im Verlauf reicht.
+- `get_ga_chunk(chunk_id)`: bekannten GA-Chunk nachladen (z. B. aus curated-Angaben) —
+  immer erlaubt, wenn die `chunk_id` vorliegt.
+- `search_ga` / `search_ga_summaries`: nur nach explizitem Nutzerwunsch, in der
+  Gesamtausgabe / GA nachzuschauen.
 
 ## Quellenverweise (Korpus-Bände)
 

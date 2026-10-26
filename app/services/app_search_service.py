@@ -27,6 +27,8 @@ _APP_TYPE_TO_CHUNK_TYPES: dict[str, list[str]] = {
     "quote": ["quote", "quote_explanation"],
     "chapter_summary": ["chapter_summary"],
     "curated_text": ["curated_text"],
+    # Only meaningful with collection=rudolf-steiner-ga (augment GA-Angaben fallback).
+    "ga": ["ga_text"],
 }
 
 ALLOWED_APP_SEARCH_TYPES = frozenset(_APP_TYPE_TO_CHUNK_TYPES.keys())
@@ -584,6 +586,17 @@ async def app_search(
             refs = meta.get("references")
             if isinstance(refs, list) and refs:
                 item["references"] = refs
+        if chunk_type == "ga_text":
+            for key in (
+                "ga",
+                "lecture_id",
+                "vortragstitel",
+                "page_start",
+                "page_end",
+                "segment_id",
+            ):
+                if meta.get(key) is not None and meta.get(key) != "":
+                    item[key] = meta[key]
         item.update(typology_fields_for_search_result(meta))
         results.append(item)
 
