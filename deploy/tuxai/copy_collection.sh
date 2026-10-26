@@ -4,7 +4,7 @@
 # Mac → Tuxai (Tunnel):
 #   export TUXAI_QDRANT_API_KEY=...
 #   export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com
-#   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...
+#   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...  # shared Access token
 #   ./deploy/tuxai/copy_collection.sh philo-von-freisinn
 #
 # Tuxai Prod → Staging (localhost, schnell):
