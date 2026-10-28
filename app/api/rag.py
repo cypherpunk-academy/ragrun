@@ -398,6 +398,7 @@ async def upsert_qdrant(
             await qdrant.ensure_keyword_index(request.collection_name, field_name="ga")
             await qdrant.ensure_keyword_index(request.collection_name, field_name="chunk_type")
             await qdrant.ensure_keyword_index(request.collection_name, field_name="lecture_id")
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="quotes")
     except Exception:
         logger.warning(
             "upsert-qdrant: keyword index ensure failed for %s",
@@ -435,6 +436,7 @@ async def upsert_qdrant(
         await qdrant.ensure_keyword_index(request.collection_name, field_name="ga")
         await qdrant.ensure_keyword_index(request.collection_name, field_name="chunk_type")
         await qdrant.ensure_keyword_index(request.collection_name, field_name="lecture_id")
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="quotes")
     except Exception:
         logger.warning(
             "upsert-qdrant: post-upsert keyword index ensure failed for %s",
@@ -768,6 +770,19 @@ async def embed_chunks(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+
+    qdrant = get_qdrant_client()
+    try:
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="ga")
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="chunk_type")
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="lecture_id")
+        await qdrant.ensure_keyword_index(request.collection_name, field_name="quotes")
+    except Exception:
+        logger.warning(
+            "embed-chunks: keyword index ensure failed for %s",
+            request.collection_name,
+            exc_info=True,
+        )
 
     await rag_repo.mark_embedded_for_embed_run(
         request.collection_name,

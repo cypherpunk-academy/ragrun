@@ -467,6 +467,8 @@ class IngestionService:
         "body_source_id",
         "paragraph_id",
         "paragraph",
+        "quotes",
+        "quote_marks",
     )
 
     def _search_payload_unchanged(

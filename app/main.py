@@ -43,6 +43,7 @@ from .api import rag as rag_router
 from .api import admin as admin_router
 from .api import oauth_consent as oauth_consent_router
 from .api.deep_links import router as deep_links_router
+from .mcp_server.aliases import McpAliasResourceMiddleware
 from .mcp_server.server import create_mcp_app, create_resource_metadata_route, get_mcp_server
 from .api.internal_auth import require_internal_key
 from .api.limiter import limiter
@@ -138,6 +139,7 @@ app.add_middleware(SlowAPIMiddleware)
 # Starlette's redirect responses use https:// instead of http://.
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+app.add_middleware(McpAliasResourceMiddleware)
 
 
 @app.middleware("http")

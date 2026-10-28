@@ -141,7 +141,11 @@ class Settings(BaseSettings):
 
     # Public base URL for the MCP server (used for OAuth Protected Resource Metadata).
     # Set to the ngrok/staging/production URL so Claude can discover OAuth endpoints.
+    # Passage and text links stay on this host.
     mcp_base_url: str = ""
+    # Extra public origins that serve the same /mcp endpoint, comma-separated.
+    # Production: https://philo.ragxxx.com — leave empty until that hostname is live.
+    mcp_alias_base_urls: str = ""
 
     # Static chapter HTML on Cloudflare R2. Empty in development (ngrok serves /passage).
     # Staging: https://corpus-staging.ragxxx.com  Production: https://corpus.ragxxx.com

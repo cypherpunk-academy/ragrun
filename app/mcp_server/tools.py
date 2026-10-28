@@ -22,7 +22,11 @@ from app.mcp_server.citation import (
     text_return_url,
 )
 from app.services.app_catalog_repository import PostgresCatalogRepository
-from app.services.app_search_service import _lookup_paragraph_ids, app_search
+from app.services.app_search_service import (
+    _lookup_paragraph_ids,
+    app_search,
+    app_search_catalog_quotes,
+)
 from app.services.corpus_search_policy import is_augment_hit, is_original_hit
 
 logger = logging.getLogger(__name__)
@@ -1122,12 +1126,34 @@ async def search_corpus(
     types: list[str] | None = None,
     limit: int = 10,
     ref: str | None = None,
+    quotes: str | None = None,
+    author: str | None = None,
 ) -> dict[str, Any]:
-    """Search the corpus: original sources in ``hits``, augment in ``wegweiser``."""
+    """Search the corpus: original sources in ``hits``, augment in ``wegweiser``.
+
+    Catalog quotes mode (``quotes=author|quoted``): slim hits only
+    ``{author, text, return_url}``; empty hits include ``authors`` list.
+    """
     ref_id = (ref or "").strip()
     if ref_id:
         k = max(1, min(int(limit) if limit is not None else 10, 20))
         return await _search_corpus_by_ref(ref_id, limit=k)
+
+    quotes_kind = (quotes or "").strip().lower() or None
+    if quotes_kind is not None:
+        if quotes_kind not in ("author", "quoted"):
+            return {
+                "error": "quotes must be 'author' or 'quoted'",
+                "code": "invalid_quotes",
+            }
+        k = max(1, min(int(limit) if limit is not None else 10, 20))
+        return await app_search_catalog_quotes(
+            query=(query or "").strip(),
+            quotes_kind=quotes_kind,
+            author=(author or "").strip() or None,
+            limit=k,
+            engine=get_engine(),
+        )
 
     q = (query or "").strip()
     if not q:

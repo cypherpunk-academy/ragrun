@@ -19,6 +19,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from app.config import settings
+from app.mcp_server.aliases import mcp_allowed_hosts, mcp_resource_url
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,7 @@ _mcp_server: MCPServer | None = None
 
 
 def _mcp_resource_url(mcp_base: str) -> str:
-    """Canonical MCP resource URL (no trailing slash).
-
-    Cursor compares this string exactly to the URL in the MCP config.
-    Claude and Cursor both register ``https://host/mcp``; advertising
-    ``…/mcp/`` makes Cursor fail with a protected-resource mismatch.
-    """
-    return f"{mcp_base.rstrip('/')}/mcp"
+    return mcp_resource_url(mcp_base)
 
 # ---------------------------------------------------------------------------
 # Server instructions (loaded once)
@@ -60,6 +55,14 @@ Typologie-Verzeichnis: Resource `philo://typologien`. Belege: \
 `search_corpus(ref=<chunk_id>)` mit `wegweiser.ref` oder `gegenpol.ref`. \
 Hinweise einmal in `wegweiser_hinweise`. Gruppe: `kontext.group_chunk_id`. \
 `references_status`: belegt | fehlt (nicht in DB).
+
+## Katalog-Zitate (quotes=author|quoted)
+Wenn der Nutzer nach Zitaten sucht (eigene Worte des Band-Autors vs. fremde \
+Zitate im Text): `search_corpus(query=…, quotes=author)` bzw. `quotes=quoted`. \
+Optional `author=` filtert den Mark-Autor (z. B. Goethe bei quoted). Antwort: \
+schlanke `hits` mit `author`, `text`, `return_url` (Universal Link zum Absatz) — \
+kein `wegweiser`. Bei leeren `hits` liefert `authors` die verfuegbaren Mark-Autoren \
+fuer dieses quotes-Kind; dann mit passendem `author=` erneut suchen.
 
 ## Typologien (Struktur, kein Zitat-Korpus)
 Typologie-Texte sind redaktionell gepflegte Strukturhilfen (Matrizen, Felder, Gegenpole) — \
@@ -362,6 +365,8 @@ def _register_tools(mcp: MCPServer) -> None:
         types: list[str] | None = None,
         limit: int = 10,
         ref: str | None = None,
+        quotes: str | None = None,
+        author: str | None = None,
     ) -> dict:
         """Search the corpus: originals in hits, augment in wegweiser.
 
@@ -370,14 +375,28 @@ def _register_tools(mcp: MCPServer) -> None:
         curated_text never appears in hits/wegweiser — expanded book/secondary_book
         and optional ga_text Angaben (zitierbar false). Load GA full text via get_ga_chunk.
 
+        Catalog quotes (quotes=author|quoted): searches body chunks with catalog
+        quote marks. Hits are slim {author, text, return_url} (Universal Link);
+        no wegweiser. If hits is empty, authors lists mark authors for that kind.
+        Optional author= filters mark.author (case-insensitive).
+
         Args:
             query: Search query (German or English). Required unless ref is set.
-            types: text, quote (hits); curated_text (expand refs to hits); concept, chapter_summary (wegweiser).
+            types: text, quote (hits); curated_text (expand refs to hits); concept, chapter_summary (wegweiser). Ignored when quotes is set.
             limit: Max hits (1-20, default 10).
             ref: Concept, typology, or curated_text chunk_id to load stored references as hits.
+            quotes: Catalog quotes mode: author (band author quotes) or quoted (foreign quotes). Omit for normal search.
+            author: Optional quote-mark author filter (with quotes=).
         """
         try:
-            return await search_corpus(query=query, types=types, limit=limit, ref=ref)
+            return await search_corpus(
+                query=query,
+                types=types,
+                limit=limit,
+                ref=ref,
+                quotes=quotes,
+                author=author,
+            )
         except Exception as exc:
             return _tool_infra_error(exc)
 
@@ -758,16 +777,20 @@ def create_resource_metadata_route() -> Route | None:
     from mcp.shared.auth import ProtectedResourceMetadata
 
     resource_url = _mcp_resource_url(mcp_url)
-    metadata = ProtectedResourceMetadata(
-        resource=resource_url,
-        authorization_servers=[f"{base}/auth/v1"],
-    )
-    handler = ProtectedResourceMetadataHandler(metadata)
     metadata_url = build_resource_metadata_url(resource_url)
     path = urlparse(str(metadata_url)).path
+    authorization_servers = [f"{base}/auth/v1"]
 
     async def endpoint(request):
-        return await handler.handle(request)
+        from app.mcp_server.aliases import alias_base_for_host
+
+        alias = alias_base_for_host(request.headers.get("host"))
+        served = _mcp_resource_url(alias) if alias else resource_url
+        metadata = ProtectedResourceMetadata(
+            resource=served,
+            authorization_servers=authorization_servers,
+        )
+        return await ProtectedResourceMetadataHandler(metadata).handle(request)
 
     return Route(path, endpoint=endpoint, methods=["GET", "OPTIONS"])
 
@@ -777,14 +800,12 @@ def create_mcp_app() -> Starlette:
     mcp = get_mcp_server()
     mcp_url = (settings.mcp_base_url or "").strip().rstrip("/")
 
-    # Allow the public hostname (ngrok/staging/prod) through DNS rebinding protection
+    # Allow the public hostname (ngrok/staging/prod) and configured aliases.
     transport_security = None
     if mcp_url:
-        from urllib.parse import urlparse
-        host = urlparse(mcp_url).netloc
         transport_security = TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
-            allowed_hosts=[host],
+            allowed_hosts=mcp_allowed_hosts(),
         )
 
     return mcp.streamable_http_app(
