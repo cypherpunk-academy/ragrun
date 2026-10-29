@@ -92,6 +92,40 @@ def test_chunk_metadata_lecture_quote_fields(base_metadata_dict):
     assert dumped["quote_verified"] is True
 
 
+def test_chunk_metadata_catalog_quotes_enum(base_metadata_dict):
+    payload = base_metadata_dict.copy()
+    payload["quotes"] = "quoted"
+    payload["quote_marks"] = [
+        {
+            "id": "q1",
+            "author": "Goethe",
+            "paragraph_id": "p1",
+            "span": {"start": 0, "end": 5},
+        }
+    ]
+    metadata = ChunkMetadata.from_payload(payload)
+    assert metadata.quotes == "quoted"
+    assert metadata.quote_marks is not None
+    assert len(metadata.quote_marks) == 1
+
+
+def test_chunk_metadata_migrates_legacy_quotes_array(base_metadata_dict):
+    payload = base_metadata_dict.copy()
+    payload["author"] = "Rudolf Steiner"
+    payload["quotes"] = [
+        {
+            "id": "q1",
+            "author": "Rudolf Steiner",
+            "paragraph_id": "p1",
+            "span": {"start": 0, "end": 5},
+        }
+    ]
+    metadata = ChunkMetadata.from_payload(payload)
+    assert metadata.quotes == "author"
+    assert metadata.quote_marks is not None
+    assert metadata.quote_marks[0]["id"] == "q1"
+
+
 @pytest.fixture
 def typology_member_payload(base_metadata_dict):
     payload = base_metadata_dict.copy()

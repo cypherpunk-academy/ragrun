@@ -135,14 +135,51 @@ def test_hit_from_snippet_uses_full_text_override():
     assert "snippet" not in hit
 
 
+def test_hit_from_snippet_strips_soft_hyphens():
+    from app.mcp_server.typology_tools import _hit_from_snippet
+    from app.retrieval.models import RetrievedSnippet
+
+    snip = RetrievedSnippet(
+        score=0.9,
+        text="Wieder\u00aderkennung",
+        payload={"chunk_id": "abc", "typology_role": "member", "segment_title": "X"},
+    )
+    hit = _hit_from_snippet(snip)
+    assert hit["text"] == "Wiedererkennung"
+    assert "\u00ad" not in hit["text"]
+
+
 def test_typology_fields_for_search_result():
     meta = {
         "chunk_type": "typology",
         "typology_role": "member",
         "group_title": "Geist -> Recht",
         "health": "gesund",
+        "glieder": ["Sanguinisch", "Cholerisch", " ", "Phlegmatisch"],
     }
     fields = typology_fields_for_search_result(meta)
     assert fields["typology_role"] == "member"
     assert fields["health"] == "gesund"
+    assert fields["glieder"] == ["Sanguinisch", "Cholerisch", "Phlegmatisch"]
     assert typology_fields_for_search_result({"chunk_type": "book"}) == {}
+
+
+def test_build_wegweiser_includes_glieder():
+    from app.mcp_server.tools import _build_wegweiser
+
+    raw = {
+        "chunk_id": "ov-sinne",
+        "chunk_type": "typology",
+        "score": 0.5,
+        "segment_title": "12 Sinne",
+        "typology_role": "overview",
+        "glieder": ["Ich-Sinn", "Gedankensinn"],
+    }
+    meta = {
+        "typology_slug": "12-sinne",
+        "typology_role": "overview",
+        "glieder": ["Ich-Sinn", "Gedankensinn"],
+    }
+    entry = _build_wegweiser(raw, meta)
+    assert entry["glieder"] == ["Ich-Sinn", "Gedankensinn"]
+    assert entry["herkunft"] == "augment"

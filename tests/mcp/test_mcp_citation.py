@@ -84,6 +84,22 @@ def test_format_zitierform_chapter_only():
     assert z == "Die Philosophie der Freiheit, Einleitung"
 
 
+def test_format_zitierform_lecture_strips_emdash_segment_from_band():
+    z = format_zitierform(
+        "Der menschliche und der kosmische Gedanke — Vierter Vortrag",
+        "Vierter Vortrag",
+        1,
+    )
+    assert z == (
+        "Der menschliche und der kosmische Gedanke, Vierter Vortrag, Absatz 1"
+    )
+
+
+def test_format_zitierform_no_double_when_band_equals_segment():
+    z = format_zitierform("Vierter Vortrag", "Vierter Vortrag", 1)
+    assert z == "Vierter Vortrag, Absatz 1"
+
+
 def test_note_display_title_stored():
     title, source = note_display_title("Mein Titel", "# Heading\nBody", None)
     assert title == "Mein Titel"
@@ -155,7 +171,7 @@ def test_validate_search_types_rejects_unknown():
 
 
 def test_validate_search_types_allows_known():
-    assert _validate_search_types(["text", "chapter_summary"]) is None
+    assert _validate_search_types(["text", "chapter_summary", "curated_text"]) is None
 
 
 def test_content_too_long_limit():
@@ -242,3 +258,10 @@ def test_resolve_chunk_types_ignores_unknown():
     types = _resolve_chunk_types(["bogus_type", "chapter_summary"])
     assert types == ["chapter_summary"]
     assert "bogus_type" not in types
+
+
+def test_resolve_chunk_types_ga():
+    from app.services.app_search_service import _resolve_chunk_types
+
+    assert _resolve_chunk_types(["ga"]) == ["ga_text"]
+    assert _resolve_chunk_types(["text", "ga"]) == ["book", "secondary_book", "ga_text"]

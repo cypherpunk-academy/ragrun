@@ -16,12 +16,19 @@ from app.retrieval.services.action_prompt_service import load_assistant_embeddin
 from app.mcp_server.typology_tools import typology_fields_for_search_result
 from app.retrieval.utils.retrievers import hybrid_retrieve
 from app.retrieval.models import RetrievedSnippet
+from app.services.corpus_search_policy import (
+    apply_quote_hit_policy,
+    chunk_types_for_title_search,
+)
 
 _APP_TYPE_TO_CHUNK_TYPES: dict[str, list[str]] = {
-    "text": ["book", "secondary_book", "talk"],
+    "text": ["book", "secondary_book"],
     "concept": ["begriff", "typology"],
     "quote": ["quote", "quote_explanation"],
     "chapter_summary": ["chapter_summary"],
+    "curated_text": ["curated_text"],
+    # Only meaningful with collection=rudolf-steiner-ga (augment GA-Angaben fallback).
+    "ga": ["ga_text"],
 }
 
 ALLOWED_APP_SEARCH_TYPES = frozenset(_APP_TYPE_TO_CHUNK_TYPES.keys())
@@ -29,10 +36,95 @@ ALLOWED_APP_SEARCH_TYPES = frozenset(_APP_TYPE_TO_CHUNK_TYPES.keys())
 _NAVIGATION_CHUNK_TYPES = frozenset({
     "book",
     "secondary_book",
-    "talk",
     "quote",
     "quote_explanation",
 })
+
+_BODY_CHUNK_TYPES = frozenset({"book", "secondary_book"})
+
+
+def _normalize_catalog_quotes(raw: Any) -> list[dict[str, Any]] | None:
+    """Validate metadata.quote_marks list for body hits; None if empty/invalid."""
+    if not isinstance(raw, list) or not raw:
+        return None
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        qid = item.get("id")
+        pid = item.get("paragraph_id")
+        span = item.get("span")
+        if not isinstance(qid, str) or not qid.strip():
+            continue
+        if not isinstance(pid, str) or not pid.strip():
+            continue
+        if not isinstance(span, dict):
+            continue
+        try:
+            start = int(span["start"])
+            end = int(span["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        author = item.get("author")
+        if not isinstance(author, str) or not author.strip():
+            continue
+        out.append(
+            {
+                "id": qid.strip(),
+                "author": author.strip(),
+                "paragraph_id": pid.strip(),
+                "span": {"start": start, "end": end},
+            }
+        )
+    return out or None
+
+
+async def _enrich_catalog_quotes(
+    results: list[dict[str, Any]],
+    engine: Engine,
+) -> None:
+    """Attach catalog quote marks from rag_chunks.metadata (SSOT after quotes:mark)."""
+    body_ids = [
+        str(r.get("chunk_id") or "")
+        for r in results
+        if str(r.get("chunk_type") or "") in _BODY_CHUNK_TYPES and r.get("chunk_id")
+    ]
+    body_ids = list(dict.fromkeys(cid for cid in body_ids if cid))
+    if not body_ids:
+        return
+
+    def _query() -> dict[str, Any]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id,
+                           CASE
+                             WHEN jsonb_typeof(metadata->'quote_marks') = 'array'
+                               THEN metadata->'quote_marks'
+                             WHEN jsonb_typeof(metadata->'quotes') = 'array'
+                               THEN metadata->'quotes'
+                             ELSE NULL
+                           END AS quote_marks
+                    FROM rag_chunks
+                    WHERE chunk_id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                    """
+                ),
+                {"ids": body_ids},
+            ).mappings().all()
+        return {str(r["chunk_id"]): r.get("quote_marks") for r in rows}
+
+    by_id = await asyncio.to_thread(_query)
+    for r in results:
+        if str(r.get("chunk_type") or "") not in _BODY_CHUNK_TYPES:
+            continue
+        cid = str(r.get("chunk_id") or "")
+        normalized = _normalize_catalog_quotes(by_id.get(cid))
+        if normalized:
+            r["quotes"] = normalized
+        else:
+            r.pop("quotes", None)
 
 
 def _resolve_chunk_types(types: Iterable[str] | None) -> list[str]:
@@ -40,12 +132,12 @@ def _resolve_chunk_types(types: Iterable[str] | None) -> list[str]:
         return [
             "book",
             "secondary_book",
-            "talk",
             "chapter_summary",
             "quote",
             "quote_explanation",
             "begriff",
             "typology",
+            "curated_text",
         ]
     out: list[str] = []
     for t in types:
@@ -66,7 +158,9 @@ def _meta(snippet: RetrievedSnippet) -> dict[str, Any]:
 
 
 def _snippet_text(text: str, limit: int = 240) -> str:
-    t = (text or "").strip().replace("\n", " ")
+    from app.utils.text_utils import strip_soft_hyphens
+
+    t = strip_soft_hyphens(text or "").strip().replace("\n", " ")
     if len(t) <= limit:
         return t
     return t[: limit - 1].rstrip() + "…"
@@ -470,9 +564,12 @@ async def app_search(
         force_sparse=settings.use_hybrid_retrieval,
     )
 
-    run_title_search = engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN
+    title_types = chunk_types_for_title_search(chunk_types)
+    run_title_search = (
+        engine is not None and len(q) <= _MAX_TITLE_QUERY_LEN and bool(title_types)
+    )
     if run_title_search:
-        title_coro = _title_match_search(q, chunk_types, engine, limit=k)
+        title_coro = _title_match_search(q, title_types, engine, limit=k)
         hybrid_out, title_out = await asyncio.gather(
             hybrid_coro, title_coro, return_exceptions=True
         )
@@ -577,6 +674,17 @@ async def app_search(
             refs = meta.get("references")
             if isinstance(refs, list) and refs:
                 item["references"] = refs
+        if chunk_type == "ga_text":
+            for key in (
+                "ga",
+                "lecture_id",
+                "vortragstitel",
+                "page_start",
+                "page_end",
+                "segment_id",
+            ):
+                if meta.get(key) is not None and meta.get(key) != "":
+                    item[key] = meta[key]
         item.update(typology_fields_for_search_result(meta))
         results.append(item)
 
@@ -584,6 +692,7 @@ async def app_search(
         if engine is None or not rows:
             return
         await _resolve_quote_explanations(rows, engine)
+        await _enrich_catalog_quotes(rows, engine)
         chunk_ids = _chunk_ids_for_paragraph_lookup(rows)
         pid_map = await _lookup_paragraph_ids(chunk_ids, engine)
         for r in rows:
@@ -632,4 +741,302 @@ async def app_search(
     else:
         merged = results
 
-    return _cap_summary_results(merged)
+    merged = _cap_summary_results(merged)
+    return apply_quote_hit_policy(merged)
+
+
+# ---------------------------------------------------------------------------
+# Catalog quotes mode (search_corpus quotes=author|quoted)
+# ---------------------------------------------------------------------------
+
+_QUOTES_KINDS = frozenset({"author", "quoted"})
+
+
+def _normalize_author_key(name: str) -> str:
+    return " ".join((name or "").split()).strip().lower()
+
+
+def _authors_match(a: str, b: str) -> bool:
+    ka = _normalize_author_key(a)
+    kb = _normalize_author_key(b)
+    return bool(ka) and bool(kb) and ka == kb
+
+
+def _mark_matches_quotes_kind(
+    mark_author: str,
+    book_author: str | None,
+    quotes_kind: str,
+) -> bool:
+    book = (book_author or "").strip()
+    if quotes_kind == "author":
+        return bool(book) and _authors_match(mark_author, book)
+    # quoted: mark author differs from book author (or book author missing)
+    if not book:
+        return True
+    return not _authors_match(mark_author, book)
+
+
+def _extract_span_text(text_raw: str, span: dict[str, Any]) -> str:
+    from app.utils.text_utils import strip_soft_hyphens
+
+    try:
+        start = int(span["start"])
+        end = int(span["end"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    if start < 0 or end <= start or end > len(text_raw):
+        return ""
+    return strip_soft_hyphens(text_raw[start:end].strip())
+
+
+async def _load_quote_marks_and_book_authors(
+    chunk_ids: list[str],
+    engine: Engine,
+) -> dict[str, dict[str, Any]]:
+    """chunk_id → {book_author, quote_marks}."""
+
+    def _query() -> dict[str, dict[str, Any]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT chunk_id::text AS chunk_id,
+                           COALESCE(metadata->>'author', '') AS book_author,
+                           CASE
+                             WHEN jsonb_typeof(metadata->'quote_marks') = 'array'
+                               THEN metadata->'quote_marks'
+                             WHEN jsonb_typeof(metadata->'quotes') = 'array'
+                               THEN metadata->'quotes'
+                             ELSE '[]'::jsonb
+                           END AS quote_marks
+                    FROM rag_chunks
+                    WHERE chunk_id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                      AND chunk_type = ANY(:types)
+                    """
+                ),
+                {"ids": chunk_ids, "types": list(_BODY_CHUNK_TYPES)},
+            ).mappings().all()
+        out: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            cid = str(r["chunk_id"] or "")
+            if not cid:
+                continue
+            out[cid] = {
+                "book_author": str(r.get("book_author") or "").strip(),
+                "quote_marks": _normalize_catalog_quotes(r.get("quote_marks")) or [],
+            }
+        return out
+
+    return await asyncio.to_thread(_query)
+
+
+async def _load_paragraph_texts(
+    paragraph_ids: list[str],
+    engine: Engine,
+) -> dict[str, str]:
+    ids = list(dict.fromkeys(p for p in paragraph_ids if p))
+    if not ids:
+        return {}
+
+    def _query() -> dict[str, str]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id::text AS id, text_raw
+                    FROM rag_paragraphs
+                    WHERE id = ANY(:ids)
+                      AND deprecated_at IS NULL
+                    """
+                ),
+                {"ids": ids},
+            ).mappings().all()
+        return {
+            str(r["id"]): str(r.get("text_raw") or "")
+            for r in rows
+            if r.get("id")
+        }
+
+    return await asyncio.to_thread(_query)
+
+
+async def list_catalog_quote_authors(
+    *,
+    quotes_kind: str,
+    engine: Engine,
+) -> list[str]:
+    """Distinct mark authors for active body chunks with metadata.quotes = kind."""
+    kind = (quotes_kind or "").strip().lower()
+    if kind not in _QUOTES_KINDS:
+        return []
+
+    def _query() -> list[str]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT trim(mark->>'author') AS author
+                    FROM rag_chunks c,
+                         jsonb_array_elements(
+                           CASE
+                             WHEN jsonb_typeof(c.metadata->'quote_marks') = 'array'
+                               THEN c.metadata->'quote_marks'
+                             ELSE '[]'::jsonb
+                           END
+                         ) AS mark
+                    WHERE c.deprecated_at IS NULL
+                      AND c.chunk_type = ANY(:types)
+                      AND c.metadata->>'quotes' = :kind
+                      AND coalesce(trim(mark->>'author'), '') <> ''
+                    ORDER BY 1
+                    """
+                ),
+                {"types": list(_BODY_CHUNK_TYPES), "kind": kind},
+            ).mappings().all()
+        authors = [str(r["author"]).strip() for r in rows if r.get("author")]
+        if kind == "author":
+            return authors
+        # quoted: keep authors that differ from typical band authors is already
+        # encoded by metadata.quotes='quoted' on the chunk.
+        return authors
+
+    return await asyncio.to_thread(_query)
+
+
+async def app_search_catalog_quotes(
+    *,
+    query: str,
+    quotes_kind: str,
+    author: str | None = None,
+    limit: int = 10,
+    collection: str | None = None,
+    engine: Engine | None = None,
+) -> dict[str, Any]:
+    """Semantic search over body chunks that carry catalog quote marks.
+
+    Returns ``{hits: [{author, text, return_url}], authors: list|null}``.
+    When hits is empty, ``authors`` lists available mark authors for ``quotes_kind``.
+    """
+    from app.mcp_server.citation import passage_return_url
+
+    kind = (quotes_kind or "").strip().lower()
+    if kind not in _QUOTES_KINDS:
+        return {
+            "error": "quotes must be 'author' or 'quoted'",
+            "code": "invalid_quotes",
+        }
+
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query is required", "code": "empty_query"}
+
+    if engine is None:
+        return {"error": "database engine required", "code": "no_engine"}
+
+    author_filter = (author or "").strip() or None
+    k = max(1, min(int(limit), 20))
+    fetch_k = min(50, max(k * 3, k + 10))
+
+    assistant_slug = settings.app_default_assistant_slug
+    coll = (collection or "").strip() or load_assistant_rag_collection(assistant_slug)
+    _prefix_passage, prefix_query = load_assistant_embedding_prefixes(assistant_slug)
+
+    extra_must: list[dict[str, object]] = [
+        {"key": "quotes", "match": {"value": kind}},
+    ]
+
+    snippets = await hybrid_retrieve(
+        query=q,
+        k_dense=fetch_k,
+        k_sparse=fetch_k,
+        k_fused=fetch_k,
+        worldview=None,
+        book_types=["book", "secondary_book"],
+        collection=coll,
+        embedding_client=get_embedding_client(),
+        qdrant_client=get_qdrant_client(),
+        query_prefix=prefix_query or None,
+        force_sparse=settings.use_hybrid_retrieval,
+        extra_must=extra_must,
+    )
+
+    chunk_scores: list[tuple[str, float]] = []
+    seen_cids: set[str] = set()
+    for snip in snippets:
+        meta = _meta(snip)
+        cid = str(meta.get("chunk_id") or snip.payload.get("chunk_id") or "").strip()
+        if not cid or cid in seen_cids:
+            continue
+        seen_cids.add(cid)
+        chunk_scores.append((cid, float(snip.score)))
+
+    hits: list[dict[str, Any]] = []
+    if chunk_scores:
+        by_chunk = await _load_quote_marks_and_book_authors(
+            [c for c, _ in chunk_scores],
+            engine,
+        )
+        para_ids: list[str] = []
+        pending: list[tuple[float, dict[str, Any], str]] = []
+        # (score, mark, book_author) candidates before text load
+        for cid, score in chunk_scores:
+            info = by_chunk.get(cid) or {}
+            book_author = str(info.get("book_author") or "")
+            marks = info.get("quote_marks") or []
+            if not isinstance(marks, list):
+                continue
+            for mark in marks:
+                if not isinstance(mark, dict):
+                    continue
+                mark_author = str(mark.get("author") or "").strip()
+                if not mark_author:
+                    continue
+                if not _mark_matches_quotes_kind(mark_author, book_author, kind):
+                    continue
+                if author_filter and not _authors_match(mark_author, author_filter):
+                    continue
+                pid = str(mark.get("paragraph_id") or "").strip()
+                span = mark.get("span")
+                if not pid or not isinstance(span, dict):
+                    continue
+                para_ids.append(pid)
+                pending.append((score, mark, mark_author))
+
+        texts = await _load_paragraph_texts(para_ids, engine)
+        for score, mark, mark_author in pending:
+            pid = str(mark.get("paragraph_id") or "").strip()
+            span = mark.get("span")
+            if not isinstance(span, dict):
+                continue
+            raw = texts.get(pid) or ""
+            quote_text = _extract_span_text(raw, span)
+            if not quote_text:
+                continue
+            return_url = passage_return_url(pid)
+            if not return_url:
+                continue
+            hits.append(
+                {
+                    "author": mark_author,
+                    "text": quote_text,
+                    "return_url": return_url,
+                    "_score": score,
+                }
+            )
+            if len(hits) >= k:
+                break
+
+    if hits:
+        slim = [
+            {
+                "author": h["author"],
+                "text": h["text"],
+                "return_url": h["return_url"],
+            }
+            for h in hits[:k]
+        ]
+        return {"hits": slim, "authors": None}
+
+    authors = await list_catalog_quote_authors(quotes_kind=kind, engine=engine)
+    return {"hits": [], "authors": authors}

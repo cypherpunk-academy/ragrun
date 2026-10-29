@@ -45,10 +45,16 @@ def _jwks_client() -> PyJWKClient | None:
 
 def _accepted_jwt_audiences() -> list[str]:
     """Supabase session JWTs use ``authenticated``; MCP OAuth may bind ``aud`` to the resource URL."""
+    from app.mcp_server.aliases import alias_bases_from, mcp_resource_url
+
     audiences = ["authenticated"]
     base = (settings.mcp_base_url or "").strip().rstrip("/")
-    if base:
-        audiences.append(f"{base}/mcp")
+    if isinstance(base, str) and base:
+        audiences.append(mcp_resource_url(base))
+    raw_aliases = getattr(settings, "mcp_alias_base_urls", "")
+    if isinstance(raw_aliases, str) and isinstance(base, str):
+        for alias in alias_bases_from(raw_aliases, canonical_base=base):
+            audiences.append(mcp_resource_url(alias))
     return audiences
 
 

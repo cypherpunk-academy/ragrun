@@ -19,6 +19,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from app.config import settings
+from app.mcp_server.aliases import mcp_allowed_hosts, mcp_resource_url
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,7 @@ _mcp_server: MCPServer | None = None
 
 
 def _mcp_resource_url(mcp_base: str) -> str:
-    """Canonical MCP resource URL (no trailing slash).
-
-    Cursor compares this string exactly to the URL in the MCP config.
-    Claude and Cursor both register ``https://host/mcp``; advertising
-    ``…/mcp/`` makes Cursor fail with a protected-resource mismatch.
-    """
-    return f"{mcp_base.rstrip('/')}/mcp"
+    return mcp_resource_url(mcp_base)
 
 # ---------------------------------------------------------------------------
 # Server instructions (loaded once)
@@ -46,21 +41,40 @@ strukturierten Korpus von Werken Rudolf Steiners und verwandter Autoren verfuegt
 ## Korpus
 Der Korpus umfasst Primaerwerke (u.a. Die Philosophie der Freiheit, Die Kernpunkte \
 der sozialen Frage) sowie Sekundaerwerke. Nutze `search_corpus` fuer semantische \
-Suche und `get_passage` fuer den Volltext einzelner Absaetze. Typologien (Weltanschauungen, \
-Soziale Gesundheit, …): `list_typologies` fuer das Gesamtverzeichnis (alle Ueberblicke), \
-`list_typology` fuer den Baum einer Typologie, `search_typology` fuer semantische Suche \
-(filter `role=overview` nur Ueberblicke); `search_corpus` findet Typology-Chunks unter type concept.
+Suche und `get_passage` fuer den Volltext einzelner Absaetze. Antwort: `hits` \
+(Originale: Werke, Vortraege, verifizierte Zitate) und `wegweiser` \
+(Begriffe, Typologie, Kapitelzusammenfassungen — nicht woertlich zitieren). \
+Eigentexte (`curated_text`) erscheinen nie in `hits` oder `wegweiser`; bei \
+Treffer werden gespeicherte Korpus-Belege (`book` / `secondary_book`) und \
+ggf. GA-Angaben (`ga_text`, `zitierbar: false`) in `hits` expandiert. \
+Treffer mit `zitierbar: false` (GA-Angaben) tragen `chunk_id`: Volltext bei Bedarf \
+mit `get_ga_chunk(chunk_id)` nachladen — immer erlaubt fuer diese IDs. Kurzsnippet \
+reicht oft; langen Wortlaut nicht an den Nutzer weitergeben; keine `zitierform` \
+erfinden. Korpus-Treffer mit `citation` bleiben zitierbar. \
+Typologie-Verzeichnis: Resource `philo://typologien`. Belege: \
+`search_corpus(ref=<chunk_id>)` mit `wegweiser.ref` oder `gegenpol.ref`. \
+Hinweise einmal in `wegweiser_hinweise`. Gruppe: `kontext.group_chunk_id`. \
+`references_status`: belegt | fehlt (nicht in DB).
+
+## Katalog-Zitate (quotes=author|quoted)
+Wenn der Nutzer nach Zitaten sucht (eigene Worte des Band-Autors vs. fremde \
+Zitate im Text): `search_corpus(query=…, quotes=author)` bzw. `quotes=quoted`. \
+Optional `author=` filtert den Mark-Autor (z. B. Goethe bei quoted). Antwort: \
+schlanke `hits` mit `author`, `text`, `return_url` (Universal Link zum Absatz) — \
+kein `wegweiser`. Bei leeren `hits` liefert `authors` die verfuegbaren Mark-Autoren \
+fuer dieses quotes-Kind; dann mit passendem `author=` erneut suchen.
 
 ## Typologien (Struktur, kein Zitat-Korpus)
 Typologie-Texte sind redaktionell gepflegte Strukturhilfen (Matrizen, Felder, Gegenpole) — \
 kein Primaertext wie Buch oder Vortrag. Nutze sie zum Orientieren, Einordnen und Vergleichen; \
 formuliere Antworten in eigenen Worten. Gib Typologie-Inhalte nicht woertlich wieder und \
 stelle sie nicht als Zitat Rudolf Steiners dar. Steiner-Belege holst du mit \
-`search_corpus` und `get_passage` aus Werken und Vortraegen (`citation` / `zitierform`). \
-Eingebettete `zitate` in Typologie-YAML sind Ausnahmen: die zitierst du nur, wenn du \
-den Beleg brauchst, und dann als Steiner-Stelle — nicht den umgebenden Typologie-Fliesstext. \
+`search_corpus` und `get_passage` aus Werken und Vortraegen (`citation` / `zitierform`) \
+oder ueber gespeicherte `references` am Knoten (`search_corpus` mit `ref`). \
 Nenne ruhig Typologie-Namen, Felder und Schlagwoerter (z. B. Feld Geist -> Recht, Aspekt \
-Korrektur), ohne den Langtext aus `search_typology` abzulesen.
+Korrektur), ohne Langtexte aus `wegweiser` abzulesen. Hat ein Wegweiser-Eintrag \
+`glieder` (Mitgliederliste der Typologie), nenne diese kurze Inventarliste als \
+Orientierung — das ist die Grundstruktur, kein Zitat.
 
 ## Stufenlieferung
 Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
@@ -88,11 +102,12 @@ eines Bandes nutze `list_lectures` mit der internen GA-Nummer (Feld `ga`, nie im
 vorliegen. Titel und `zitierform` enthalten keine GA-Nummer. Zitiere Vortraege mit \
 Datum und Ort.
 
-## GA-Suche (Collection rudolf-steiner-ga)
-Rufe `search_ga` und `search_ga_summaries` nur auf, wenn der Nutzer in diesem Chat \
-das Kuerzel „ga" genannt hat (z. B. „GA 4"; Gross-/Kleinschreibung egal). Einmal im \
-Verlauf reicht; danach darfst du die Tools in weiteren Turns nutzen. Ohne „ga" bleibt \
-`search_corpus` die Suche.
+## GA (Collection rudolf-steiner-ga)
+`get_ga_chunk(chunk_id)`: bekannten GA-Chunk nachladen (z. B. aus curated-Angaben \
+in `hits`) — immer erlaubt, wenn du die `chunk_id` hast. \
+`search_ga` / `search_ga_summaries` (freie Textsuche): nur nach **explizitem** \
+Nutzerwunsch, in der Gesamtausgabe / GA nachzuschauen (nicht allein weil „GA" \
+in Metadaten steht). Sonst bleibt `search_corpus` die Suche.
 
 ## Quellenverweise (Korpus-Baende)
 Wenn ein Tool ein Objekt `citation` mit Feld `zitierform` liefert, uebernimm \
@@ -102,8 +117,8 @@ immer als Markdown-Link aus: `[zitierform](return_url)`. Ohne `citation` zitiere
 Korpus-Baende mit dem vollen deutschen Titel (`band` / `segment_title`), ohne \
 GA-Nummer. Ausnahme: die separate Collection `rudolf-steiner-ga` (Seitenangaben \
 „GA n, S. …") — sie folgt eigenen Regeln und liefert kein `citation`-Objekt im \
-Philo-Format. Concept-Treffer tragen `references` mit eigenen `citation`-Objekten; \
-verlinke jede Referenz ebenso.
+Philo-Format. Treffer aus `search_corpus(ref=…)` tragen `citation` wie gewohnt; \
+verlinke Belege mit `return_url`.
 
 ## Stil
 Sprich den Nutzer immer mit "du" an. Sei klar, sachlich, praezise. Keine Ironie, \
@@ -316,6 +331,7 @@ def _register_tools(mcp: MCPServer) -> None:
     from .tools import (
         append_to_protocol,
         create_work_text,
+        get_ga_chunk,
         get_handoff,
         get_lecture_info,
         get_passage,
@@ -327,9 +343,6 @@ def _register_tools(mcp: MCPServer) -> None:
         search_corpus,
         search_ga,
         search_ga_summaries,
-        list_typologies,
-        list_typology,
-        search_typology,
         update_work_text,
     )
 
@@ -350,22 +363,60 @@ def _register_tools(mcp: MCPServer) -> None:
 
     @mcp.tool(name="search_corpus")
     async def tool_search_corpus(
-        query: str,
+        query: str = "",
         types: list[str] | None = None,
         limit: int = 10,
-    ) -> list[dict] | dict:
-        """Search the philosophical corpus (books, talks, concepts, quotes).
+        ref: str | None = None,
+        quotes: str | None = None,
+        author: str | None = None,
+    ) -> dict:
+        """Search the corpus: originals in hits, augment in wegweiser.
 
-        Returns ranked results with chunk_id, source metadata, and a short snippet.
-        Use get_passage with the paragraph_id from results to read the full text.
+        Use get_passage with paragraph_id from hits. Stored references on a concept,
+        typology, or curated_text node: search_corpus(ref=chunk_id) (query ignored).
+        curated_text never appears in hits/wegweiser — expanded book/secondary_book
+        and optional ga_text Angaben (zitierbar false). Load GA full text via get_ga_chunk.
+
+        Catalog quotes (quotes=author|quoted): searches body chunks with catalog
+        quote marks. Hits are slim {author, text, return_url} (Universal Link);
+        no wegweiser. If hits is empty, authors lists mark authors for that kind.
+        Optional author= filters mark.author (case-insensitive).
 
         Args:
-            query: Search query (German or English).
-            types: Filter by type: "text", "concept", "quote", "chapter_summary". Default: all.
-            limit: Max results (1-20, default 10).
+            query: Search query (German or English). Required unless ref is set.
+            types: text, quote (hits); curated_text (expand refs to hits); concept, chapter_summary (wegweiser). Ignored when quotes is set.
+            limit: Max hits (1-20, default 10).
+            ref: Concept, typology, or curated_text chunk_id to load stored references as hits.
+            quotes: Catalog quotes mode: author (band author quotes) or quoted (foreign quotes). Omit for normal search.
+            author: Optional quote-mark author filter (with quotes=).
         """
         try:
-            return await search_corpus(query=query, types=types, limit=limit)
+            return await search_corpus(
+                query=query,
+                types=types,
+                limit=limit,
+                ref=ref,
+                quotes=quotes,
+                author=author,
+            )
+        except Exception as exc:
+            return _tool_infra_error(exc)
+
+    @mcp.tool(name="get_ga_chunk")
+    async def tool_get_ga_chunk(chunk_id: str) -> dict:
+        """Fetch one GA chunk by chunk_id from rudolf-steiner-ga.
+
+        Always allowed when you already have a chunk_id (e.g. from search_corpus
+        hits with chunk_type ga_text / zitierbar false). Returns full text for
+        understanding — do not forward long passages to the user. Prefer this over
+        search_ga when the ID is known. search_ga remains for explicit user requests
+        to explore the Gesamtausgabe.
+
+        Args:
+            chunk_id: Payload chunk_id from a GA hit or curated Angabe.
+        """
+        try:
+            return await get_ga_chunk(chunk_id)
         except Exception as exc:
             return _tool_infra_error(exc)
 
@@ -378,18 +429,15 @@ def _register_tools(mcp: MCPServer) -> None:
         group_by_lecture: bool | None = None,
         explain: bool = False,
     ) -> list[dict] | dict:
-        """Only call if the user has mentioned "ga" in this conversation (once is enough).
+        """Only call after an explicit user request to search the GA / Gesamtausgabe.
 
-        Search Rudolf Steiner GA wording (collection rudolf-steiner-ga).
-        Vorträge and Schriften (e.g. GA 4, 15, 30). Secondary to search_corpus.
-        Use to verify training knowledge and for original research when
-        search_corpus yields little. Hits are for your understanding — do not
-        pass long continuous passages to the end user. Cite short quotes as
-        (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
+        Free-text search in rudolf-steiner-ga (Vorträge and Schriften). Secondary to
+        search_corpus. Prefer get_ga_chunk(chunk_id) when you already have an ID from
+        hits. Hits are for understanding — do not pass long continuous passages to the
+        end user. Cite short quotes as (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
 
-        Broad topics are grouped by lecture and spread across GA volumes, so one
-        volume does not fill the list. Pass ga or lecture_id to search inside one
-        volume or one lecture; that turns the volume cap off.
+        Broad topics are grouped by lecture and spread across GA volumes. Pass ga or
+        lecture_id to search inside one volume or one lecture.
 
         Args:
             query: Search query (German or English).
@@ -421,15 +469,10 @@ def _register_tools(mcp: MCPServer) -> None:
         group_by_lecture: bool | None = None,
         explain: bool = False,
     ) -> list[dict] | dict:
-        """Only call if the user has mentioned "ga" in this conversation (once is enough).
+        """Only call after an explicit user request to search the GA / Gesamtausgabe.
 
-        Search chapter/lecture summaries (collection rudolf-steiner-ga).
-        Secondary to search_corpus. Orientation across volumes; then use search_ga
-        for wording. Same citation rules: (GA <nummer>, S. <seite>, Wortlaut nicht sicher).
-
-        Broad topics are grouped by lecture and spread across GA volumes. Pass ga
-        or lecture_id to stay inside one volume or one lecture; that turns the
-        volume cap off.
+        Chapter/lecture summaries in rudolf-steiner-ga. Secondary to search_corpus;
+        then search_ga for wording. Same citation rules as search_ga.
 
         Args:
             query: Search query (German or English).
@@ -452,84 +495,32 @@ def _register_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return _tool_infra_error(exc)
 
-    @mcp.tool(name="list_typologies")
-    async def tool_list_typologies() -> dict:
-        """Catalog of all typologies in the corpus (overview per slug, from rag_chunks).
-
-        Use this before guessing via search: returns every typology with title, slug,
-        has_health, and a short overview blurb. Does not use Qdrant.
-        Typology prose is for your reasoning only — do not quote it verbatim to the user.
-        """
-        try:
-            return await list_typologies()
-        except Exception as exc:
-            return _tool_infra_error(exc)
-
-    @mcp.tool(name="list_typology")
-    async def tool_list_typology(
-        name: str | None = None,
-        chunk_id: str | None = None,
-    ) -> dict:
-        """List a typology tree from rag_chunks (overview, groups, members).
-
-        Provide typology name (slug or title) or chunk_id to select the typology.
-        With chunk_id, includes focus: siblings, other groups, counterpart pole.
-        Structure aid only — paraphrase in your own words; do not quote chunk text as Steiner.
-
-        Args:
-            name: Typology slug or display title (e.g. 12-weltanschauungen).
-            chunk_id: Any chunk in the typology; adds focus navigation.
-        """
-        try:
-            return await list_typology(name=name, chunk_id=chunk_id)
-        except Exception as exc:
-            return _tool_infra_error(exc)
-
-    @mcp.tool(name="search_typology")
-    async def tool_search_typology(
-        query: str,
-        typology: str | None = None,
-        group: str | None = None,
-        health: str | None = None,
-        role: str | None = None,
-        limit: int = 8,
-    ) -> list[dict] | dict:
-        """Semantic search within typology chunks only.
-
-        Each hit includes the full chunk text from rag_chunks (not a short snippet).
-        Use the text to think and orient; paraphrase for the user — no verbatim typology quotes.
-
-        Args:
-            query: Search text (required).
-            typology: Limit to one typology (slug or title).
-            group: feld-N or direction (e.g. feld-1, Geist -> Recht).
-            health: gesund or krank (only for typologies with poles).
-            role: overview, group, or member.
-            limit: 1-20 (default 8).
-        """
-        try:
-            return await search_typology(
-                query=query,
-                typology=typology,
-                group=group,
-                health=health,
-                role=role,
-                limit=limit,
-            )
-        except Exception as exc:
-            return _tool_infra_error(exc)
-
     @mcp.tool(name="get_passage")
-    async def tool_get_passage(paragraph_id: str) -> dict:
-        """Read a single paragraph by its UUID.
+    async def tool_get_passage(
+        paragraph_id: str | None = None,
+        source_id: str | None = None,
+        segment_index: int | None = None,
+        from_paragraph: int | None = None,
+        to_paragraph: int | None = None,
+        before: int = 0,
+        after: int = 0,
+    ) -> dict:
+        """Read paragraph(s) by UUID or by source segment and paragraph numbers.
 
-        Returns the paragraph text plus source/segment metadata for navigation.
-
-        Args:
-            paragraph_id: UUID of the paragraph (from search results or protocols).
+        Use paragraph_id from search, protocol, or handoff; optional before/after
+        (max 5) for context. Or source_id + segment_index + from_paragraph (and
+        optional to_paragraph, max 12 paragraphs). Response includes nav.prev/next.
         """
         try:
-            return await get_passage(paragraph_id=paragraph_id)
+            return await get_passage(
+                paragraph_id=paragraph_id,
+                source_id=source_id,
+                segment_index=segment_index,
+                from_paragraph=from_paragraph,
+                to_paragraph=to_paragraph,
+                before=before,
+                after=after,
+            )
         except Exception as exc:
             return _tool_infra_error(exc)
 
@@ -732,6 +723,8 @@ def _register_tools(mcp: MCPServer) -> None:
 
 def _register_resources(mcp: MCPServer) -> None:
     """Register MCP resources."""
+    from app.mcp_server.typology_tools import list_typologies
+
     from .tools import list_volumes
 
     @mcp.resource("philo://corpus/volumes")
@@ -740,6 +733,22 @@ def _register_resources(mcp: MCPServer) -> None:
         volumes = await list_volumes()
         lines = [f"- {v['display_name']} (source_id: {v['source_id']})" for v in volumes]
         return "# Korpus-Baende\n\n" + "\n".join(lines)
+
+    @mcp.resource("philo://typologien")
+    async def typology_catalog() -> str:
+        """Typology slugs and overview blurbs (structure, not Steiner quotes)."""
+        catalog = await list_typologies()
+        items = catalog.get("typologies") if isinstance(catalog, dict) else None
+        if not isinstance(items, list):
+            return "# Typologien\n\n(nicht verfügbar)"
+        lines: list[str] = ["# Typologien\n"]
+        for t in items:
+            if not isinstance(t, dict):
+                continue
+            slug = t.get("typology_slug") or t.get("slug") or "?"
+            title = t.get("title") or slug
+            lines.append(f"- **{title}** (`{slug}`)")
+        return "\n".join(lines)
 
 
 def _register_prompts(mcp: MCPServer) -> None:
@@ -770,16 +779,20 @@ def create_resource_metadata_route() -> Route | None:
     from mcp.shared.auth import ProtectedResourceMetadata
 
     resource_url = _mcp_resource_url(mcp_url)
-    metadata = ProtectedResourceMetadata(
-        resource=resource_url,
-        authorization_servers=[f"{base}/auth/v1"],
-    )
-    handler = ProtectedResourceMetadataHandler(metadata)
     metadata_url = build_resource_metadata_url(resource_url)
     path = urlparse(str(metadata_url)).path
+    authorization_servers = [f"{base}/auth/v1"]
 
     async def endpoint(request):
-        return await handler.handle(request)
+        from app.mcp_server.aliases import alias_base_for_host
+
+        alias = alias_base_for_host(request.headers.get("host"))
+        served = _mcp_resource_url(alias) if alias else resource_url
+        metadata = ProtectedResourceMetadata(
+            resource=served,
+            authorization_servers=authorization_servers,
+        )
+        return await ProtectedResourceMetadataHandler(metadata).handle(request)
 
     return Route(path, endpoint=endpoint, methods=["GET", "OPTIONS"])
 
@@ -789,14 +802,12 @@ def create_mcp_app() -> Starlette:
     mcp = get_mcp_server()
     mcp_url = (settings.mcp_base_url or "").strip().rstrip("/")
 
-    # Allow the public hostname (ngrok/staging/prod) through DNS rebinding protection
+    # Allow the public hostname (ngrok/staging/prod) and configured aliases.
     transport_security = None
     if mcp_url:
-        from urllib.parse import urlparse
-        host = urlparse(mcp_url).netloc
         transport_security = TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
-            allowed_hosts=[host],
+            allowed_hosts=mcp_allowed_hosts(),
         )
 
     return mcp.streamable_http_app(

@@ -21,9 +21,19 @@ QUERY = "Freiheit und Erkenntnis"
 def _hits(body):
     if isinstance(body, dict) and "error" in body:
         raise AssertionError(f"{body.get('code')}: {body.get('error')}")
+    if isinstance(body, dict) and "hits" in body:
+        return body["hits"]
     if not isinstance(body, list):
-        raise AssertionError(f"erwartete Liste, bekam {type(body).__name__}")
+        raise AssertionError(f"erwartete Liste oder hits-Objekt, bekam {type(body).__name__}")
     return body
+
+
+def _wegweiser(body) -> list:
+    if isinstance(body, dict) and "error" in body:
+        raise AssertionError(f"{body.get('code')}: {body.get('error')}")
+    if isinstance(body, dict) and "wegweiser" in body:
+        return body["wegweiser"]
+    return []
 
 
 def _types(hits) -> set[str]:
@@ -118,7 +128,7 @@ def test_S_02(live: Live, remark):
 
 
 def test_S_03(live: Live):
-    """S-03: types text liefert nur book, secondary_book oder talk."""
+    """S-03: types text liefert nur book oder secondary_book in hits."""
     hits = _hits(live.call("a", "search_corpus", {"query": QUERY, "types": ["text"]}))
     assert hits
     assert _types(hits) <= TEXT_CHUNK_TYPES
@@ -126,23 +136,29 @@ def test_S_03(live: Live):
 
 
 def test_S_04(live: Live, remark):
-    """S-04: concept, quote und chapter_summary filtern auf die internen chunk_types."""
-    concept = _hits(live.call("a", "search_corpus", {"query": "Freiheit", "types": ["concept"]}))
+    """S-04: concept/chapter_summary → wegweiser; quote → hits."""
+    concept_body = live.call("a", "search_corpus", {"query": "Freiheit", "types": ["concept"]})
+    concept_w = _wegweiser(concept_body)
     quote = _hits(live.call("a", "search_corpus", {"query": "Freiheit", "types": ["quote"]}))
-    summary = _hits(live.call("a", "search_corpus", {"query": "Freiheit", "types": ["chapter_summary"]}))
-    assert concept and _types(concept) <= CONCEPT_CHUNK_TYPES
+    summary_body = live.call("a", "search_corpus", {"query": "Freiheit", "types": ["chapter_summary"]})
+    summary_w = _wegweiser(summary_body)
+    assert concept_w
+    assert {w.get("kind") for w in concept_w} <= {"begriff", "typology"}
     assert quote and _types(quote) <= QUOTE_CHUNK_TYPES
-    assert summary and _types(summary) <= {"chapter_summary"}
-    remark(f"concept={sorted(_types(concept))} quote={sorted(_types(quote))} summary={len(summary)}")
+    assert summary_w and all(w.get("kind") == "chapter_summary" for w in summary_w)
+    remark(f"concept_weg={len(concept_w)} quote={sorted(_types(quote))} summary_weg={len(summary_w)}")
 
 
 def test_S_05(live: Live, remark):
-    """S-05: types concept und quote mischen nur diese internen Typen."""
-    allowed = CONCEPT_CHUNK_TYPES | QUOTE_CHUNK_TYPES
-    hits = _hits(live.call("a", "search_corpus", {"query": "Freiheit", "types": ["concept", "quote"], "limit": 20}))
+    """S-05: gemischt concept+quote: hits nur quote, wegweiser für concept."""
+    body = live.call("a", "search_corpus", {"query": "Freiheit", "types": ["concept", "quote"], "limit": 20})
+    hits = _hits(body)
+    weg = _wegweiser(body)
     assert hits
-    assert _types(hits) <= allowed
-    remark("Typen: " + ", ".join(sorted(_types(hits))))
+    assert _types(hits) <= QUOTE_CHUNK_TYPES
+    if weg:
+        assert {w.get("kind") for w in weg} <= CONCEPT_CHUNK_TYPES | {"chapter_summary"}
+    remark("hit-Typen: " + ", ".join(sorted(_types(hits))))
 
 
 def test_S_06(live: Live):

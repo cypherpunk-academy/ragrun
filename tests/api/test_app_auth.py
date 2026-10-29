@@ -73,6 +73,17 @@ def test_parse_bearer_token_mcp_resource_audience(jwt_secret: str) -> None:
     assert user.client_id == "d4e21cc5-706c-40e0-9255-db0900f170e6"
 
 
+def test_parse_bearer_token_alias_resource_audience(jwt_secret: str) -> None:
+    token = _make_token(jwt_secret, aud="https://philo.ragxxx.com/mcp")
+    with patch("app.api.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = jwt_secret
+        mock_settings.mcp_base_url = "https://api.ragxxx.com"
+        mock_settings.mcp_alias_base_urls = "https://philo.ragxxx.com"
+        user = parse_bearer_token(token)
+    assert user.user_id == "user-1"
+
+
 def test_parse_bearer_token_expired(jwt_secret: str) -> None:
     token = _make_token(jwt_secret, expired=True)
     with patch("app.api.auth.settings") as mock_settings:
