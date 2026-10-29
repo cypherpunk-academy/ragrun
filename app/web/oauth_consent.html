@@ -23,10 +23,15 @@
       min-height: 100vh;
       font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
       color: var(--ink);
-      background:
-        radial-gradient(ellipse 80% 50% at 10% 0%, #e8dfd0 0%, transparent 55%),
-        radial-gradient(ellipse 60% 40% at 90% 100%, #d5e0d8 0%, transparent 50%),
-        var(--paper);
+      background-color: var(--paper);
+      background-image:
+        radial-gradient(ellipse 80% 50% at 10% 0%, rgba(232, 223, 208, 0.88) 0%, transparent 55%),
+        radial-gradient(ellipse 60% 40% at 90% 100%, rgba(213, 224, 216, 0.78) 0%, transparent 50%),
+        linear-gradient(180deg, rgba(247, 243, 235, 0.62) 0%, rgba(247, 243, 235, 0.78) 100%),
+        url("/oauth/consent/assets/oauth-background.jpg");
+      background-size: auto, auto, auto, cover;
+      background-position: 10% 0%, 90% 100%, center, center;
+      background-repeat: no-repeat;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -35,10 +40,24 @@
     .shell {
       width: min(26rem, 100%);
     }
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      margin-bottom: 0.35rem;
+    }
+    .brand-avatar {
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      box-shadow: 0 1px 3px rgba(26, 24, 20, 0.12);
+    }
     .brand {
       font-size: 1.75rem;
       letter-spacing: 0.04em;
-      margin: 0 0 0.35rem;
+      margin: 0;
       font-weight: 600;
     }
     .lede {
@@ -50,7 +69,11 @@
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
+      border-radius: 1rem;
       padding: 1.25rem 1.35rem 1.4rem;
+      box-shadow:
+        0 1px 2px rgba(26, 24, 20, 0.06),
+        0 8px 28px rgba(26, 24, 20, 0.1);
     }
     h2 {
       margin: 0 0 0.75rem;
@@ -87,6 +110,7 @@
       font-size: 0.95rem;
       padding: 0.65rem 1rem;
       border: 1px solid transparent;
+      border-radius: 0.5rem;
       cursor: pointer;
       background: var(--accent);
       color: #fff;
@@ -179,7 +203,10 @@
 </head>
 <body>
   <main class="shell">
-    <p class="brand">Philo</p>
+    <div class="brand-row">
+      <img class="brand-avatar" src="/oauth/consent/assets/avatar.png" width="44" height="44" alt="" />
+      <p class="brand">Philo</p>
+    </div>
     <p class="lede">Anmeldung für den Claude-Connector und andere OAuth-Clients.</p>
 
     <div id="err" class="err" role="alert"></div>
@@ -312,12 +339,12 @@
         $("btn-send-otp").disabled = true;
         $("btn-resend").disabled = true;
         try {
+          // OTP only: no emailRedirectTo (avoids magic-link emails; bad on mobile).
+          // Supabase templates must use {{ .Token }} only — not {{ .ConfirmationURL }}.
           const { error } = await supabase.auth.signInWithOtp({
             email,
             options: {
               shouldCreateUser: true,
-              // Stay on this consent URL after magic-link click (if used).
-              emailRedirectTo: window.location.href,
             },
           });
           if (error) throw error;

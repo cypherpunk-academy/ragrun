@@ -83,6 +83,8 @@ curl -s https://staging.ragxxx.com/healthz | jq '.dependencies.qdrant, .dependen
 
 Both should be `healthy` with **https** endpoints on your tunnel hostnames.
 
+The same path, including Supabase and a vector search, is `pytest tests/staging` (reads `.env.staging`, stays out of a plain `pytest`).
+
 From repo root (local, with staging Supabase vars if needed):
 
 ```bash

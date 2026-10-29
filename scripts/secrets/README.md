@@ -79,10 +79,10 @@ Bekannte Falle: `.env.staging` hatte zeitweise den **Dev**-Service-Role zum Stag
 
 | Variable | Ziele |
 |----------|--------|
-| `RAGRUN_SUPABASE_ANON_KEY` | Railway Service `ragrun`; `.env.production` / `.env.prod`; optional `EXPO_PUBLIC_*` dort und `ragapp/eas.json` Build `production` |
+| `RAGRUN_SUPABASE_ANON_KEY` | Railway Service `ragrun`; `.env.production`; optional `EXPO_PUBLIC_*` dort und `ragapp/eas.json` Build `production` |
 | `RAGRUN_SUPABASE_SERVICE_ROLE_KEY` + `SUPABASE_SERVICE_ROLE_KEY` | Railway `ragrun`; `.env.production` |
 | `RAGRUN_SUPABASE_JWT_SECRET` | Railway `ragrun`; `.env.production` |
-| `RAGRUN_POSTGRES_DSN` | Railway `ragrun`; `.env.production` / `.env.prod`; `ragprep/.env.production`; `.env.dev` Feld `RAGRUN_POSTGRES_DSN_PROD` (Prod→Dev-Sync) |
+| `RAGRUN_POSTGRES_DSN` | Railway `ragrun`; `.env.production`; `ragprep/.env.production`; `.env.dev` Feld `RAGRUN_POSTGRES_DSN_PROD` (Prod→Dev-Sync) |
 | `RAGRUN_QDRANT_API_KEY` | Railway `ragrun`; `.env.production`; Pulse (gleicher Key wie Staging) |
 | `RAGRUN_QDRANT_URL` / `RAGRUN_EMBEDDINGS_BASE_URL` | Tunnel-HTTPS-URLs (siehe `cloudflare-tunnel.md`) |
 | `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` | Cloudflare Zero Trust → Service Auth (shared token) |

@@ -6,6 +6,7 @@ import sys
 
 from cli.commands.chunks_delete import run_chunks_delete
 from cli.commands.chunks_info import run_chunks_info
+from cli.commands.export_reader import run_export_reader
 
 
 def main() -> None:
@@ -61,10 +62,35 @@ def main() -> None:
         help="Preview deletion without executing",
     )
 
+    export_parser = subparsers.add_parser(
+        "reader:export",
+        help="Export rag_paragraphs chapters to HTML (optional R2 upload)",
+    )
+    export_parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="Write HTML tree locally (assets/, books/...)",
+    )
+    export_parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload to Cloudflare R2 (RAGRUN_R2_* and RAGRUN_R2_BUCKET)",
+    )
+    export_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Export at most N chapters (debug)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "chunks:info":
         run_chunks_info(args.assistant)
+        return
+
+    if args.command == "reader:export":
+        run_export_reader(args)
         return
 
     if args.command == "chunks:delete":

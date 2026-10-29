@@ -44,7 +44,7 @@ CITATION_FIELDS = (
     "return_url",
 )
 
-TEXT_CHUNK_TYPES = frozenset({"book", "secondary_book", "talk"})
+TEXT_CHUNK_TYPES = frozenset({"book", "secondary_book"})
 CONCEPT_CHUNK_TYPES = frozenset({"begriff", "typology"})
 QUOTE_CHUNK_TYPES = frozenset({"quote", "quote_explanation"})
 

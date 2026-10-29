@@ -53,9 +53,17 @@ def _regex_strip_tags(text: str) -> str:
 
 
 _WS_RE = re.compile(r"\s+")
+_SOFT_HYPHEN_RE = re.compile("\u00ad")
 
 
 def _collapse_whitespace(text: str) -> str:
     return _WS_RE.sub(" ", text).strip()
+
+
+def strip_soft_hyphens(text: str) -> str:
+    """Remove Unicode soft hyphens (U+00AD) from text shown to clients."""
+    if not text:
+        return text
+    return _SOFT_HYPHEN_RE.sub("", text)
 
 

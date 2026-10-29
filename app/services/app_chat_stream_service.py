@@ -3,7 +3,7 @@
 Teilt sich den RAG-Graph-Kern (`assistant_chat_graph`) mit dem Agent-Pfad
 (`app/api/chat.py`), aber mit App-Persistenz (`rag_talks`/`rag_turns`/
 `rag_references`) statt LangGraph-Checkpoint. Siehe
-ragapp/plans/filo-chat-ui-design.md §7.1 und filo-arbeitstext-contract.md §3/§5/§6.
+ragapp/plans/future/filo-chat-streaming-ui-design.md §7.1 und ragxxx/plans/in_progress/filo-work-text-app-ragrun-api-contract.md §3/§5/§6.
 """
 from __future__ import annotations
 

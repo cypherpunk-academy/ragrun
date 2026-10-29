@@ -1,6 +1,6 @@
 """System-Prompt für den App-Tool-Loop (Arbeitsdokument-Editor).
 
-Bezug: filo-arbeitstext-contract.md §1 (Invarianten), §4 (MVP-Tools).
+Bezug: filo-work-text-app-ragrun-api-contract.md §1 (Invarianten), §4 (MVP-Tools).
 Reiner Python-String, kein ragkeep/Persona-Content — tool-spezifische Infra.
 """
 from __future__ import annotations

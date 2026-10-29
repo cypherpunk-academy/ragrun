@@ -141,7 +141,20 @@ class Settings(BaseSettings):
 
     # Public base URL for the MCP server (used for OAuth Protected Resource Metadata).
     # Set to the ngrok/staging/production URL so Claude can discover OAuth endpoints.
+    # Passage and text links stay on this host.
     mcp_base_url: str = ""
+    # Extra public origins that serve the same /mcp endpoint, comma-separated.
+    # Production: https://philo.ragxxx.com — leave empty until that hostname is live.
+    mcp_alias_base_urls: str = ""
+
+    # Static chapter HTML on Cloudflare R2. Empty in development (ngrok serves /passage).
+    # Staging: https://corpus-staging.ragxxx.com  Production: https://corpus.ragxxx.com
+    corpus_public_base_url: str = ""
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket: str = ""
+    r2_prefix: str = ""
 
     # Default assistant for app search when collection is omitted
     app_default_assistant_slug: str = "philo-von-freisinn"
@@ -164,6 +177,19 @@ class Settings(BaseSettings):
     # Retrieval: filter out very short chunks (e.g. "13| Dr. Rudolf Steiner.")
     min_chunk_chars: int = 80
     retrieval_overfetch_multiplier: int = 2
+
+    # GA collection ranking (search_ga / search_ga_summaries). MCP omits
+    # group_by_lecture to use ga_search_group_by_lecture.
+    ga_search_candidates: int = 100
+    ga_search_pool: int = 60
+    ga_search_title_weight: float = 0.35
+    ga_search_group_by_lecture: bool = True
+    ga_search_max_per_ga: int = 3
+    ga_search_rerank: bool = False
+    ga_search_rerank_top: int = 50
+    ga_search_rerank_timeout_s: float = 3.0
+    # Empty disables the rerank call even when ga_search_rerank is true.
+    ga_search_rerank_url: str = ""
 
     # In some environments (e.g. restricted sandboxes) a present `.env` file may be
     # unreadable; fall back to environment variables only in that case.

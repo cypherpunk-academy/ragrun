@@ -1,0 +1,16 @@
+# Optional. Not started with deploy/tuxai/compose.yaml.
+# RAGRUN_GA_SEARCH_RERANK=true
+# RAGRUN_GA_SEARCH_RERANK_URL=http://127.0.0.1:8092/rerank
+services:
+  ga-rerank:
+    build: .
+    container_name: ragrun-ga-rerank
+    restart: unless-stopped
+    environment:
+      RERANK_MODEL: BAAI/bge-reranker-v2-m3
+    ports:
+      - "127.0.0.1:8092:8092"
+    volumes:
+      - rerank-model-cache:/root/.cache
+volumes:
+  rerank-model-cache:

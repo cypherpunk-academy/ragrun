@@ -5,7 +5,7 @@
 # Prerequisites:
 #   1. Production schema ≥ Staging for these tables (run ragkeep/sql/019_lecture_catalog.sql
 #      on Prod if rag_lecture_catalog is missing; apply ragapp migrations as on Staging).
-#   2. .env.staging and .env.production (or .env.prod) with RAGRUN_POSTGRES_DSN (pooler URI).
+#   2. .env.staging and .env.production with RAGRUN_POSTGRES_DSN (pooler URI).
 #
 # Usage:
 #   ./scripts/sync_staging_to_prod.sh              # dry-run (dump only, no write)
@@ -29,11 +29,7 @@ load_env() {
 }
 
 load_env "$ROOT/.env.staging"
-if [[ -f "$ROOT/.env.production" ]]; then
-  load_env "$ROOT/.env.production"
-elif [[ -f "$ROOT/.env.prod" ]]; then
-  load_env "$ROOT/.env.prod"
-fi
+load_env "$ROOT/.env.production"
 
 STAGING_DSN="${RAGRUN_POSTGRES_DSN_STAGING:-${STAGING_POSTGRES_DSN:-}}"
 PROD_DSN="${RAGRUN_POSTGRES_DSN_PROD:-${PRODUCTION_POSTGRES_DSN:-${RAGRUN_POSTGRES_DSN:-}}}"
@@ -41,8 +37,6 @@ PROD_DSN="${RAGRUN_POSTGRES_DSN_PROD:-${PRODUCTION_POSTGRES_DSN:-${RAGRUN_POSTGR
 # If we loaded .env.staging last, RAGRUN_POSTGRES_DSN may be staging — prefer explicit prod file.
 if [[ -f "$ROOT/.env.production" ]]; then
   PROD_DSN="$(grep -E '^RAGRUN_POSTGRES_DSN=' "$ROOT/.env.production" | head -1 | cut -d= -f2- | tr -d '"')"
-elif [[ -f "$ROOT/.env.prod" ]]; then
-  PROD_DSN="$(grep -E '^RAGRUN_POSTGRES_DSN=' "$ROOT/.env.prod" | head -1 | cut -d= -f2- | tr -d '"')"
 fi
 STAGING_DSN="$(grep -E '^RAGRUN_POSTGRES_DSN=' "$ROOT/.env.staging" | head -1 | cut -d= -f2- | tr -d '"')"
 
@@ -51,7 +45,7 @@ if [[ -z "$STAGING_DSN" ]]; then
   exit 1
 fi
 if [[ -z "$PROD_DSN" ]]; then
-  echo "❌ Production DSN missing (.env.production or .env.prod → RAGRUN_POSTGRES_DSN)" >&2
+  echo "❌ Production DSN missing (.env.production → RAGRUN_POSTGRES_DSN)" >&2
   exit 1
 fi
 

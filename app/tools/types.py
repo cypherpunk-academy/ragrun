@@ -1,6 +1,6 @@
 """Typen für die App-Tool-Registry.
 
-Bezug: ragrun-app-tools-architecture.md §4–5, filo-arbeitstext-contract.md §3–5.
+Bezug: ragrun-app-tools-architecture.md §4–5, filo-work-text-app-ragrun-api-contract.md §3–5.
 """
 from __future__ import annotations
 

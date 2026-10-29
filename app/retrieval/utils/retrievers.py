@@ -157,10 +157,14 @@ async def dense_retrieve(
     author: str | None = None,
     query_prefix: str | None = None,
     extra_must: Sequence[Mapping[str, object]] | None = None,
+    query_vector: Sequence[float] | None = None,
 ) -> list[RetrievedSnippet]:
     mult = getattr(settings, "retrieval_overfetch_multiplier", 2)
     limit = max(k * mult, k + 30)
-    vector = await embed_text(query, embedding_client, query_prefix=query_prefix)
+    if query_vector is None:
+        vector = await embed_text(query, embedding_client, query_prefix=query_prefix)
+    else:
+        vector = query_vector
     pf = payload_filter(worldview, book_types, author=author, extra_must=extra_must)
     hits = await qdrant_client.search_points(
         collection,

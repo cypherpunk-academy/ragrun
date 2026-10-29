@@ -27,9 +27,77 @@ def test_format_zitierform_chapter_paragraph():
     )
 
 
+def test_bare_source_id_strips_suffixes():
+    from app.mcp_server.tools import _bare_source_id
+
+    assert _bare_source_id("abc:summary") == "abc"
+    assert _bare_source_id("abc:quotes") == "abc"
+    assert _bare_source_id("abc") == "abc"
+
+
+def test_normalize_chunk_references_keeps_known_fields():
+    from app.mcp_server.tools import _normalize_chunk_references
+
+    raw = [
+        {"chunk_id": "aaa", "description": "x", "relevance": 0.9, "extra": 1},
+        {"description": "missing id"},
+        "skip",
+    ]
+    out = _normalize_chunk_references(raw)
+    assert out == [
+        {"chunk_id": "aaa", "description": "x", "relevance": 0.9},
+    ]
+
+
+def test_fetch_chapter_citation_sets_return_url_on_first_paragraph(monkeypatch):
+    from app.mcp_server import citation as citation_mod
+
+    monkeypatch.setattr(citation_mod.settings, "mcp_base_url", "https://api.ragxxx.com")
+    engine = MagicMock()
+    conn = MagicMock()
+    engine.connect.return_value.__enter__.return_value = conn
+
+    slug_row = MagicMock()
+    slug_row.mappings.return_value.first.return_value = {"segment_slug": "einleitung"}
+    para_row = MagicMock()
+    para_row.mappings.return_value.first.return_value = {
+        "paragraph_id": "para-1",
+        "source_title": "Die Philosophie der Freiheit",
+        "source_type": "book",
+        "segment_title": "Einleitung",
+        "paragraph_number": 1,
+        "lecture_ort": None,
+        "lecture_datum": None,
+    }
+    conn.execute.side_effect = [slug_row, para_row]
+
+    cit = citation_mod.fetch_chapter_citation(engine, "src-1", "einleitung")
+    assert cit is not None
+    assert cit["zitierform"] == "Die Philosophie der Freiheit, Einleitung"
+    assert cit["paragraph_number"] == 0
+    assert cit["paragraph_id"] == "para-1"
+    assert cit["return_url"] == "https://api.ragxxx.com/passage/para-1"
+
+
 def test_format_zitierform_chapter_only():
     z = format_zitierform("Die Philosophie der Freiheit", "Einleitung", None)
     assert z == "Die Philosophie der Freiheit, Einleitung"
+
+
+def test_format_zitierform_lecture_strips_emdash_segment_from_band():
+    z = format_zitierform(
+        "Der menschliche und der kosmische Gedanke — Vierter Vortrag",
+        "Vierter Vortrag",
+        1,
+    )
+    assert z == (
+        "Der menschliche und der kosmische Gedanke, Vierter Vortrag, Absatz 1"
+    )
+
+
+def test_format_zitierform_no_double_when_band_equals_segment():
+    z = format_zitierform("Vierter Vortrag", "Vierter Vortrag", 1)
+    assert z == "Vierter Vortrag, Absatz 1"
 
 
 def test_note_display_title_stored():
@@ -103,7 +171,7 @@ def test_validate_search_types_rejects_unknown():
 
 
 def test_validate_search_types_allows_known():
-    assert _validate_search_types(["text", "chapter_summary"]) is None
+    assert _validate_search_types(["text", "chapter_summary", "curated_text"]) is None
 
 
 def test_content_too_long_limit():
@@ -190,3 +258,10 @@ def test_resolve_chunk_types_ignores_unknown():
     types = _resolve_chunk_types(["bogus_type", "chapter_summary"])
     assert types == ["chapter_summary"]
     assert "bogus_type" not in types
+
+
+def test_resolve_chunk_types_ga():
+    from app.services.app_search_service import _resolve_chunk_types
+
+    assert _resolve_chunk_types(["ga"]) == ["ga_text"]
+    assert _resolve_chunk_types(["text", "ga"]) == ["book", "secondary_book", "ga_text"]

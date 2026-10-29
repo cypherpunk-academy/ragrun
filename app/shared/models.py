@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, constr
+from pydantic import BaseModel, Field, constr, model_validator
 
 # Allowed chunk types per CHUNK_METADATA_MODEL §4
 CHUNK_TYPE_ENUM = (
@@ -17,7 +17,17 @@ CHUNK_TYPE_ENUM = (
     "quote",
     "quote_explanation",
     "typology",
+    "curated_text",
     "ga_text",
+)
+
+_TYPOLOGY_OPTIONAL_FIELDS = (
+    "typology_slug",
+    "typology_role",
+    "group_id",
+    "group_title",
+    "health",
+    "counterpart_chunk_id",
 )
 
 
@@ -112,6 +122,20 @@ class ChunkMetadata(BaseModel):
         None,
         description="True when quote_span was verified against paragraph text_raw.",
     )
+    quotes: Optional[Literal["none", "author", "quoted"]] = Field(
+        None,
+        description=(
+            "Catalog quote presence on body chunks for Qdrant filters: "
+            "none | author | quoted. Mark list lives in quote_marks."
+        ),
+    )
+    quote_marks: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description=(
+            "Catalog quote marks on body chunks: "
+            "[{id, author, paragraph_id, span:{start,end}}, …]. Wording from text_raw."
+        ),
+    )
     language: str = Field(..., min_length=2, max_length=5, description="ISO language code.")
     tags: List[str] = Field(default_factory=list, description="Free-form tags for downstream filters.")
     references: Optional[List[Dict[str, Any]]] = Field(
@@ -122,6 +146,56 @@ class ChunkMetadata(BaseModel):
         default_factory=list,
         description="Synonyme / Suchbegriffe, die diesen Chunk semantisch triggern (z. B. Typologien).",
     )
+    typology_slug: Optional[str] = Field(
+        None,
+        description="Typology this chunk belongs to (e.g. soziale-gesundheit).",
+    )
+    typology_role: Optional[Literal["overview", "group", "member"]] = Field(
+        None,
+        description="Level in the typology tree.",
+    )
+    group_id: Optional[str] = Field(
+        None,
+        description="Typology group (e.g. feld-1); group and its members only.",
+    )
+    group_title: Optional[str] = Field(
+        None,
+        description="Direction of the typology group (e.g. 'Geist -> Recht').",
+    )
+    health: Optional[Literal["gesund", "krank"]] = Field(
+        None,
+        description="Pole of a typology member; absent means not applicable.",
+    )
+    counterpart_chunk_id: Optional[str] = Field(
+        None,
+        description="Member with the same group_id, the other health and the same segment_index.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_quotes_array(cls, data: Any) -> Any:
+        """Accept legacy metadata.quotes as mark list until quotes:mark rewrites rows."""
+        if not isinstance(data, dict):
+            return data
+        raw_quotes = data.get("quotes")
+        if not isinstance(raw_quotes, list):
+            return data
+        out = dict(data)
+        if not out.get("quote_marks"):
+            out["quote_marks"] = raw_quotes
+        book_author = str(out.get("author") or "").strip().lower()
+        kind: Literal["none", "author", "quoted"] = "none"
+        if raw_quotes:
+            kind = "author"
+            for item in raw_quotes:
+                if not isinstance(item, dict):
+                    continue
+                mark_author = str(item.get("author") or "").strip().lower()
+                if not book_author or not mark_author or mark_author != book_author:
+                    kind = "quoted"
+                    break
+        out["quotes"] = kind
+        return out
 
     @classmethod
     def json_schema(cls) -> dict:
@@ -170,6 +244,10 @@ class ChunkMetadata(BaseModel):
         cls._normalize_worldviews(payload)
         if payload.get("aliases") is None:
             payload.pop("aliases", None)
+        for key in _TYPOLOGY_OPTIONAL_FIELDS:
+            value = payload.get(key)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                payload.pop(key, None)
         return cls(**payload)
 
 
