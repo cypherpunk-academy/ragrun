@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 # Serialize embed DB reads: one open Supavisor connection at a time.
 _embed_db_lock = asyncio.Lock()
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import and_, case, delete, func, literal, null, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql import ColumnElement
+from sqlalchemy.types import Text
 
 from app.db.session import fetch_mappings_autocommit, fetch_one_autocommit
 
@@ -24,6 +26,33 @@ from app.shared.rag_partition import RAG_PARTITION_SHARED
 
 # One INSERT … ON CONFLICT per batch (not per row) — critical for remote Postgres/Supabase.
 _UPSERT_BATCH_SIZE = 200
+
+# Timestamps / run order / refs length must not trigger a rewrite that clears DB references.
+_METADATA_IGNORE_KEYS = (
+    "created_at",
+    "updated_at",
+    "source_index",
+    "references",
+    "content_length",
+)
+
+
+def _metadata_meaning(col: ColumnElement) -> ColumnElement:
+    """JSONB metadata without fields that change every assistant:chunk run.
+
+    Uses ``jsonb - text[]`` (one operator) so the strip also applies to
+    ``excluded.metadata`` in ON CONFLICT updates.
+    """
+    return col.op("-")(literal(list(_METADATA_IGNORE_KEYS), type_=ARRAY(Text())))
+
+
+def _payload_has_reference_list(col: ColumnElement) -> ColumnElement:
+    """True when upsert payload carries a JSON array (incl. []).
+
+    Python ``None`` must be bound as SQL NULL (see upsert values). JSON ``null``
+    would make ``IS NOT NULL`` true and wipe stored references on every chunk run.
+    """
+    return func.jsonb_typeof(col) == "array"
 
 
 def _scope_for_chunk(chunk: ChunkRecord, default_scope: str | None) -> str | None:
@@ -107,6 +136,8 @@ class RagChunksRepository:
         for chunk in chunk_list:
             metadata = chunk.metadata
             scope = _scope_for_chunk(chunk, default_scope)
+            # SQL NULL (not JSON null) when references omitted — see _payload_has_reference_list.
+            refs = metadata.references
             rows.append(
                 {
                     "rag_partition": rag_partition,
@@ -121,7 +152,7 @@ class RagChunksRepository:
                     "created_at": metadata.created_at,
                     "updated_at": metadata.updated_at,
                     "metadata": metadata.model_dump(mode="json"),
-                    "references": metadata.references,
+                    "references": refs if refs is not None else null(),
                     "scope": scope,
                 }
             )
@@ -145,6 +176,13 @@ class RagChunksRepository:
             values = [{**row, "embedded_at": None} for row in batch]
             stmt = pg_insert(rag_chunks_table).values(values)
             excluded = stmt.excluded
+            # Payload without a list (assistant:chunk) → SQL NULL clears column only when
+            # the row is rewritten (hash/meaning change). Payload with a list (augment)
+            # always writes that list, including [].
+            next_references = case(
+                (_payload_has_reference_list(excluded.references), excluded.references),
+                else_=null(),
+            )
             stmt = stmt.on_conflict_do_update(
                 index_elements=[
                     rag_chunks_table.c.rag_partition,
@@ -161,7 +199,7 @@ class RagChunksRepository:
                     "created_at": excluded.created_at,
                     "updated_at": excluded.updated_at,
                     "metadata": excluded.metadata,
-                    "references": excluded.references,
+                    "references": next_references,
                     "scope": excluded.scope,
                     "deprecated_at": None,
                     "embedded_at": case(
@@ -172,11 +210,15 @@ class RagChunksRepository:
                         else_=rag_chunks_table.c.embedded_at,
                     ),
                 },
-                # Skip no-op re-runs when text unchanged; still apply metadata-only repairs.
+                # Unchanged text+meaning: skip (keep DB references). Rewrite when hash,
+                # meaning, deprecation, or an explicit references array requires it.
                 where=or_(
                     rag_chunks_table.c.content_hash != excluded.content_hash,
                     rag_chunks_table.c.deprecated_at.is_not(None),
-                    rag_chunks_table.c.metadata.is_distinct_from(excluded.metadata),
+                    _metadata_meaning(rag_chunks_table.c.metadata).is_distinct_from(
+                        _metadata_meaning(excluded.metadata)
+                    ),
+                    _payload_has_reference_list(excluded.references),
                 ),
             )
             connection.execute(stmt)

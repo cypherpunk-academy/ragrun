@@ -54,8 +54,15 @@ _CHUNK_ID_RE = re.compile(
 )
 
 
+def _mcp_text(t: str | None) -> str:
+    """Normalize text for MCP responses (strip soft hyphens)."""
+    from app.utils.text_utils import strip_soft_hyphens
+
+    return strip_soft_hyphens(t or "")
+
+
 def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
-    s = (t or "").strip().replace("\n", " ")
+    s = _mcp_text(t).strip().replace("\n", " ")
     if len(s) <= limit:
         return s
     return s[: limit - 1].rstrip() + "…"
@@ -320,6 +327,13 @@ def _kuratiert_from_meta(meta: Mapping[str, Any]) -> bool:
     return False
 
 
+def _normalize_glieder(raw: Any) -> list[str] | None:
+    if not isinstance(raw, list):
+        return None
+    out = [str(x).strip() for x in raw if str(x).strip()]
+    return out or None
+
+
 def _wegweiser_titel(raw: Mapping[str, Any], meta: Mapping[str, Any]) -> str:
     for key in ("segment_title", "title", "schlagwort", "source_title"):
         val = raw.get(key) or meta.get(key)
@@ -376,6 +390,9 @@ def _build_wegweiser(
             val = meta.get(key)
             if isinstance(val, str) and val.strip():
                 entry[key] = _snippet(val.strip(), limit=300)
+    glieder = _normalize_glieder(raw.get("glieder") if raw.get("glieder") is not None else meta.get("glieder"))
+    if glieder:
+        entry["glieder"] = glieder
     cp = meta.get("counterpart_chunk_id")
     if isinstance(cp, str) and cp.strip():
         entry["_counterpart_chunk_id"] = cp.strip()
@@ -430,7 +447,7 @@ def _rag_row_to_weg_raw(row: Mapping[str, Any], score: float) -> dict[str, Any]:
 
     meta = _meta_from_row(row)
     meta_with_type = {**meta, "chunk_type": row.get("chunk_type") or meta.get("chunk_type") or "typology"}
-    text_val = str(row.get("text") or "")
+    text_val = _mcp_text(str(row.get("text") or ""))
     refs_norm = _normalize_stored_references(row)
     out: dict[str, Any] = {
         "chunk_id": str(row["chunk_id"]),
@@ -445,7 +462,10 @@ def _rag_row_to_weg_raw(row: Mapping[str, Any], score: float) -> dict[str, Any]:
     for key in ("schlagwort", "schlagsatz", "kurztext", "kuratiert"):
         val = meta.get(key)
         if val is not None and val != "":
-            out[key] = val
+            out[key] = _mcp_text(val) if isinstance(val, str) else val
+    glieder = _normalize_glieder(meta.get("glieder"))
+    if glieder:
+        out["glieder"] = glieder
     if refs_norm:
         out["references"] = refs_norm
     return out
@@ -599,8 +619,10 @@ def _raw_hit_to_mcp_item(r: dict[str, Any]) -> dict[str, Any]:
         "navigation_error",
         "quote_verified",
     ):
-        if r.get(key) is not None:
-            item[key] = r[key]
+        val = r.get(key)
+        if val is None:
+            continue
+        item[key] = _mcp_text(val) if isinstance(val, str) else val
     return item
 
 
@@ -727,6 +749,46 @@ def _wegweiser_response_meta(entries: list[dict[str, Any]]) -> dict[str, str]:
     return meta
 
 
+def _fetch_glieder_by_typology_slug(
+    engine: Any,
+    slugs: list[str],
+    partition: str,
+) -> dict[str, list[str]]:
+    cleaned = list(dict.fromkeys(s.strip() for s in slugs if s and str(s).strip()))
+    if not cleaned:
+        return {}
+
+    def _query() -> dict[str, list[str]]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT lower(trim(metadata->>'typology_slug')) AS slug,
+                           metadata->'glieder' AS glieder
+                    FROM rag_chunks
+                    WHERE rag_partition = :part
+                      AND chunk_type = 'typology'
+                      AND deprecated_at IS NULL
+                      AND metadata->>'typology_role' = 'overview'
+                      AND lower(trim(metadata->>'typology_slug')) = ANY(:slugs)
+                    """
+                ),
+                {
+                    "part": partition,
+                    "slugs": [s.lower() for s in cleaned],
+                },
+            ).mappings().all()
+        out: dict[str, list[str]] = {}
+        for r in rows:
+            slug = str(r.get("slug") or "").strip()
+            glieder = _normalize_glieder(r.get("glieder"))
+            if slug and glieder:
+                out[slug] = glieder
+        return out
+
+    return _query()
+
+
 async def _enrich_wegweiser_from_db(
     engine: Any,
     entries: list[dict[str, Any]],
@@ -736,6 +798,7 @@ async def _enrich_wegweiser_from_db(
     partition = _assistant_rag_partition()
     ids: list[str] = []
     group_keys: list[tuple[str, str, str]] = []
+    slugs_for_glieder: list[str] = []
     for e in entries:
         ref = str(e.get("ref") or "")
         if ref:
@@ -752,10 +815,19 @@ async def _enrich_wegweiser_from_db(
                     str(ctx.get("typology_slug") or ""),
                 )
             )
+        if not _normalize_glieder(e.get("glieder")):
+            slug = ""
+            if isinstance(ctx, dict):
+                slug = str(ctx.get("typology_slug") or "").strip()
+            if slug:
+                slugs_for_glieder.append(slug)
 
     rows = await asyncio.to_thread(_fetch_chunks_by_ids, engine, list(dict.fromkeys(ids)))
     group_map = await asyncio.to_thread(
         _fetch_group_chunk_ids, engine, group_keys, partition
+    )
+    glieder_by_slug = await asyncio.to_thread(
+        _fetch_glieder_by_typology_slug, engine, slugs_for_glieder, partition
     )
 
     for e in entries:
@@ -778,6 +850,17 @@ async def _enrich_wegweiser_from_db(
             )
             if gk in group_map and not ctx.get("group_chunk_id"):
                 ctx["group_chunk_id"] = group_map[gk]
+
+        if not _normalize_glieder(e.get("glieder")):
+            from_row = _normalize_glieder(_meta_from_row(row).get("glieder")) if row else None
+            if from_row:
+                e["glieder"] = from_row
+            else:
+                slug_key = ""
+                if isinstance(ctx, dict):
+                    slug_key = str(ctx.get("typology_slug") or "").strip().lower()
+                if slug_key and slug_key in glieder_by_slug:
+                    e["glieder"] = glieder_by_slug[slug_key]
 
         cp_id = e.get("_counterpart_chunk_id")
         if isinstance(cp_id, str) and cp_id.strip() and cp_id in rows:
@@ -1239,6 +1322,18 @@ async def search_corpus(
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_passage_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Strip soft hyphens from passage text fields before MCP return."""
+    paras = payload.get("paragraphs")
+    if isinstance(paras, list):
+        for p in paras:
+            if isinstance(p, dict) and isinstance(p.get("text"), str):
+                p["text"] = _mcp_text(p["text"])
+    if isinstance(payload.get("text"), str):
+        payload["text"] = _mcp_text(payload["text"])
+    return payload
+
+
 async def get_passage(
     paragraph_id: str | None = None,
     source_id: str | None = None,
@@ -1256,7 +1351,7 @@ async def get_passage(
     from app.services.passage_read_service import read_passages
 
     engine = get_engine()
-    return await asyncio.to_thread(
+    payload = await asyncio.to_thread(
         read_passages,
         engine,
         paragraph_id=paragraph_id,
@@ -1267,6 +1362,9 @@ async def get_passage(
         before=before,
         after=after,
     )
+    if isinstance(payload, dict) and not payload.get("error"):
+        return _sanitize_passage_payload(payload)
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1726,7 +1824,7 @@ async def get_work_text(note_id: str) -> dict[str, Any]:
         "title": result["title"],
         "display_title": display,
         "title_source": source,
-        "content": result["content"],
+        "content": _mcp_text(result.get("content")),
         "text_type": result["text_type"],
         "status": result["status"],
         "version": result["version"],
@@ -2199,7 +2297,7 @@ def _ga_extra_must(
 
 
 def _ga_hit_from_payload(payload: Mapping[str, Any], *, full: bool) -> dict[str, Any]:
-    text_val = str(payload.get("text") or "")
+    text_val = _mcp_text(str(payload.get("text") or ""))
     item: dict[str, Any] = {
         "chunk_id": payload.get("chunk_id"),
         "chunk_type": payload.get("chunk_type"),

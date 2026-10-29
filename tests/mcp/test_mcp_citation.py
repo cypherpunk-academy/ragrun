@@ -84,6 +84,22 @@ def test_format_zitierform_chapter_only():
     assert z == "Die Philosophie der Freiheit, Einleitung"
 
 
+def test_format_zitierform_lecture_strips_emdash_segment_from_band():
+    z = format_zitierform(
+        "Der menschliche und der kosmische Gedanke — Vierter Vortrag",
+        "Vierter Vortrag",
+        1,
+    )
+    assert z == (
+        "Der menschliche und der kosmische Gedanke, Vierter Vortrag, Absatz 1"
+    )
+
+
+def test_format_zitierform_no_double_when_band_equals_segment():
+    z = format_zitierform("Vierter Vortrag", "Vierter Vortrag", 1)
+    assert z == "Vierter Vortrag, Absatz 1"
+
+
 def test_note_display_title_stored():
     title, source = note_display_title("Mein Titel", "# Heading\nBody", None)
     assert title == "Mein Titel"

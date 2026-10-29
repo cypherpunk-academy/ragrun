@@ -23,6 +23,7 @@ from app.retrieval.utils.retrievers import (
     hybrid_retrieve,
     typology_dense_retrieve,
 )
+from app.utils.text_utils import strip_soft_hyphens
 
 _SNIPPET_LIMIT = 300
 _VALID_HEALTH = frozenset({"gesund", "krank"})
@@ -54,7 +55,7 @@ def _norm(s: str) -> str:
 
 
 def _snippet(t: str, limit: int = _SNIPPET_LIMIT) -> str:
-    s = (t or "").strip().replace("\n", " ")
+    s = strip_soft_hyphens(t or "").strip().replace("\n", " ")
     if len(s) <= limit:
         return s
     return s[: limit - 1].rstrip() + "…"
@@ -87,7 +88,7 @@ def _load_typology_rows(engine: Engine, partition: str) -> list[dict[str, Any]]:
             {
                 "chunk_id": str(row["chunk_id"]),
                 "source_id": str(row["source_id"]),
-                "text": str(row.get("text") or ""),
+                "text": strip_soft_hyphens(str(row.get("text") or "")),
                 "meta": meta,
             }
         )
@@ -365,7 +366,9 @@ def _hit_from_snippet(
     text_override: str | None = None,
 ) -> dict[str, Any]:
     meta = _meta_from_snippet(snip)
-    text_val = (text_override if text_override is not None else (snip.text or "")).strip()
+    text_val = strip_soft_hyphens(
+        (text_override if text_override is not None else (snip.text or "")).strip()
+    )
     item: dict[str, Any] = {
         "chunk_id": meta.get("chunk_id"),
         "score": round(float(snip.score), 4),
@@ -517,4 +520,9 @@ def typology_fields_for_search_result(meta: Mapping[str, Any]) -> dict[str, Any]
         val = meta.get(key)
         if val is not None and val != "":
             out[key] = val
+    glieder = meta.get("glieder")
+    if isinstance(glieder, list):
+        cleaned = [str(x).strip() for x in glieder if str(x).strip()]
+        if cleaned:
+            out["glieder"] = cleaned
     return out

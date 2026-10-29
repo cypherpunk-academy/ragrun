@@ -158,7 +158,9 @@ def _meta(snippet: RetrievedSnippet) -> dict[str, Any]:
 
 
 def _snippet_text(text: str, limit: int = 240) -> str:
-    t = (text or "").strip().replace("\n", " ")
+    from app.utils.text_utils import strip_soft_hyphens
+
+    t = strip_soft_hyphens(text or "").strip().replace("\n", " ")
     if len(t) <= limit:
         return t
     return t[: limit - 1].rstrip() + "…"
@@ -775,6 +777,8 @@ def _mark_matches_quotes_kind(
 
 
 def _extract_span_text(text_raw: str, span: dict[str, Any]) -> str:
+    from app.utils.text_utils import strip_soft_hyphens
+
     try:
         start = int(span["start"])
         end = int(span["end"])
@@ -782,7 +786,7 @@ def _extract_span_text(text_raw: str, span: dict[str, Any]) -> str:
         return ""
     if start < 0 or end <= start or end > len(text_raw):
         return ""
-    return text_raw[start:end].strip()
+    return strip_soft_hyphens(text_raw[start:end].strip())
 
 
 async def _load_quote_marks_and_book_authors(

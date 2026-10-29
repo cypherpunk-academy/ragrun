@@ -37,15 +37,34 @@ def text_return_url(note_id: str) -> str:
     return f"{base}/text/{nid}"
 
 
+def _band_without_segment_suffix(band: str, segment_title: str) -> str:
+    """Strip `` — Vierter Vortrag`` from lecture source titles that already embed the segment."""
+    b = (band or "").strip()
+    seg = (segment_title or "").strip()
+    if not b or not seg:
+        return b
+    for sep in (" — ", " – ", " - "):
+        suffix = f"{sep}{seg}"
+        if b.endswith(suffix):
+            stripped = b[: -len(suffix)].strip()
+            return stripped or b
+    return b
+
+
 def format_zitierform(
     band: str,
     segment_title: str,
     paragraph_number: int | None,
 ) -> str:
     """Human-readable citation string for Philo corpus bands (no GA numbers)."""
-    b = (band or "").strip() or "Unbekannte Quelle"
     seg = (segment_title or "").strip()
+    b = _band_without_segment_suffix(band, seg) or "Unbekannte Quelle"
     num = int(paragraph_number) if paragraph_number is not None else 0
+    # Avoid "Vierter Vortrag, Vierter Vortrag, Absatz n" when band == segment.
+    if seg and b == seg:
+        if num > 0:
+            return f"{b}, Absatz {num}"
+        return b
     if num > 0:
         if seg:
             return f"{b}, {seg}, Absatz {num}"

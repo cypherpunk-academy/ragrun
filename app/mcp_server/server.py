@@ -72,7 +72,9 @@ stelle sie nicht als Zitat Rudolf Steiners dar. Steiner-Belege holst du mit \
 `search_corpus` und `get_passage` aus Werken und Vortraegen (`citation` / `zitierform`) \
 oder ueber gespeicherte `references` am Knoten (`search_corpus` mit `ref`). \
 Nenne ruhig Typologie-Namen, Felder und Schlagwoerter (z. B. Feld Geist -> Recht, Aspekt \
-Korrektur), ohne Langtexte aus `wegweiser` abzulesen.
+Korrektur), ohne Langtexte aus `wegweiser` abzulesen. Hat ein Wegweiser-Eintrag \
+`glieder` (Mitgliederliste der Typologie), nenne diese kurze Inventarliste als \
+Orientierung — das ist die Grundstruktur, kein Zitat.
 
 ## Stufenlieferung
 Liefere Antworten stufenweise: Beginne kurz und praegnant. Nur wenn der Nutzer \
