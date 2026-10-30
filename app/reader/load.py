@@ -18,9 +18,15 @@ _PARA_SELECT = """
         p.text_raw,
         p.annotations,
         s.title AS source_title,
-        s.author AS source_author
+        s.author AS source_author,
+        COALESCE(s.source_type, 'book') AS source_type,
+        lc.ort AS lecture_ort,
+        lc.datum AS lecture_datum,
+        lc.vortragstitel AS lecture_title,
+        lc.reihe AS lecture_reihe
     FROM rag_paragraphs p
     LEFT JOIN rag_sources s ON s.id::text = p.source_id
+    LEFT JOIN rag_lecture_catalog lc ON lc.uuid::text = p.source_id
     WHERE p.deprecated_at IS NULL
 """
 
@@ -87,6 +93,11 @@ def load_chapter_for_paragraph(
         "segment_slug": slug,
         "source_title": focus.get("source_title") or "",
         "source_author": focus.get("source_author") or "",
+        "source_type": focus.get("source_type") or "book",
+        "lecture_ort": focus.get("lecture_ort") or "",
+        "lecture_datum": focus.get("lecture_datum") or "",
+        "lecture_title": focus.get("lecture_title") or "",
+        "lecture_reihe": focus.get("lecture_reihe") or "",
         "segment_title": focus.get("segment_title") or "",
         "prev": prev_nav,
         "next": next_nav,

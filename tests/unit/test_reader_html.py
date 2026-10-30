@@ -67,9 +67,44 @@ def test_render_chapter_marks_target():
     )
     assert 'id="p2"' in page
     assert "is-target" in page
+    assert 'data-passage-id="p2"' in page
+    assert 'scrollIntoView({ block: "start" })' in page
     assert "<i>Zweiter</i>" in page
     assert "ragapp://passage/p2" in page
     assert "Cormorant Garamond" in page
+    assert "Marcellus" in page
+    assert "book-header" in page
+    assert "Rudolf Steiner" in page
+    assert "Die Philosophie der Freiheit" in page
+    assert "Einleitung" in page
+
+
+def test_render_lecture_header_is_author_place_title():
+    page = render_chapter_html(
+        source_title="Allgemeine Menschenkunde — Vortrag 4",
+        source_author="Rudolf Steiner",
+        source_type="lecture",
+        lecture_ort="Stuttgart",
+        lecture_datum="25.08.1919",
+        lecture_title="Vortrag 4",
+        lecture_reihe="Allgemeine Pädagogik",
+        segment_title="Vortrag 4",
+        paragraphs=[
+            {
+                "id": "p9",
+                "paragraph_number": 9,
+                "text_raw": "Absatz.",
+                "annotations": None,
+            }
+        ],
+    )
+    assert "Rudolf Steiner" in page
+    assert "Stuttgart, 25.08.1919" in page
+    assert (
+        'class="book-header-tail">Allgemeine Pädagogik'
+        '<span class="book-header-sep">·</span>Vortrag 4</span>'
+    ) in page
+    assert "Allgemeine Menschenkunde" not in page.split("<main", 1)[0]
 
 
 def test_chapter_urls(monkeypatch):
@@ -80,6 +115,6 @@ def test_chapter_urls(monkeypatch):
     monkeypatch.setattr(urls_mod.settings, "mcp_base_url", "https://api.ragxxx.com")
     assert chapter_object_key("sid", "einleitung") == "books/sid/einleitung.html"
     assert chapter_public_url("sid", "einleitung", "p1") == (
-        "https://corpus.ragxxx.com/books/sid/einleitung.html?p=p1#p1"
+        "https://corpus.ragxxx.com/books/sid/einleitung.html?p=p1"
     )
     assert passage_link("p1") == "https://api.ragxxx.com/passage/p1"

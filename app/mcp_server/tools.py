@@ -2142,7 +2142,7 @@ async def get_ga_chunk(chunk_id: str) -> dict[str, Any]:
     Always allowed when you already have a ``chunk_id`` (e.g. from ``search_corpus``
     hits with ``chunk_type: ga_text`` / ``zitierbar: false``). Returns full text for
     your understanding — do not pass long continuous passages to the end user; keep
-    ``zitierbar: false`` (short cite only as ``(GA <n>, S. <seite>, Wortlaut nicht sicher)``
+    ``zitierbar: false`` (short cite only as ``(GA <n>, S. <seite>)``
     if needed). For open-ended GA exploration use ``search_ga`` only after an
     explicit user request.
 
@@ -2515,8 +2515,8 @@ async def search_ga(
     Only call after an explicit user request to search the GA / Gesamtausgabe.
     Prefer ``get_ga_chunk`` when a ``chunk_id`` is already known. Secondary to
     search_corpus. Hits are for understanding — do not pass long continuous
-    passages to the end user. Short citations: (GA <nummer>, S. <seite>, Wortlaut
-    nicht sicher); omit the page part if missing, keep the uncertainty phrase.
+    passages to the end user. Short citations: (GA <nummer>, S. <seite>);
+    omit the page part if it is missing.
 
     Broad topics are grouped by lecture and spread across GA volumes, so one
     volume does not fill the list. Pass ga or lecture_id to search inside one

@@ -21,8 +21,9 @@ def chapter_public_url(
     url = f"{base}/books/{source_id}/{segment_slug}.html"
     pid = (paragraph_id or "").strip()
     if pid:
-        # Query + hash: some clients drop Location fragments on 302.
-        url = f"{url}?p={pid}#{pid}"
+        # Query only. A fragment on a 302 Location is dropped by many browsers,
+        # and reader.js then skips the jump when a hash is already present.
+        url = f"{url}?p={pid}"
     return url
 
 
