@@ -182,3 +182,12 @@ def test_chunk_metadata_typology_rejects_unknown_values(typology_member_payload,
     payload[field] = value
     with pytest.raises(ValueError):
         ChunkMetadata.from_payload(payload)
+
+
+def test_chunk_metadata_kurzfassung_omitted_when_empty(base_metadata_dict):
+    dumped = ChunkMetadata.from_payload(base_metadata_dict).model_dump(mode="json")
+    assert "kurzfassung" not in dumped
+    payload = base_metadata_dict.copy()
+    payload["kurzfassung"] = "  Der Gedanke wird am anderen wach.  "
+    kept = ChunkMetadata.from_payload(payload).model_dump(mode="json")
+    assert kept["kurzfassung"] == "Der Gedanke wird am anderen wach."

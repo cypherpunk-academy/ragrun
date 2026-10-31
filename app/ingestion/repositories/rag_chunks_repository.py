@@ -27,12 +27,13 @@ from app.shared.rag_partition import RAG_PARTITION_SHARED
 # One INSERT … ON CONFLICT per batch (not per row) — critical for remote Postgres/Supabase.
 _UPSERT_BATCH_SIZE = 200
 
-# Timestamps / run order / refs length must not trigger a rewrite that clears DB references.
+# Timestamps, refs, and Kurzfassung must not trigger a rewrite that clears DB references.
 _METADATA_IGNORE_KEYS = (
     "created_at",
     "updated_at",
     "source_index",
     "references",
+    "kurzfassung",
     "content_length",
 )
 

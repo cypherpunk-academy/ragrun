@@ -107,7 +107,6 @@ def _render_fallback(chapter: dict[str, Any], paragraph_id: str) -> str:
         prev_nav=_nav_href(chapter.get("prev"), chapter_urls=False, source_id=sid),
         next_nav=_nav_href(chapter.get("next"), chapter_urls=False, source_id=sid),
         inline_assets=True,
-        app_passage_id=paragraph_id,
     )
 
 

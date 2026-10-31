@@ -147,6 +147,20 @@ def _header_parts(
     return leading, tail
 
 
+def _header_arrow(nav: Mapping[str, str] | None, *, direction: str) -> str:
+    """Icon-only chapter control. A missing sibling keeps its slot so the bar stays stable."""
+    glyph = "←" if direction == "prev" else "→"
+    label = "Voriges Kapitel" if direction == "prev" else "Nächstes Kapitel"
+    if not nav or not nav.get("href"):
+        return f'<span class="book-header-arrow is-absent" aria-hidden="true">{glyph}</span>'
+    title = (nav.get("title") or label).strip()
+    return (
+        f'<a class="book-header-arrow" href="{html.escape(str(nav["href"]), quote=True)}"'
+        f' aria-label="{html.escape(label)}"'
+        f' title="{html.escape(title)}">{glyph}</a>'
+    )
+
+
 def render_chapter_html(
     *,
     source_title: str,
@@ -157,7 +171,6 @@ def render_chapter_html(
     prev_nav: Mapping[str, str] | None = None,
     next_nav: Mapping[str, str] | None = None,
     inline_assets: bool = False,
-    app_passage_id: str | None = None,
     source_type: str | None = None,
     lecture_ort: str | None = None,
     lecture_datum: str | None = None,
@@ -220,29 +233,11 @@ def render_chapter_html(
             f"</section>"
         )
 
-    nav_html = ""
-    nav_bits: list[str] = []
-    if prev_nav and prev_nav.get("href"):
-        nav_bits.append(
-            f'<a class="nav-btn" href="{html.escape(prev_nav["href"], quote=True)}">'
-            f"← {html.escape(prev_nav.get('title') or 'Zurück')}</a>"
-        )
-    else:
-        nav_bits.append("<span></span>")
-    if next_nav and next_nav.get("href"):
-        nav_bits.append(
-            f'<a class="nav-btn" href="{html.escape(next_nav["href"], quote=True)}">'
-            f"{html.escape(next_nav.get('title') or 'Weiter')} →</a>"
-        )
-    if prev_nav or next_nav:
-        nav_html = '<nav class="chapter-nav">\n  ' + "\n  ".join(nav_bits) + "\n</nav>"
-
-    cta = ""
-    if app_passage_id:
-        cta = (
-            f'<a class="app-cta" href="ragapp://passage/'
-            f'{html.escape(app_passage_id)}">In der App öffnen</a>'
-        )
+    show_chapter_nav = bool(
+        (prev_nav and prev_nav.get("href")) or (next_nav and next_nav.get("href"))
+    )
+    prev_arrow = _header_arrow(prev_nav, direction="prev") if show_chapter_nav else ""
+    next_arrow = _header_arrow(next_nav, direction="next") if show_chapter_nav else ""
 
     passage_attr = ""
     if target:
@@ -261,16 +256,16 @@ def render_chapter_html(
 </head>
 <body class="book-body">
 <header class="book-header">
+  {prev_arrow}
   <p class="book-header-line">{header_spans}</p>
   <div class="book-header-actions">
     <button id="themeToggle" class="reader-toggle reader-toggle-theme" type="button" aria-label="Theme umschalten" title="Theme umschalten">🌙</button>
     <button id="sizeToggle" class="reader-toggle reader-toggle-size" type="button" aria-label="Schriftgröße umschalten" title="Schriftgröße umschalten">A</button>
   </div>
+  {next_arrow}
 </header>
 <main class="book-main">
   {chr(10).join(body_parts)}
-  {nav_html}
-  {cta}
 </main>
 {js_tag}
 </body>

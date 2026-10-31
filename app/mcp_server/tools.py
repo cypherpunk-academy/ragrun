@@ -130,10 +130,8 @@ def _normalize_chunk_references(raw: Any) -> list[dict[str, Any]]:
 
 
 def _is_ga_angabe_ref(ref: Mapping[str, Any]) -> bool:
-    """Stored GA fallback refs: not citable; resolved from denormalized fields."""
-    if str(ref.get("chunk_type") or "").strip() == "ga_text":
-        return True
-    return ref.get("zitierbar") is False
+    """Legacy GA passage stored as a reference. Not a corpus beleg."""
+    return str(ref.get("chunk_type") or "").strip() == "ga_text"
 
 
 def _fetch_chunk_references(
@@ -308,12 +306,26 @@ async def _supabase_rpc(
 # ---------------------------------------------------------------------------
 
 
+def _has_corpus_reference(refs: Any) -> bool:
+    """True when the list holds a book/secondary_book beleg, not a GA passage."""
+    if not isinstance(refs, list):
+        return False
+    for item in refs:
+        if not isinstance(item, Mapping):
+            continue
+        if not str(item.get("chunk_id") or "").strip():
+            continue
+        if _is_ga_angabe_ref(item):
+            continue
+        return True
+    return False
+
+
 def _references_status(raw_hits: list[dict[str, Any]], meta: Mapping[str, Any]) -> str:
-    refs = meta.get("references")
-    if isinstance(refs, list) and refs:
+    if _has_corpus_reference(meta.get("references")):
         return "belegt"
     for h in raw_hits:
-        if isinstance(h.get("references"), list) and h["references"]:
+        if _has_corpus_reference(h.get("references")):
             return "belegt"
     return "fehlt"
 
@@ -604,11 +616,16 @@ def _split_hits_and_wegweiser(
 
 
 def _raw_hit_to_mcp_item(r: dict[str, Any]) -> dict[str, Any]:
+    # Full chunk body for the model. Prefer text; fall back to an untrimmed
+    # snippet field from older callers. Soft hyphens only — no character cap.
+    raw_text = r.get("text")
+    if not (isinstance(raw_text, str) and raw_text.strip()):
+        raw_text = r.get("snippet") or ""
     item: dict[str, Any] = {
         "chunk_id": r.get("chunk_id"),
         "chunk_type": r.get("chunk_type"),
         "score": round(float(r.get("score", 0)), 4),
-        "snippet": _snippet(r.get("snippet") or r.get("text") or ""),
+        "text": _mcp_text(str(raw_text or "")),
     }
     for key in (
         "title",
@@ -658,7 +675,9 @@ def _fetch_chunks_by_ids(engine: Any, chunk_ids: list[str]) -> dict[str, dict[st
 def _references_status_from_row(row: Mapping[str, Any] | None) -> tuple[str, int]:
     if row is None:
         return "unbekannt", 0
-    stored = _normalize_stored_references(row)
+    stored = [
+        r for r in _normalize_stored_references(row) if not _is_ga_angabe_ref(r)
+    ]
     count = len(stored)
     return ("belegt" if count else "fehlt"), count
 
@@ -941,6 +960,52 @@ def _normalize_stored_references(row: Mapping[str, Any]) -> list[dict[str, Any]]
     return _normalize_chunk_references(refs)
 
 
+_KURZFASSUNG_MAX = 300
+
+
+def _kurzfassung_from_row(row: Mapping[str, Any]) -> str | None:
+    """Prose GA summary for the model. Never a chunk_id or citation."""
+    meta = _meta_from_row(row)
+    stored = meta.get("kurzfassung")
+    if isinstance(stored, str) and stored.strip():
+        return _snippet(stored.strip(), _KURZFASSUNG_MAX)
+    raw = row.get("refs")
+    if not raw:
+        raw = meta.get("references")
+    if not isinstance(raw, list):
+        return None
+    best_text = ""
+    best_rel = -1.0
+    for item in raw:
+        if not isinstance(item, Mapping) or not _is_ga_angabe_ref(item):
+            continue
+        rel = item.get("relevance")
+        score = (
+            float(rel)
+            if isinstance(rel, (int, float)) and not isinstance(rel, bool)
+            else 0.0
+        )
+        text = ""
+        for key in ("description", "begruendung", "snippet"):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                text = val.strip()
+                break
+        if text and score >= best_rel:
+            best_rel = score
+            best_text = text
+    if not best_text:
+        return None
+    return _snippet(best_text, _KURZFASSUNG_MAX)
+
+
+def _attach_kurzfassung(payload: dict[str, Any], row: Mapping[str, Any]) -> dict[str, Any]:
+    kf = _kurzfassung_from_row(row)
+    if kf:
+        payload["kurzfassung"] = kf
+    return payload
+
+
 def _via_kind_for_anchor(anchor_type: str) -> str:
     if anchor_type == "typology":
         return "typology"
@@ -959,44 +1024,6 @@ def _score_from_ref(
     return score
 
 
-def _hit_from_ga_angabe_ref(
-    ref_entry: Mapping[str, Any],
-    *,
-    via_base: dict[str, Any],
-    parent_score: float | None,
-) -> dict[str, Any]:
-    """Build a non-citable hit from denormalized GA reference fields (no DB body)."""
-    text_val = str(ref_entry.get("snippet") or ref_entry.get("description") or "")
-    title = (
-        ref_entry.get("title")
-        or ref_entry.get("vortragstitel")
-        or ref_entry.get("segment_title")
-    )
-    item = _raw_hit_to_mcp_item(
-        {
-            "chunk_id": ref_entry["chunk_id"],
-            "chunk_type": "ga_text",
-            "source_id": ref_entry.get("source_id"),
-            "score": _score_from_ref(ref_entry, parent_score),
-            "snippet": text_val,
-            "text": text_val,
-            "title": title,
-            "segment_title": ref_entry.get("segment_title")
-            or ref_entry.get("vortragstitel"),
-        }
-    )
-    item["via"] = dict(via_base)
-    item["zitierbar"] = False
-    item.pop("citation", None)
-    for key in ("ga", "lecture_id", "page_start", "page_end", "vortragstitel"):
-        if ref_entry.get(key) is not None and ref_entry.get(key) != "":
-            item[key] = ref_entry[key]
-    desc = ref_entry.get("description")
-    if desc:
-        item["reference_note"] = desc
-    return item
-
-
 async def _hits_from_stored_references(
     engine: Any,
     *,
@@ -1005,7 +1032,7 @@ async def _hits_from_stored_references(
     limit: int,
     parent_score: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Resolve stored references into MCP hits (corpus citable; ga_text Angaben not)."""
+    """Resolve stored corpus references into MCP hits. GA passages are not hits."""
     if not stored:
         return []
     capped = stored[: max(1, min(limit, 20))]
@@ -1039,11 +1066,6 @@ async def _hits_from_stored_references(
     corpus_rows: list[dict[str, Any]] = []
     for ref_entry in capped:
         if _is_ga_angabe_ref(ref_entry):
-            body_rows.append(
-                _hit_from_ga_angabe_ref(
-                    ref_entry, via_base=via_base, parent_score=parent_score
-                )
-            )
             continue
         cid = ref_entry["chunk_id"]
         body = by_id.get(cid)
@@ -1088,15 +1110,16 @@ async def _expand_curated_matches_to_hits(
     curated_raw: list[dict[str, Any]],
     *,
     limit: int,
-) -> list[dict[str, Any]]:
-    """Turn curated_text search matches into corpus hits via stored references (no wegweiser)."""
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Corpus hits from curated references, plus GA Kurzfassungen (not hits)."""
     if not curated_raw:
-        return []
+        return [], []
     curated_raw = sorted(
         curated_raw, key=lambda x: float(x.get("score", 0)), reverse=True
     )
     seen_hit: set[str] = set()
     out: list[dict[str, Any]] = []
+    kurzfassungen: list[dict[str, str]] = []
     for raw in curated_raw:
         cid = str(raw.get("chunk_id") or "").strip()
         if not cid:
@@ -1104,6 +1127,9 @@ async def _expand_curated_matches_to_hits(
         row = await asyncio.to_thread(_fetch_chunk_row, engine, cid)
         if row is None:
             continue
+        kf = _kurzfassung_from_row(row)
+        if kf and len(kurzfassungen) < 3:
+            kurzfassungen.append({"ref": cid, "text": kf})
         stored = _normalize_stored_references(row)
         via_base = {
             "kind": "curated_text",
@@ -1124,8 +1150,8 @@ async def _expand_curated_matches_to_hits(
             seen_hit.add(hid)
             out.append(h)
             if len(out) >= limit:
-                return out
-    return out
+                return out, kurzfassungen
+    return out, kurzfassungen
 
 
 async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
@@ -1167,7 +1193,7 @@ async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
         body_rows = await _hits_from_stored_references(
             engine, stored=stored, via_base=via_base, limit=limit
         )
-        return {"hits": body_rows, "wegweiser": []}
+        return _attach_kurzfassung({"hits": body_rows, "wegweiser": []}, row)
 
     meta = _meta_from_row(row)
     anchor_weg = _build_wegweiser(
@@ -1183,25 +1209,32 @@ async def _search_corpus_by_ref(ref: str, *, limit: int) -> dict[str, Any]:
 
     await _enrich_wegweiser_from_db(engine, [anchor_weg])
 
-    if not stored:
+    corpus_stored = [r for r in stored if not _is_ga_angabe_ref(r)]
+    if not corpus_stored:
         hinweise = _wegweiser_response_meta([anchor_weg])
-        return {
-            "hits": [],
-            "wegweiser": [anchor_weg],
-            "wegweiser_hinweise": hinweise,
-            "references_status": anchor_weg.get("references_status", "fehlt"),
-            "references_count": anchor_weg.get("references_count", 0),
-        }
+        return _attach_kurzfassung(
+            {
+                "hits": [],
+                "wegweiser": [anchor_weg],
+                "wegweiser_hinweise": hinweise,
+                "references_status": anchor_weg.get("references_status", "fehlt"),
+                "references_count": anchor_weg.get("references_count", 0),
+            },
+            row,
+        )
 
     body_rows = await _hits_from_stored_references(
         engine, stored=stored, via_base=via_base, limit=limit
     )
-    return {
-        "hits": body_rows,
-        "wegweiser": [anchor_weg],
-        "wegweiser_hinweise": _wegweiser_response_meta([anchor_weg]),
-        "references_status": "belegt",
-    }
+    return _attach_kurzfassung(
+        {
+            "hits": body_rows,
+            "wegweiser": [anchor_weg],
+            "wegweiser_hinweise": _wegweiser_response_meta([anchor_weg]),
+            "references_status": "belegt",
+        },
+        row,
+    )
 
 
 async def search_corpus(
@@ -1281,9 +1314,10 @@ async def search_corpus(
     engine = get_engine()
     await _enrich_corpus_hits(out_hits, hits_raw, engine)
 
-    # curated_text never in hits/wegweiser — expand stored references into corpus hits
+    # curated_text never in hits/wegweiser — expand corpus belege; GA as Kurzfassung
+    kurzfassungen: list[dict[str, str]] = []
     if curated_raw and not only_augment:
-        expanded = await _expand_curated_matches_to_hits(
+        expanded, kurzfassungen = await _expand_curated_matches_to_hits(
             engine, curated_raw, limit=k
         )
         seen = {str(h.get("chunk_id") or "") for h in out_hits}
@@ -1314,6 +1348,8 @@ async def search_corpus(
     payload: dict[str, Any] = {"hits": out_hits, "wegweiser": wegweiser}
     if wegweiser:
         payload["wegweiser_hinweise"] = _wegweiser_response_meta(wegweiser)
+    if kurzfassungen:
+        payload["kurzfassungen"] = kurzfassungen
     return payload
 
 
@@ -2139,15 +2175,14 @@ GA_QDRANT_COLLECTION = "rudolf-steiner-ga"
 async def get_ga_chunk(chunk_id: str) -> dict[str, Any]:
     """Fetch one GA chunk by ``chunk_id`` from collection rudolf-steiner-ga.
 
-    Always allowed when you already have a ``chunk_id`` (e.g. from ``search_corpus``
-    hits with ``chunk_type: ga_text`` / ``zitierbar: false``). Returns full text for
-    your understanding — do not pass long continuous passages to the end user; keep
-    ``zitierbar: false`` (short cite only as ``(GA <n>, S. <seite>)``
-    if needed). For open-ended GA exploration use ``search_ga`` only after an
-    explicit user request.
+    Use when ``search_ga`` already returned a ``chunk_id``, or the user asks for a
+    known GA passage. ``search_corpus`` does not return GA chunk ids; a
+    ``kurzfassung`` there is already the short rendering. Do not pass long
+    continuous passages to the end user. For open-ended GA exploration use
+    ``search_ga`` only after an explicit user request.
 
     Args:
-        chunk_id: Payload ``chunk_id`` from a GA hit / curated Angabe.
+        chunk_id: Payload ``chunk_id`` from ``search_ga``.
     """
     cid = (chunk_id or "").strip()
     if not cid:

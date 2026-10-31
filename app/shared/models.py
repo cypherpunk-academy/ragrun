@@ -142,6 +142,14 @@ class ChunkMetadata(BaseModel):
         None,
         description="References to chunks that influenced this chunk's generation.",
     )
+    kurzfassung: Optional[str] = Field(
+        None,
+        max_length=300,
+        description=(
+            "Short prose summary of GA passages for this chunk. "
+            "Not a citation and not a reference."
+        ),
+    )
     aliases: List[str] = Field(
         default_factory=list,
         description="Synonyme / Suchbegriffe, die diesen Chunk semantisch triggern (z. B. Typologien).",
@@ -197,6 +205,14 @@ class ChunkMetadata(BaseModel):
         out["quotes"] = kind
         return out
 
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Omit an empty Kurzfassung so unchanged chunks are not rewritten."""
+        data = super().model_dump(**kwargs)
+        kf = data.get("kurzfassung")
+        if not isinstance(kf, str) or not kf.strip():
+            data.pop("kurzfassung", None)
+        return data
+
     @classmethod
     def json_schema(cls) -> dict:
         """Return the JSON schema used by clients (explicit alias)."""
@@ -244,6 +260,15 @@ class ChunkMetadata(BaseModel):
         cls._normalize_worldviews(payload)
         if payload.get("aliases") is None:
             payload.pop("aliases", None)
+        kf = payload.get("kurzfassung")
+        if isinstance(kf, str):
+            kf = " ".join(kf.split()).strip()[:300]
+            if kf:
+                payload["kurzfassung"] = kf
+            else:
+                payload.pop("kurzfassung", None)
+        elif "kurzfassung" in payload:
+            payload.pop("kurzfassung", None)
         for key in _TYPOLOGY_OPTIONAL_FIELDS:
             value = payload.get(key)
             if value is None or (isinstance(value, str) and not value.strip()):

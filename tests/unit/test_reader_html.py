@@ -63,14 +63,23 @@ def test_render_chapter_marks_target():
         ],
         target_paragraph_id="p2",
         inline_assets=True,
-        app_passage_id="p2",
+        prev_nav={"href": "/passage/p0", "title": "Vorwort"},
+        next_nav={"href": "/passage/p3", "title": "Erstes Kapitel"},
     )
     assert 'id="p2"' in page
     assert "is-target" in page
     assert 'data-passage-id="p2"' in page
     assert 'scrollIntoView({ block: "start" })' in page
     assert "<i>Zweiter</i>" in page
-    assert "ragapp://passage/p2" in page
+    assert "ragapp://passage/" not in page
+    assert "In der App öffnen" not in page
+    assert 'class="book-header-arrow" href="/passage/p0"' in page
+    assert 'aria-label="Voriges Kapitel"' in page
+    assert ">←</a>" in page
+    assert 'class="book-header-arrow" href="/passage/p3"' in page
+    assert ">→</a>" in page
+    assert "Vorwort" not in page.split("<header", 1)[1].split("</header>", 1)[0].replace('title="Vorwort"', "")
+    assert "chapter-nav" not in page
     assert "Cormorant Garamond" in page
     assert "Marcellus" in page
     assert "book-header" in page

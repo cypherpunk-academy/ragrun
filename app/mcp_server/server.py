@@ -47,10 +47,12 @@ anhaengen, keine GA-Nummer ergaenzen. Ohne `citation`: voller deutscher Titel \
 
 ## Suche
 `search_corpus`: `hits` sind Originale, `wegweiser` sind Begriffe, Typologie und \
-Kapitelzusammenfassungen — nicht woertlich zitieren. Absatz: `get_passage`.
-`curated_text` nie in `hits` oder `wegweiser`. Belege daraus sind `book` / \
-`secondary_book`; GA-Angaben sind `ga_text`, `zitierbar: false`, mit `chunk_id`. \
-Wortlaut nur ueber `get_ga_chunk(chunk_id)`, kurz, keine `zitierform` erfinden.
+Kapitelzusammenfassungen — nicht woertlich zitieren. `hits[].text` ist der ganze \
+Chunk und ist vollstaendig zu lesen, bevor ein Satz als fehlend gilt. Absatz und \
+Umgebung: `get_passage`.
+`curated_text` nie in `hits` oder `wegweiser`. Belege daraus sind nur `book` / \
+`secondary_book`. Eine `kurzfassung` (bei `ref`) oder `kurzfassungen` ist eine \
+kurze GA-Wiedergabe: kein Beleg, kein Zitat, dafuer nicht `get_ga_chunk`.
 Zitate: `quotes=author` oder `quotes=quoted`, optional `author=`. \
 Hits: `author`, `text`, `return_url`.
 Belege an Begriff oder Typologie: `search_corpus(ref=<chunk_id>)`.
@@ -322,10 +324,13 @@ def _register_tools(mcp: MCPServer) -> None:
     ) -> dict:
         """Search the corpus: originals in hits, augment in wegweiser.
 
-        Use get_passage with paragraph_id from hits. Stored references on a concept,
-        typology, or curated_text node: search_corpus(ref=chunk_id) (query ignored).
-        curated_text never appears in hits/wegweiser — expanded book/secondary_book
-        and optional ga_text Angaben (zitierbar false). Load GA full text via get_ga_chunk.
+        hits[].text is the full chunk body — read it completely before concluding
+        a sentence is absent. Use get_passage with paragraph_id for surrounding
+        paragraphs. Stored references on a concept, typology, or curated_text
+        node: search_corpus(ref=chunk_id) (query ignored). curated_text never
+        appears in hits/wegweiser — expanded to book/secondary_book hits only.
+        kurzfassung (ref) or kurzfassungen[].text is a short GA summary, not a
+        citation and not a chunk to load with get_ga_chunk.
 
         Catalog quotes (quotes=author|quoted): searches body chunks with catalog
         quote marks. Hits are slim {author, text, return_url} (Universal Link);
@@ -356,14 +361,13 @@ def _register_tools(mcp: MCPServer) -> None:
     async def tool_get_ga_chunk(chunk_id: str) -> dict:
         """Fetch one GA chunk by chunk_id from rudolf-steiner-ga.
 
-        Always allowed when you already have a chunk_id (e.g. from search_corpus
-        hits with chunk_type ga_text / zitierbar false). Returns full text for
-        understanding — do not forward long passages to the user. Prefer this over
-        search_ga when the ID is known. search_ga remains for explicit user requests
-        to explore the Gesamtausgabe.
+        Use when the user asks to look up a known GA passage, or when search_ga
+        already returned a chunk_id. Returns full text for understanding — do not
+        forward long passages to the user. search_corpus does not return GA chunk
+        ids; a kurzfassung there is already the short rendering.
 
         Args:
-            chunk_id: Payload chunk_id from a GA hit or curated Angabe.
+            chunk_id: chunk_id from search_ga or an explicit GA lookup.
         """
         try:
             return await get_ga_chunk(chunk_id)

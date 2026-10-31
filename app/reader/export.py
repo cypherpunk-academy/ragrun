@@ -47,7 +47,6 @@ def render_segment_html(engine: Engine, first_paragraph_id: str) -> str | None:
         prev_nav=_nav_for_export(chapter.get("prev"), sid),
         next_nav=_nav_for_export(chapter.get("next"), sid),
         inline_assets=False,
-        app_passage_id=None,
     )
 
 
