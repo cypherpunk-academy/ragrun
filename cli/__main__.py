@@ -7,6 +7,7 @@ import sys
 from cli.commands.chunks_delete import run_chunks_delete
 from cli.commands.chunks_info import run_chunks_info
 from cli.commands.export_reader import run_export_reader
+from cli.commands.publish_site import run_publish_site
 
 
 def main() -> None:
@@ -83,6 +84,27 @@ def main() -> None:
         help="Export at most N chapters (debug)",
     )
 
+    publish_parser = subparsers.add_parser(
+        "reader:publish",
+        help="Diff the corpus site and upload it to the configured R2 bucket",
+    )
+    publish_parser.add_argument(
+        "--strategy",
+        choices=["replace", "sync"],
+        required=True,
+        help="replace uploads every page and deletes extras; sync uploads changes only",
+    )
+    publish_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write to R2. Without this flag the command only prints the diff.",
+    )
+    publish_parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="With --strategy sync, delete bucket objects the corpus no longer renders",
+    )
+
     args = parser.parse_args()
 
     if args.command == "chunks:info":
@@ -91,6 +113,10 @@ def main() -> None:
 
     if args.command == "reader:export":
         run_export_reader(args)
+        return
+
+    if args.command == "reader:publish":
+        run_publish_site(args)
         return
 
     if args.command == "chunks:delete":

@@ -96,13 +96,17 @@ def _render_fallback(chapter: dict[str, Any], paragraph_id: str) -> str:
     return render_chapter_html(
         source_title=str(chapter.get("source_title") or ""),
         source_author=chapter.get("source_author"),
+        source_type=str(chapter.get("source_type") or "book"),
+        lecture_ort=str(chapter.get("lecture_ort") or ""),
+        lecture_datum=str(chapter.get("lecture_datum") or ""),
+        lecture_title=str(chapter.get("lecture_title") or ""),
+        lecture_reihe=str(chapter.get("lecture_reihe") or ""),
         segment_title=str(chapter.get("segment_title") or ""),
         paragraphs=chapter["paragraphs"],
         target_paragraph_id=paragraph_id,
         prev_nav=_nav_href(chapter.get("prev"), chapter_urls=False, source_id=sid),
         next_nav=_nav_href(chapter.get("next"), chapter_urls=False, source_id=sid),
         inline_assets=True,
-        app_passage_id=paragraph_id,
     )
 
 

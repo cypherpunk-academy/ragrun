@@ -230,14 +230,62 @@ def test_hits_from_stored_references_ga_angabe_not_citable(monkeypatch):
             limit=5,
         )
     )
-    assert len(hits) == 2
-    book = next(h for h in hits if h["chunk_type"] == "book")
-    ga = next(h for h in hits if h["chunk_type"] == "ga_text")
-    assert book.get("citation") == {"zitierform": "Buch, S. 1"}
-    assert ga["zitierbar"] is False
-    assert ga.get("citation") is None
-    assert ga["snippet"].startswith("Angabe-Text")
-    assert ga["via"]["kind"] == "curated_text"
+    assert len(hits) == 1
+    assert hits[0]["chunk_type"] == "book"
+    assert hits[0]["chunk_id"] == "book1"
+    assert hits[0].get("citation") == {"zitierform": "Buch, S. 1"}
+    assert all(h.get("chunk_type") != "ga_text" for h in hits)
+
+
+def test_kurzfassung_from_legacy_ga_ref_has_no_chunk_id():
+    from app.mcp_server.tools import _kurzfassung_from_row
+
+    text = _kurzfassung_from_row(
+        {
+            "metadata": {},
+            "refs": [
+                {
+                    "chunk_id": "book1",
+                    "chunk_type": "book",
+                    "description": "Korpus-Beleg",
+                    "relevance": 0.9,
+                },
+                {
+                    "chunk_id": "ga-low",
+                    "chunk_type": "ga_text",
+                    "snippet": "niedriger Rohtext",
+                    "relevance": 0.2,
+                },
+                {
+                    "chunk_id": "ga-high",
+                    "chunk_type": "ga_text",
+                    "description": "Der Gedanke wird am anderen Menschen wach.",
+                    "relevance": 0.8,
+                },
+            ],
+        }
+    )
+    assert text == "Der Gedanke wird am anderen Menschen wach."
+    assert "ga-high" not in (text or "")
+
+
+def test_kurzfassung_prefers_stored_metadata():
+    from app.mcp_server.tools import _kurzfassung_from_row
+
+    text = _kurzfassung_from_row(
+        {
+            "metadata": {"kurzfassung": "Gespeicherte Kurzfassung."},
+            "refs": [
+                {
+                    "chunk_id": "ga1",
+                    "chunk_type": "ga_text",
+                    "snippet": "Rohtext der GA",
+                    "relevance": 1,
+                }
+            ],
+        }
+    )
+    assert text == "Gespeicherte Kurzfassung."
 
 
 def test_expand_and_rank_injects_members_for_group(monkeypatch):

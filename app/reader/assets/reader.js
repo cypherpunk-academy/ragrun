@@ -58,15 +58,40 @@
   }
   updateTheme();
   updateSize();
-  try {
-    var params = new URLSearchParams(location.search);
-    var p = params.get("p");
-    if (p) {
-      var el = document.getElementById(p);
-      if (el) {
-        el.classList.add("is-target");
-        if (!location.hash) el.scrollIntoView();
+
+  function targetId() {
+    var fromQuery = "";
+    try {
+      fromQuery = new URLSearchParams(location.search).get("p") || "";
+    } catch (e) {}
+    if (fromQuery) return fromQuery;
+    if (location.hash && location.hash.length > 1) {
+      try {
+        return decodeURIComponent(location.hash.slice(1));
+      } catch (e) {
+        return location.hash.slice(1);
       }
     }
-  } catch (e) {}
+    return d.getAttribute("data-passage-id") || "";
+  }
+
+  function scrollToTarget() {
+    var id = targetId();
+    if (!id) return;
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add("is-target");
+    el.scrollIntoView({ block: "start" });
+    try {
+      if (location.hash !== "#" + id) {
+        history.replaceState(null, "", "#" + id);
+      }
+    } catch (e) {}
+  }
+
+  scrollToTarget();
+  window.addEventListener("load", scrollToTarget);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(scrollToTarget);
+  }
 })();

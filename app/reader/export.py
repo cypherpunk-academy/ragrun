@@ -36,13 +36,17 @@ def render_segment_html(engine: Engine, first_paragraph_id: str) -> str | None:
     return render_chapter_html(
         source_title=str(chapter.get("source_title") or ""),
         source_author=chapter.get("source_author"),
+        source_type=str(chapter.get("source_type") or "book"),
+        lecture_ort=str(chapter.get("lecture_ort") or ""),
+        lecture_datum=str(chapter.get("lecture_datum") or ""),
+        lecture_title=str(chapter.get("lecture_title") or ""),
+        lecture_reihe=str(chapter.get("lecture_reihe") or ""),
         segment_title=str(chapter.get("segment_title") or ""),
         paragraphs=chapter["paragraphs"],
         target_paragraph_id=None,
         prev_nav=_nav_for_export(chapter.get("prev"), sid),
         next_nav=_nav_for_export(chapter.get("next"), sid),
         inline_assets=False,
-        app_passage_id=None,
     )
 
 

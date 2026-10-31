@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Qdrant collection via snapshot: source → target.
+# Prefer the env-aware wrapper when syncing between named environments:
+#   rp deploy:replace <src> <dest> --qdrant [--assistant <name>] --confirm
 #
 # Mac → Tuxai (Tunnel):
 #   export TUXAI_QDRANT_API_KEY=...

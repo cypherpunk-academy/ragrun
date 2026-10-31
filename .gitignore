@@ -5,6 +5,7 @@ __pycache__/
 .env.dev
 .env.staging
 .env.production
+config/local_development.env
 data/vector_db/
 data/backups/
 *.sqlite3

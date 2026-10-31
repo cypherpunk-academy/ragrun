@@ -296,6 +296,9 @@
       boot();
     }
 
+    let sessionIsMissing = () => false;
+    let recoverLogin = async () => {};
+
     async function boot() {
       const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm");
       const supabase = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
@@ -306,20 +309,60 @@
         },
       });
 
+      let loginWired = false;
+
+      sessionIsMissing = function (error) {
+        const msg = String(error?.message || error || "").toLowerCase();
+        return msg.includes("auth session missing") || msg.includes("session missing");
+      }
+
+      async function dropLocalSession() {
+        try {
+          await supabase.auth.signOut({ scope: "local" });
+        } catch (_) {
+          /* The server session is already gone. Clearing local storage is enough. */
+        }
+      }
+
+      function showLogin() {
+        clearError();
+        showPanel("panel-login");
+        if (!loginWired) {
+          wireLogin(supabase);
+          loginWired = true;
+        }
+      }
+
+      recoverLogin = async function () {
+        await dropLocalSession();
+        showLogin();
+      }
+
       // After Google/Apple redirect, hash/query may contain tokens; wait for session.
+      // getSession only reads local storage. A revoked refresh token still looks signed in
+      // until getUser hits the server.
       const { data: { session } } = await supabase.auth.getSession();
 
       if (session) {
-        await showConsent(supabase, session);
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
+        if (userErr && sessionIsMissing(userErr)) {
+          await recoverLogin();
+        } else if (userErr || !userData?.user) {
+          showError(userErr?.message || "Anmeldung fehlgeschlagen.");
+          showLogin();
+        } else {
+          await showConsent(supabase, session);
+        }
       } else {
-        showPanel("panel-login");
-        wireLogin(supabase);
+        showLogin();
       }
 
       supabase.auth.onAuthStateChange(async (event, nextSession) => {
         if (event === "SIGNED_IN" && nextSession) {
           clearError();
           await showConsent(supabase, nextSession);
+        } else if (event === "SIGNED_OUT") {
+          showLogin();
         }
       });
     }
@@ -446,6 +489,10 @@
             if (!url) throw new Error("Keine redirect_url von Supabase");
             window.location.href = url;
           } catch (e) {
+            if (sessionIsMissing(e)) {
+              await recoverLogin();
+              return;
+            }
             showError(e.message || String(e));
             $("btn-approve").disabled = false;
             $("btn-deny").disabled = false;
@@ -467,12 +514,20 @@
               showError("Zugriff abgelehnt.");
             }
           } catch (e) {
+            if (sessionIsMissing(e)) {
+              await recoverLogin();
+              return;
+            }
             showError(e.message || String(e));
             $("btn-approve").disabled = false;
             $("btn-deny").disabled = false;
           }
         };
       } catch (e) {
+        if (sessionIsMissing(e)) {
+          await recoverLogin();
+          return;
+        }
         showError(e.message || String(e));
         showPanel("panel-consent");
       }

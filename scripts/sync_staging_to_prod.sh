@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
-# Copy read-only RAG corpus tables from Supabase Staging → Production.
-# Does NOT touch user data (app_notes, rag_talks turns, connector_grants, auth).
+# DEPRECATED: use ragprep deploy:sync
+#   rp deploy:analyse staging production
+#   rp deploy:sync staging production --supabase [--qdrant] --confirm --confirm-production
 #
-# Prerequisites:
-#   1. Production schema ≥ Staging for these tables (run ragkeep/sql/019_lecture_catalog.sql
-#      on Prod if rag_lecture_catalog is missing; apply ragapp migrations as on Staging).
-#   2. .env.staging and .env.production with RAGRUN_POSTGRES_DSN (pooler URI).
-#
-# Usage:
-#   ./scripts/sync_staging_to_prod.sh              # dry-run (dump only, no write)
-#   CONFIRM=1 ./scripts/sync_staging_to_prod.sh   # truncate + restore on Production
-#
-# Requires: psql, pg_dump
+# Former behaviour: corpus tables Staging → Production (CONFIRM=1 to write).
 
 set -euo pipefail
+
+echo "DEPRECATED: scripts/sync_staging_to_prod.sh" >&2
+echo "  Use:" >&2
+echo "    rp deploy:sync staging production --supabase --confirm --confirm-production" >&2
+exit 1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

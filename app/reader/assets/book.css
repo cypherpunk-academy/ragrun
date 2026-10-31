@@ -4,6 +4,7 @@
   color-scheme: light dark;
   --font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --heading-font-family: 'Cormorant Garamond', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --header-font-family: 'Marcellus', Georgia, 'Times New Roman', serif;
   --font-size: clamp(18px, 2.2vw, 24px);
   --line-height: 1.5;
   --text-width: 70ch;
@@ -16,7 +17,6 @@
   --quote-color: #4444aa;
   --italics-color: inherit;
   --p-num-color: #666666;
-  --target-bg: #ffe08a;
 }
 
 html[data-theme="default"] {
@@ -30,7 +30,6 @@ html[data-theme="default"] {
   --quote-color: #29129c;
   --italics-color: #9b0909;
   --p-num-color: #726e68;
-  --target-bg: #ffd36a;
 }
 
 html[data-theme="dark"] {
@@ -44,7 +43,6 @@ html[data-theme="dark"] {
   --quote-color: #76b2f7;
   --italics-color: #fec8d2;
   --p-num-color: #909090;
-  --target-bg: #3a4a1a;
 }
 
 html[data-theme="default"][data-size="l"] { --font-size: clamp(25px, 3.00vw, 31px); }
@@ -77,6 +75,80 @@ h1, h2, h3 {
 }
 
 h1 { font-size: 1.4em; }
+
+.book-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.45rem 0.75rem 0.45rem 1rem;
+  background: var(--background);
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+.book-header-line {
+  display: flex;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+  font-family: var(--header-font-family);
+  font-weight: 400;
+  font-size: 0.95rem;
+  font-synthesis: none;
+  font-variant-numeric: lining-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+}
+
+.book-header-keep,
+.book-header-sep {
+  flex: none;
+}
+
+.book-header-sep {
+  color: var(--p-num-color);
+  font-weight: 400;
+  padding-inline: 0.55em;
+}
+
+.book-header-tail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-header-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex: none;
+}
+
+.book-header-arrow {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  color: var(--foreground);
+  text-decoration: none;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+.book-header-arrow:hover { opacity: 0.55; }
+.book-header-arrow.is-absent {
+  visibility: hidden;
+  pointer-events: none;
+}
 
 .book-meta {
   color: var(--p-num-color);
@@ -113,42 +185,24 @@ i, em { color: var(--italics-color); font-style: italic; }
   color: inherit;
 }
 
-.chapter-nav {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 2rem 0 0;
-}
-.nav-btn {
-  display: inline-block;
-  text-decoration: none;
-  padding: 0.5rem 0.9rem;
-  border-radius: 6px;
-  border: 1px solid rgba(0,0,0,0.15);
-  background: rgba(0,0,0,0.03);
-  color: var(--foreground);
-}
-.nav-btn:hover { background: rgba(0,0,0,0.06); }
-html[data-theme="dark"] .nav-btn {
-  border-color: rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.06);
-}
-html[data-theme="dark"] .nav-btn:hover { background: rgba(255,255,255,0.1); }
-
 .book-paragraph {
-  scroll-margin-top: 4.5rem;
+  scroll-margin-top: 4.75rem;
 }
 .book-paragraph:target,
 .book-paragraph.is-target {
-  background: var(--target-bg);
-  border-radius: 4px;
-  padding: 0.35em 0.4em;
-  outline: 2px solid color-mix(in srgb, var(--quote-color) 45%, transparent);
+  --mark: color-mix(in srgb, var(--background) 95%, black);
+  background: var(--mark);
+  border-left: 10px solid var(--mark);
+  border-right: 10px solid var(--mark);
+  border-radius: 10px;
+}
+html[data-theme="dark"] .book-paragraph:target,
+html[data-theme="dark"] .book-paragraph.is-target {
+  --mark: color-mix(in srgb, var(--background) 95%, white);
 }
 
 .reader-toggle {
-  position: fixed;
-  top: 0.75rem;
+  position: static;
   z-index: 10;
   border: 1px solid rgba(0,0,0,0.2);
   background: color-mix(in srgb, var(--background) 88%, var(--foreground) 12%);
@@ -158,21 +212,8 @@ html[data-theme="dark"] .nav-btn:hover { background: rgba(255,255,255,0.1); }
   cursor: pointer;
   font-size: 0.85rem;
 }
-.reader-toggle-theme { right: 3.4rem; }
-.reader-toggle-size { right: 0.75rem; }
+.reader-toggle-theme,
+.reader-toggle-size { right: auto; }
 html[data-theme="dark"] .reader-toggle {
   border-color: rgba(255,255,255,0.25);
 }
-
-.app-cta {
-  display: inline-block;
-  margin: 1.5rem 0 0;
-  padding: 0.6rem 1.1rem;
-  background: #5b4a8a;
-  color: white;
-  text-decoration: none;
-  border-radius: 8px;
-  font-family: system-ui, sans-serif;
-  font-size: 0.85rem;
-}
-.app-cta:hover { background: #4a3a6e; }

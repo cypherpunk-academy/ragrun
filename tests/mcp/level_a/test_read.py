@@ -103,12 +103,13 @@ def test_W_03(server_url: str):
 
 
 def test_S_01(live: Live):
-    """S-01: query Freiheit und Erkenntnis liefert bis zu 10 Treffer mit chunk_id und Snippet."""
+    """S-01: query Freiheit und Erkenntnis liefert bis zu 10 Treffer mit chunk_id und vollem text."""
     hits = _hits(live.call("a", "search_corpus", {"query": QUERY}))
     assert 1 <= len(hits) <= 10
     for hit in hits:
         assert hit.get("chunk_id")
-        assert "snippet" in hit
+        assert isinstance(hit.get("text"), str) and hit["text"].strip()
+        assert "snippet" not in hit
         assert "is_primary" not in hit and "ga" not in hit and "zyklus" not in hit
         if hit.get("paragraph_id"):
             problem = citation_problem(hit.get("citation"))
@@ -219,7 +220,8 @@ def test_S_12(live: Live):
     hits = _hits(live.call("a", "search_corpus", {"query": "Verhältnis und Größe"}))
     assert hits
     for hit in hits:
-        assert isinstance(hit.get("snippet"), str)
+        assert isinstance(hit.get("text"), str) and hit["text"].strip()
+        assert "snippet" not in hit
 
 
 def test_P_01(live: Live):

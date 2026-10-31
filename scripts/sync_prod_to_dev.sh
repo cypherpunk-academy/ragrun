@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Syncs read-only corpus tables from ragrun-production to reniets-dev.
-# Skips: vector_chunks (Qdrant mirror, not needed), rag_turns, rag_usage,
-#        app_notes, app_bookmarks (user data).
+# DEPRECATED: Production is no longer a sync source.
+# Use ragprep instead:
+#   rp deploy:analyse staging dev
+#   rp deploy:sync staging dev --supabase [--qdrant] [--assistant <name>] --confirm
 #
-# Usage: ./scripts/sync_prod_to_dev.sh
-#
-# Requires: psql, pg_dump (PostgreSQL client tools)
-# Both DSNs are read from .env.dev and .env (production).
+# Former behaviour: corpus tables from Production → Dev.
 
 set -euo pipefail
+
+echo "DEPRECATED: scripts/sync_prod_to_dev.sh" >&2
+echo "  Production → Dev is removed. Refresh Dev from Staging:" >&2
+echo "    rp deploy:sync staging dev --supabase --confirm" >&2
+exit 1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

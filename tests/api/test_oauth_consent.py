@@ -22,6 +22,10 @@ def test_oauth_consent_serves_html(monkeypatch) -> None:
     assert "test-anon-key" in body
     assert "__RAGRUN_OAUTH_CONFIG__" not in body
     assert "/oauth/consent/assets/oauth-background.jpg" in body
+    assert "Mit Google fortfahren" in body
+    assert "Mit Apple fortfahren" in body
+    assert "sessionIsMissing" in body
+    assert 'scope: "local"' in body
 
 
 def test_oauth_consent_assets() -> None:
