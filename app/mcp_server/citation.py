@@ -15,6 +15,14 @@ _HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
 _FIRST_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 _CONTENT_PREVIEW_CHARS = 2048
+_ZITIER_PART_MAX = 30
+
+
+def _truncate_zitier_part(value: str, max_len: int = _ZITIER_PART_MAX) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip() + "..."
 
 
 def passage_return_url(paragraph_id: str) -> str:
@@ -56,22 +64,18 @@ def format_zitierform(
     segment_title: str,
     paragraph_number: int | None,
 ) -> str:
-    """Human-readable citation string for Philo corpus bands (no GA numbers)."""
+    """Short citation: title and chapter ≤30 chars each, paragraph as ¶n."""
     seg = (segment_title or "").strip()
     b = _band_without_segment_suffix(band, seg) or "Unbekannte Quelle"
     num = int(paragraph_number) if paragraph_number is not None else 0
-    # Avoid "Vierter Vortrag, Vierter Vortrag, Absatz n" when band == segment.
-    if seg and b == seg:
-        if num > 0:
-            return f"{b}, Absatz {num}"
-        return b
+    title = _truncate_zitier_part(b)
+    chapter = _truncate_zitier_part(seg) if seg and b != seg else ""
+    parts: list[str] = [title]
+    if chapter:
+        parts.append(chapter)
     if num > 0:
-        if seg:
-            return f"{b}, {seg}, Absatz {num}"
-        return f"{b}, Absatz {num}"
-    if seg:
-        return f"{b}, {seg}"
-    return b
+        parts.append(f"¶{num}")
+    return ", ".join(parts) + "."
 
 
 def row_to_citation(row: _CITationRow, *, include_paragraph: bool = True) -> dict[str, Any]:
