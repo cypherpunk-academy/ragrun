@@ -23,7 +23,19 @@ def test_format_zitierform_chapter_paragraph():
     )
     assert z == (
         "Die Philosophie der Freiheit, "
-        "Das Bewusstsein des Freien Willens, Absatz 12"
+        "Das Bewusstsein des Freien Wil..., ¶12."
+    )
+
+
+def test_format_zitierform_goethe_intro_truncates_title_and_chapter():
+    z = format_zitierform(
+        "Einleitungen zu Goethes Naturwissenschaftlichen Schriften",
+        "XI VERHÄLTNIS DER GOETHESCHEN DENKWEISE ZU ANDEREN ANSICHTEN",
+        8,
+    )
+    assert z == (
+        "Einleitungen zu Goethes Naturw..., "
+        "XI VERHÄLTNIS DER GOETHESCHEN..., ¶8."
     )
 
 
@@ -73,7 +85,7 @@ def test_fetch_chapter_citation_sets_return_url_on_first_paragraph(monkeypatch):
 
     cit = citation_mod.fetch_chapter_citation(engine, "src-1", "einleitung")
     assert cit is not None
-    assert cit["zitierform"] == "Die Philosophie der Freiheit, Einleitung"
+    assert cit["zitierform"] == "Die Philosophie der Freiheit, Einleitung."
     assert cit["paragraph_number"] == 0
     assert cit["paragraph_id"] == "para-1"
     assert cit["return_url"] == "https://api.ragxxx.com/passage/para-1"
@@ -81,7 +93,7 @@ def test_fetch_chapter_citation_sets_return_url_on_first_paragraph(monkeypatch):
 
 def test_format_zitierform_chapter_only():
     z = format_zitierform("Die Philosophie der Freiheit", "Einleitung", None)
-    assert z == "Die Philosophie der Freiheit, Einleitung"
+    assert z == "Die Philosophie der Freiheit, Einleitung."
 
 
 def test_format_zitierform_lecture_strips_emdash_segment_from_band():
@@ -91,13 +103,13 @@ def test_format_zitierform_lecture_strips_emdash_segment_from_band():
         1,
     )
     assert z == (
-        "Der menschliche und der kosmische Gedanke, Vierter Vortrag, Absatz 1"
+        "Der menschliche und der kosmis..., Vierter Vortrag, ¶1."
     )
 
 
 def test_format_zitierform_no_double_when_band_equals_segment():
     z = format_zitierform("Vierter Vortrag", "Vierter Vortrag", 1)
-    assert z == "Vierter Vortrag, Absatz 1"
+    assert z == "Vierter Vortrag, ¶1."
 
 
 def test_note_display_title_stored():
