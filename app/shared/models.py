@@ -19,6 +19,7 @@ CHUNK_TYPE_ENUM = (
     "typology",
     "curated_text",
     "ga_text",
+    "knowledge",
 )
 
 _TYPOLOGY_OPTIONAL_FIELDS = (
@@ -90,6 +91,22 @@ class ChunkMetadata(BaseModel):
     ga: Optional[str] = Field(
         None,
         description="GA volume id from folder (e.g. 332a, 90b); used by rudolf-steiner-ga search.",
+    )
+    source_url: Optional[str] = Field(
+        None,
+        description="Original URL of a thought source (YouTube, TikTok, text origin, etc.).",
+    )
+    published_date: Optional[str] = Field(
+        None,
+        description="Publication date of a thought source (ISO YYYY-MM-DD preferred).",
+    )
+    topic: Optional[str] = Field(
+        None,
+        description="Thought topic label from thought-manifest.yaml.",
+    )
+    thought_topic_id: Optional[str] = Field(
+        None,
+        description="Stable UUID of the thought topic (thought-topic-id in manifest).",
     )
     page_start: Optional[int] = Field(
         None,
