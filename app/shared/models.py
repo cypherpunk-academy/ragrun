@@ -20,6 +20,7 @@ CHUNK_TYPE_ENUM = (
     "curated_text",
     "ga_text",
     "knowledge",
+    "core_concept",
 )
 
 _TYPOLOGY_OPTIONAL_FIELDS = (
@@ -107,6 +108,43 @@ class ChunkMetadata(BaseModel):
     thought_topic_id: Optional[str] = Field(
         None,
         description="Stable UUID of the thought topic (thought-topic-id in manifest).",
+    )
+    channel: Optional[str] = Field(
+        None,
+        description="Video/channel uploader when distinct from author (e.g. YouTube channel).",
+    )
+    speaker_start: Optional[str] = Field(
+        None,
+        description="Speaker active at the start of a knowledge chunk (last NAME: before chunk start).",
+    )
+    speakers: Optional[List[str]] = Field(
+        None,
+        description="Speakers who speak in this knowledge chunk, speaker_start first.",
+    )
+    # Core-concept (phase5) payload fields
+    satz: Optional[str] = Field(None, description="Kernaussage sentence from phase3.")
+    kurztext: Optional[str] = Field(None, description="Short formulation of a Kernaussage.")
+    year: Optional[int] = Field(None, description="Publication year of the topic/source.")
+    source_ids: Optional[List[str]] = Field(
+        None, description="Body source_ids that contributed to this Kernaussage."
+    )
+    assistant: Optional[str] = Field(
+        None, description="Assistant slug used to formulate the Kernaussage."
+    )
+    kernaussage_id: Optional[str] = Field(
+        None, description="Local Kernaussage label (K1, K2, …)."
+    )
+    sprecher: Optional[List[str]] = Field(
+        None, description="Speakers associated with the Kernaussage."
+    )
+    strittig: Optional[bool] = Field(
+        None, description="True when the Kernaussage is marked disputed in phase3."
+    )
+    candidates: Optional[List[str]] = Field(
+        None, description="phase2 candidate ids supporting this Kernaussage."
+    )
+    relations: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Typed relations to other Kernaussagen in the same topic."
     )
     page_start: Optional[int] = Field(
         None,

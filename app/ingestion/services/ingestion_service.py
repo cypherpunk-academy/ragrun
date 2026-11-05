@@ -469,6 +469,21 @@ class IngestionService:
         "paragraph",
         "quotes",
         "quote_marks",
+        "channel",
+        "speaker_start",
+        "speakers",
+        "thought_topic_id",
+        "topic",
+        "satz",
+        "kurztext",
+        "year",
+        "source_ids",
+        "assistant",
+        "kernaussage_id",
+        "sprecher",
+        "strittig",
+        "candidates",
+        "relations",
     )
 
     def _search_payload_unchanged(
