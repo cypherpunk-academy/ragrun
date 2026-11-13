@@ -21,6 +21,7 @@ CHUNK_TYPE_ENUM = (
     "ga_text",
     "knowledge",
     "core_concept",
+    "harvest",
 )
 
 _TYPOLOGY_OPTIONAL_FIELDS = (

@@ -27,6 +27,7 @@ _APP_TYPE_TO_CHUNK_TYPES: dict[str, list[str]] = {
     "quote": ["quote", "quote_explanation"],
     "chapter_summary": ["chapter_summary"],
     "curated_text": ["curated_text"],
+    "harvest": ["harvest"],
     # Only meaningful with collection=rudolf-steiner-ga (augment GA-Angaben fallback).
     "ga": ["ga_text"],
 }
@@ -138,6 +139,7 @@ def _resolve_chunk_types(types: Iterable[str] | None) -> list[str]:
             "begriff",
             "typology",
             "curated_text",
+            "harvest",
         ]
     out: list[str] = []
     for t in types:
@@ -406,6 +408,10 @@ def _set_navigation_error(hit: dict[str, Any], message: str) -> None:
     hit.pop("paragraph_id", None)
 
 
+# pg_trgm can use the title GIN indexes only when the pattern yields a trigram.
+_MIN_TITLE_TRIGRAM_LEN = 3
+
+
 async def _title_match_search(
     query: str,
     chunk_types: list[str],
@@ -416,31 +422,55 @@ async def _title_match_search(
 
     Returns result dicts in the same shape as the hybrid search output, with a
     synthetic high score so title matches rank above typical RRF scores.
+
+    Queries shorter than 3 characters skip this scan. A leading-wildcard ILIKE
+    that short cannot use the trigram indexes and would read rag_chunks.
+    Hybrid retrieval still runs for those queries. Text is loaded only for the
+    limited hits (idx_rag_chunks_segment_title_trgm / source_title_trgm).
     """
-    q_like = f"%{query}%"
+    exact = query.strip()
+    if len(exact) < _MIN_TITLE_TRIGRAM_LEN or not chunk_types:
+        return []
+    q_like = f"%{exact}%"
 
     def _query() -> list[dict[str, Any]]:
         with engine.connect() as conn:
             rows = conn.execute(
                 text(
                     """
-                    SELECT chunk_id, source_id, chunk_type, text, metadata
-                    FROM rag_chunks
-                    WHERE chunk_type = ANY(:types)
-                      AND (
-                        metadata->>'segment_title' ILIKE :q
-                        OR metadata->>'source_title' ILIKE :q
-                      )
+                    WITH hits AS MATERIALIZED (
+                        SELECT rag_partition, chunk_id, source_id, chunk_type, metadata
+                        FROM rag_chunks
+                        WHERE deprecated_at IS NULL
+                          AND chunk_type = ANY(:types)
+                          AND (
+                            metadata->>'segment_title' ILIKE :q
+                            OR metadata->>'source_title' ILIKE :q
+                          )
+                        ORDER BY
+                          CASE WHEN lower(metadata->>'segment_title') = lower(:exact) THEN 0
+                               WHEN lower(metadata->>'source_title') = lower(:exact) THEN 1
+                               ELSE 2
+                          END,
+                          updated_at DESC,
+                          chunk_id
+                        LIMIT :lim
+                    )
+                    SELECT h.chunk_id, h.source_id, h.chunk_type, c.text, h.metadata
+                    FROM hits h
+                    JOIN rag_chunks c
+                      ON c.rag_partition = h.rag_partition
+                     AND c.chunk_id = h.chunk_id
                     ORDER BY
-                      CASE WHEN LOWER(metadata->>'segment_title') = LOWER(:exact) THEN 0
-                           WHEN LOWER(metadata->>'source_title') = LOWER(:exact) THEN 1
+                      CASE WHEN lower(h.metadata->>'segment_title') = lower(:exact) THEN 0
+                           WHEN lower(h.metadata->>'source_title') = lower(:exact) THEN 1
                            ELSE 2
                       END,
-                      updated_at DESC
-                    LIMIT :lim
+                      c.updated_at DESC,
+                      h.chunk_id
                     """
                 ),
-                {"types": chunk_types, "q": q_like, "exact": query, "lim": limit},
+                {"types": chunk_types, "q": q_like, "exact": exact, "lim": limit},
             ).mappings().all()
         return [dict(r) for r in rows]
 

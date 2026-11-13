@@ -53,6 +53,9 @@ Umgebung: `get_passage`.
 `curated_text` nie in `hits` oder `wegweiser`. Belege daraus sind nur `book` / \
 `secondary_book`. Eine `kurzfassung` (bei `ref`) oder `kurzfassungen` ist eine \
 kurze GA-Wiedergabe: kein Beleg, kein Zitat, dafuer nicht `get_ga_chunk`.
+`harvest`-Chunks sind Analysetexte, die externe Quellen auf die Typologie abbilden. \
+Sie erscheinen in `hits`, sind aber keine Originalquellen — nicht woertlich zitieren. \
+`search_corpus(ref=<harvest_chunk_id>)` liefert die verknuepften Typologie-Attribute.
 Zitate: `quotes=author` oder `quotes=quoted`, optional `author=`. \
 Hits: `author`, `text`, `return_url`.
 Belege an Begriff oder Typologie: `search_corpus(ref=<chunk_id>)`.
@@ -326,9 +329,11 @@ def _register_tools(mcp: MCPServer) -> None:
 
         hits[].text is the full chunk body — read it completely before concluding
         a sentence is absent. Use get_passage with paragraph_id for surrounding
-        paragraphs. Stored references on a concept, typology, or curated_text
-        node: search_corpus(ref=chunk_id) (query ignored). curated_text never
-        appears in hits/wegweiser — expanded to book/secondary_book hits only.
+        paragraphs. Stored references on a concept, typology, curated_text, or
+        harvest node: search_corpus(ref=chunk_id) (query ignored). curated_text
+        never appears in hits/wegweiser — expanded to book/secondary_book hits
+        only. harvest chunks are analysis texts mapping external sources to the
+        typology; they appear in hits but are not original sources.
         kurzfassung (ref) or kurzfassungen[].text is a short GA summary, not a
         citation and not a chunk to load with get_ga_chunk.
 
@@ -339,9 +344,9 @@ def _register_tools(mcp: MCPServer) -> None:
 
         Args:
             query: Search query (German or English). Required unless ref is set.
-            types: text, quote (hits); curated_text (expand refs to hits); concept, chapter_summary (wegweiser). Ignored when quotes is set.
+            types: text, quote, harvest (hits); curated_text (expand refs to hits); concept, chapter_summary (wegweiser). Ignored when quotes is set.
             limit: Max hits (1-20, default 10).
-            ref: Concept, typology, or curated_text chunk_id to load stored references as hits.
+            ref: Concept, typology, curated_text, or harvest chunk_id to load stored references as hits.
             quotes: Catalog quotes mode: author (band author quotes) or quoted (foreign quotes). Omit for normal search.
             author: Optional quote-mark author filter (with quotes=).
         """
