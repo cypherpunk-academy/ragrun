@@ -1,15 +1,18 @@
 # Standalone ragscribe on Tuxai. Separate from deploy/tuxai/compose.yaml
 # so Qdrant / embedder are not restarted with this stack.
 #
-# From ~/ragscribe (synced server tree) or with build context adjusted:
-#   docker compose -f deploy/tuxai/ragscribe/compose.yaml up -d --build
+# Joins external network ragrun-server_default to reach production Qdrant.
+# Set QDRANT_API_KEY in the environment (same as ~/ragrun-server/.env).
 #
-# Expects build context = ragscribe/ (Dockerfile + requirements.txt + app/).
+# From repo root on Tuxai:
+#   export QDRANT_API_KEY=…
+#   docker compose -f deploy/tuxai/ragscribe/compose.yaml up -d --build
 
 services:
   ragscribe:
     build:
-      context: ../../../ragscribe
+      # Synced tree on Tuxai is ~/ragscribe (not under ragrun-server).
+      context: /home/michael/ragscribe
       dockerfile: Dockerfile
     container_name: ragscribe
     restart: unless-stopped
@@ -20,8 +23,22 @@ services:
       WHISPER_DEVICE: cpu
       WHISPER_DOWNLOAD_ROOT: /root/.cache/whisper
       WHISPER_LOG_LEVEL: INFO
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /root/.cache/huggingface
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
     volumes:
       - ragscribe-whisper-cache:/root/.cache/whisper
+      - ragscribe-hf-cache:/root/.cache/huggingface
+    networks:
+      - default
+      - ragrun
 
 volumes:
   ragscribe-whisper-cache:
+  ragscribe-hf-cache:
+
+networks:
+  ragrun:
+    external: true
+    name: ragrun-server_default

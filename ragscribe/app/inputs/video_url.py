@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from ..diarize import diarize_available, transcribe_diarized
 from ..transcribe import transcribe_file
 from .base import ProgressCallback, ScribeRequest
 
@@ -115,6 +116,16 @@ class VideoUrlInput:
                 cookies_from_browser=request.cookies_from_browser,
                 progress_cb=progress_cb,
             )
+            if request.diarize and diarize_available():
+                return transcribe_diarized(
+                    str(audio),
+                    language=request.language,
+                    progress_cb=progress_cb,
+                )
+            if request.diarize:
+                logger.warning(
+                    "diarize requested but whisperx or HF_TOKEN is missing; using whisper"
+                )
             return transcribe_file(
                 str(audio),
                 language=request.language,

@@ -12,6 +12,11 @@ if ! python -c 'import fastapi, uvicorn, whisper, yt_dlp' 2>/dev/null; then
   pip install -r requirements.txt
 fi
 
+if ! python -c 'import whisperx' 2>/dev/null; then
+  echo "whisperx fehlt in ${PYENV_VERSION} — Diarize fällt auf openai-whisper zurück." >&2
+  echo "Install: PYENV_VERSION=${PYENV_VERSION} pip install 'whisperx>=3.3.0'" >&2
+fi
+
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg fehlt im PATH (für yt-dlp Audio-Extraktion)." >&2
   exit 1
