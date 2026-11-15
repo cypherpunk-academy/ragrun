@@ -1,0 +1,27 @@
+# Standalone ragscribe on Tuxai. Separate from deploy/tuxai/compose.yaml
+# so Qdrant / embedder are not restarted with this stack.
+#
+# From ~/ragscribe (synced server tree) or with build context adjusted:
+#   docker compose -f deploy/tuxai/ragscribe/compose.yaml up -d --build
+#
+# Expects build context = ragscribe/ (Dockerfile + requirements.txt + app/).
+
+services:
+  ragscribe:
+    build:
+      context: ../../../ragscribe
+      dockerfile: Dockerfile
+    container_name: ragscribe
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      WHISPER_MODEL: medium
+      WHISPER_DEVICE: cpu
+      WHISPER_DOWNLOAD_ROOT: /root/.cache/whisper
+      WHISPER_LOG_LEVEL: INFO
+    volumes:
+      - ragscribe-whisper-cache:/root/.cache/whisper
+
+volumes:
+  ragscribe-whisper-cache:

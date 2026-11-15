@@ -1,0 +1,13 @@
+# Copy to Tuxai as /etc/cloudflared/ragscribe.yml
+# Replace <TUNNEL-UUID> with the Cloudflare tunnel UUID for tunnel "ragscribe".
+#
+# Do NOT use `cloudflared service install` — that would overwrite
+# cloudflared-ragrun. Use cloudflared-ragscribe.service.example instead.
+
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: scribe.ragxxx.com
+    service: http://127.0.0.1:8002
+  - service: http_status:404

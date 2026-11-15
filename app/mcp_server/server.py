@@ -53,8 +53,12 @@ Umgebung: `get_passage`.
 `curated_text` nie in `hits` oder `wegweiser`. Belege daraus sind nur `book` / \
 `secondary_book`. Eine `kurzfassung` (bei `ref`) oder `kurzfassungen` ist eine \
 kurze GA-Wiedergabe: kein Beleg, kein Zitat, dafuer nicht `get_ga_chunk`.
-`harvest`-Chunks sind Analysetexte, die externe Quellen auf die Typologie abbilden. \
+`harvest`-Chunks fassen zusammen, was ein externer Autor zu einem Thema beitraegt. \
 Sie erscheinen in `hits`, sind aber keine Originalquellen — nicht woertlich zitieren. \
+Stelle den Inhalt als Beitrag des Autors dar: „Assange zeigt …", nicht „die Auswertung stuft ein …". \
+Sprich nicht ueber Auswertungen, Bewertungen, Collections oder darueber, welche Buecher im Korpus fehlen. \
+Die Fusszeilen in eckigen Klammern ordnen den Absatz der Typologie zu. Nenne das Feld bei Bedarf, \
+lies die Fusszeile aber nicht vor. \
 `search_corpus(ref=<harvest_chunk_id>)` liefert die verknuepften Typologie-Attribute.
 Zitate: `quotes=author` oder `quotes=quoted`, optional `author=`. \
 Hits: `author`, `text`, `return_url`.
@@ -332,8 +336,8 @@ def _register_tools(mcp: MCPServer) -> None:
         paragraphs. Stored references on a concept, typology, curated_text, or
         harvest node: search_corpus(ref=chunk_id) (query ignored). curated_text
         never appears in hits/wegweiser — expanded to book/secondary_book hits
-        only. harvest chunks are analysis texts mapping external sources to the
-        typology; they appear in hits but are not original sources.
+        only. harvest chunks summarise what an external author contributes to a topic;
+        they appear in hits but are not original sources — present as the author's contribution.
         kurzfassung (ref) or kurzfassungen[].text is a short GA summary, not a
         citation and not a chunk to load with get_ga_chunk.
 
