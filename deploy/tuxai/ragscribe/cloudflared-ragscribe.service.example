@@ -1,0 +1,25 @@
+# Tuxai: /etc/systemd/system/cloudflared-ragscribe.service
+#   sudo cp deploy/tuxai/ragscribe/cloudflared-ragscribe.service.example \
+#     /etc/systemd/system/cloudflared-ragscribe.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared-ragscribe
+#
+# Leaves cloudflared.service (ragrun token at /etc/cloudflared/token) untouched.
+# Put the ragscribe connector token at /etc/cloudflared/ragscribe.token (mode 600).
+#
+# Ingress for scribe.ragxxx.com → http://127.0.0.1:8002 is configured in the
+# Cloudflare dashboard on tunnel "ragscribe" (remotely managed, like ragrun).
+
+[Unit]
+Description=Cloudflare Tunnel (ragscribe)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token-file /etc/cloudflared/ragscribe.token
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

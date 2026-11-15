@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 _SNIPPET_LIMIT = 300
 _CONTENT_MAX_BYTES = 1_048_576  # 1 MB
 _ALLOWED_SEARCH_TYPES = frozenset(
-    {"text", "quote", "curated_text", "concept", "chapter_summary"}
+    {"text", "quote", "curated_text", "concept", "chapter_summary", "harvest"}
 )
-_REF_ANCHOR_CHUNK_TYPES = frozenset({"begriff", "typology", "curated_text"})
+_REF_ANCHOR_CHUNK_TYPES = frozenset({"begriff", "typology", "curated_text", "harvest"})
 _MAX_WEGWEISER = 5
 _MAX_MEMBERS_PER_GROUP = 2
 _WEGWEISER_HINWEISE_REF = (

@@ -1,0 +1,31 @@
+{
+  "cli": {
+    "version": ">= 14.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "env": {
+        "APP_VARIANT": "staging"
+      }
+    },
+    "production": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "channel": "production",
+      "environment": "production",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_RAGSCRIBE_URL": "https://scribe.ragxxx.com"
+      }
+    }
+  }
+}

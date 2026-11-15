@@ -115,6 +115,59 @@ class UpsertQdrantResponse(BaseModel):
     vector_size: int = 0
 
 
+class KbSearchRequest(BaseModel):
+    """Hybrid search in a named knowledge-base collection."""
+
+    collection_name: str = Field(..., description="Qdrant collection (e.g. knowledge base)")
+    query: str = Field(..., min_length=1, description="Search query text")
+    author: str = Field(..., min_length=1, description="Filter: author payload match")
+    k: int = Field(8, ge=1, le=64, description="Number of hits to return")
+    chunk_type: str = Field("knowledge", description="chunk_type filter (default knowledge)")
+    thought_topic_id: Optional[str] = Field(
+        None, description="Optional filter on thought_topic_id"
+    )
+
+
+class KbSearchHit(BaseModel):
+    chunk_id: str
+    text: str
+    author: Optional[str] = None
+    source_id: Optional[str] = None
+    segment_id: Optional[str] = None
+    topic: Optional[str] = None
+    published_date: Optional[str] = None
+    speaker_start: Optional[str] = None
+    speakers: Optional[List[str]] = None
+    rank: int
+    score: float = 0.0
+
+
+class KbSearchResponse(BaseModel):
+    collection: str
+    hits: List[KbSearchHit]
+
+
+class NeighborsRequest(BaseModel):
+    """Nearest points to a core-concept point (by chunk_id / concept_id)."""
+
+    collection_name: str = Field(..., description="Qdrant collection (e.g. core-concepts)")
+    chunk_id: str = Field(..., description="chunk_id / concept_id of the query point")
+    author: str = Field(..., min_length=1)
+    thought_topic_id: str = Field(..., min_length=1)
+    k: int = Field(3, ge=1, le=32)
+
+
+class NeighborHit(BaseModel):
+    chunk_id: str
+    similarity: float
+
+
+class NeighborsResponse(BaseModel):
+    collection: str
+    chunk_id: str
+    neighbors: List[NeighborHit]
+
+
 class DeprecateChunkIdsRequest(BaseModel):
     """Mark explicit chunk_ids as deprecated in rag_chunks."""
 
@@ -399,6 +452,9 @@ async def upsert_qdrant(
             await qdrant.ensure_keyword_index(request.collection_name, field_name="chunk_type")
             await qdrant.ensure_keyword_index(request.collection_name, field_name="lecture_id")
             await qdrant.ensure_keyword_index(request.collection_name, field_name="quotes")
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="author")
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="thought_topic_id")
+            await qdrant.ensure_keyword_index(request.collection_name, field_name="speakers")
     except Exception:
         logger.warning(
             "upsert-qdrant: keyword index ensure failed for %s",
@@ -1840,3 +1896,138 @@ async def get_published_talks(
     import asyncio
     talks = await asyncio.to_thread(_fetch)
     return PublishedTalksResponse(collection=collection, count=len(talks), talks=talks)
+
+
+def _payload_inner(raw: Mapping[str, Any] | object) -> Mapping[str, Any]:
+    if not isinstance(raw, Mapping):
+        return {}
+    inner = raw.get("payload")
+    if isinstance(inner, Mapping):
+        return inner  # type: ignore[return-value]
+    return raw  # type: ignore[return-value]
+
+
+@router.post("/kb/search", response_model=KbSearchResponse)
+async def kb_search(request: KbSearchRequest) -> KbSearchResponse:
+    """Hybrid search in a named collection, filtered by author and chunk_type."""
+
+    from ..retrieval.utils.retrievers import hybrid_retrieve
+
+    query = request.query.strip()
+    if not query:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="query is empty")
+
+    extra_must: list[Mapping[str, object]] = []
+    if request.thought_topic_id:
+        extra_must.append(
+            {"key": "thought_topic_id", "match": {"value": request.thought_topic_id}}
+        )
+
+    prefix_query = settings.embedding_prefix_query or "query: "
+    try:
+        hits = await hybrid_retrieve(
+            query=query,
+            k_dense=request.k,
+            k_sparse=request.k if settings.use_hybrid_retrieval else 0,
+            k_fused=request.k,
+            worldview=None,
+            book_types=[request.chunk_type],
+            collection=request.collection_name,
+            embedding_client=get_embedding_client(),
+            qdrant_client=get_qdrant_client(),
+            sparse_embedder=get_sparse_embedder() if settings.use_hybrid_retrieval else None,
+            force_sparse=bool(settings.use_hybrid_retrieval),
+            author=request.author,
+            query_prefix=prefix_query,
+            extra_must=extra_must or None,
+        )
+    except Exception as exc:
+        logger.exception("kb/search failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"kb/search failed: {exc}",
+        ) from exc
+
+    out: list[KbSearchHit] = []
+    for rank, snip in enumerate(hits, start=1):
+        payload = _payload_inner(snip.payload if isinstance(snip.payload, Mapping) else {})
+        text = str(payload.get("text") or snip.text or "")
+        chunk_id = str(payload.get("chunk_id") or "").strip()
+        if not chunk_id:
+            continue
+        speakers_raw = payload.get("speakers")
+        speakers = (
+            [str(s) for s in speakers_raw if isinstance(s, str)]
+            if isinstance(speakers_raw, list)
+            else None
+        )
+        out.append(
+            KbSearchHit(
+                chunk_id=chunk_id,
+                text=text,
+                author=str(payload["author"]) if payload.get("author") else None,
+                source_id=str(payload["source_id"]) if payload.get("source_id") else None,
+                segment_id=str(payload["segment_id"]) if payload.get("segment_id") else None,
+                topic=str(payload["topic"]) if payload.get("topic") else None,
+                published_date=(
+                    str(payload["published_date"]) if payload.get("published_date") else None
+                ),
+                speaker_start=(
+                    str(payload["speaker_start"]) if payload.get("speaker_start") else None
+                ),
+                speakers=speakers,
+                rank=rank,
+                score=float(snip.score or 0.0),
+            )
+        )
+    return KbSearchResponse(collection=request.collection_name, hits=out)
+
+
+@router.post("/neighbors", response_model=NeighborsResponse)
+async def neighbors(request: NeighborsRequest) -> NeighborsResponse:
+    """Nearest points to a chunk_id within the same author and thought_topic_id."""
+
+    from uuid import NAMESPACE_DNS, uuid5
+
+    point_id = str(uuid5(NAMESPACE_DNS, request.chunk_id))
+    qdrant = get_qdrant_client()
+    filter_ = {
+        "must": [
+            {"key": "author", "match": {"value": request.author}},
+            {"key": "thought_topic_id", "match": {"value": request.thought_topic_id}},
+        ],
+        "must_not": [
+            {"key": "chunk_id", "match": {"value": request.chunk_id}},
+        ],
+    }
+    try:
+        raw = await qdrant.recommend_points(
+            request.collection_name,
+            positive=[point_id],
+            limit=request.k,
+            filter_=filter_,
+            with_payload=True,
+            using="",
+        )
+    except Exception as exc:
+        logger.exception("neighbors failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"neighbors failed: {exc}",
+        ) from exc
+
+    out: list[NeighborHit] = []
+    for item in raw:
+        payload = _payload_inner(item if isinstance(item, Mapping) else {})
+        cid = str(payload.get("chunk_id") or "").strip()
+        if not cid or cid == request.chunk_id:
+            continue
+        score = float(item.get("score", 0.0) or 0.0) if isinstance(item, Mapping) else 0.0
+        out.append(NeighborHit(chunk_id=cid, similarity=score))
+        if len(out) >= request.k:
+            break
+    return NeighborsResponse(
+        collection=request.collection_name,
+        chunk_id=request.chunk_id,
+        neighbors=out,
+    )

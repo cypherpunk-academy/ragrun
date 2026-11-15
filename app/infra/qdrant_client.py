@@ -445,6 +445,46 @@ class QdrantClient:
             data = response.json()
         return data.get("result", []) or []
 
+    async def recommend_points(
+        self,
+        collection: str,
+        *,
+        positive: Sequence[str],
+        limit: int = 10,
+        filter_: Mapping[str, object] | None = None,
+        with_payload: bool = True,
+        using: str | None = "",
+    ) -> List[Mapping[str, object]]:
+        """Recommend nearest points to the given positive point ids (Qdrant recommend API).
+
+        When the collection stores dense under the empty name ``""`` (alongside sparse),
+        pass ``using=""``. Pass ``using=None`` for collections with a single unnamed vector.
+        """
+
+        if not positive:
+            return []
+
+        body: dict[str, object] = {
+            "positive": list(positive),
+            "limit": limit,
+            "with_payload": with_payload,
+        }
+        if filter_ is not None:
+            body["filter"] = filter_
+        if using is not None:
+            body["using"] = using
+
+        target_url = f"{self.base_url}/collections/{collection}/points/recommend"
+        async with httpx.AsyncClient(timeout=self._httpx_timeout, headers=self.headers) as client:
+            response = await client.post(target_url, json=body)
+            if response.status_code >= 400 and using == "":
+                # Retry without using — collection may have a single unnamed dense vector.
+                body.pop("using", None)
+                response = await client.post(target_url, json=body)
+            response.raise_for_status()
+            data = response.json()
+        return data.get("result", []) or []
+
     async def ensure_sparse_config(self, collection: str, *, vector_name: str = "text-sparse") -> bool:
         """Ensure sparse slot exists, without trying unsupported in-place schema mutation.
 
