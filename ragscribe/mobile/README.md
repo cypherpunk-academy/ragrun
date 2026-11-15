@@ -55,5 +55,6 @@ Server ops: [`deploy/tuxai/ragscribe/README.md`](../../deploy/tuxai/ragscribe/RE
 ## Flow
 
 1. Share a YouTube/TikTok link → choose ragscribe (or paste the URL).
-2. Progress bar: audio fetch, then Whisper transcription.
-3. **Teilen** sends the transcript as plain text.
+2. The app creates a **job** (`POST /api/v1/jobs`) and polls; status emojis: 📥 queued, 🔄 processing, ✅ ok, ❌ error.
+3. Filter the list by text/URL and source; open an entry to **Teilen** or **Löschen**.
+4. Transcripts are stored in Qdrant collection `ragscribe` on Tuxai.

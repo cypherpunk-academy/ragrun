@@ -1,17 +1,20 @@
 # ragscribe on Tuxai
 
-Production: `https://scribe.ragxxx.com` → Docker on `127.0.0.1:8002` via a **separate** Cloudflare tunnel (`ragscribe`). Does not touch `ragrun-tuxai` / `cloudflared-ragrun`.
+Production: `https://scribe.ragxxx.com` → Docker on `127.0.0.1:8002` via tunnel route on **`ragrun-tuxai`**. Jobs and transcripts live in Qdrant collection **`ragscribe`** on the production Qdrant (`qdrant:6333`).
 
-No staging hostname. Access is Cloudflare Access **Service Auth** only (token name `ragscribe`). Token values stay in 1Password / EAS secrets — never in git.
+No staging hostname. Access is Cloudflare Access **Service Auth** (same service token as ragrun). Token values stay in 1Password / EAS secrets — never in git.
 
 ## Architecture
 
 ```
 Android APK
-  → https://scribe.ragxxx.com  (CF Access: CF-Access-Client-Id / Secret)
-  → cloudflared-ragscribe
+  → https://scribe.ragxxx.com  (CF Access)
+  → cloudflared (ragrun-tuxai)
   → http://127.0.0.1:8002  (container ragscribe)
+       → Qdrant collection ragscribe (via Docker net ragrun-server_default)
 ```
+
+Jobs API: `POST/GET/DELETE /api/v1/jobs` (poll; no long streams for the app).
 
 ## 1. Deploy the container
 
@@ -24,40 +27,22 @@ rsync -avz --delete \
   --exclude '.venv/' \
   --exclude '*.pyc' \
   ragscribe/ tuxai:~/ragscribe/
+rsync -avz deploy/tuxai/ragscribe/ tuxai:~/ragrun-server/deploy/tuxai/ragscribe/
 ```
 
-On Tuxai, check free RAM (Whisper `medium` plus the existing e5 embedder), then build and start. Prefer the repo compose if the full `ragrun` tree is present:
+On Tuxai, export `QDRANT_API_KEY` (same as `~/ragrun-server/.env`), then:
 
 ```bash
-# If deploy files live under ~/ragrun-server (or similar):
-cd ~/ragrun-server   # adjust to your clone path
+cd ~/ragrun-server
+# Prefer building from synced ~/ragscribe — override context if needed:
 docker compose -f deploy/tuxai/ragscribe/compose.yaml up -d --build
 ```
 
-Or a minimal compose next to the synced tree (`~/ragscribe/docker-compose.yml`):
-
-```yaml
-services:
-  ragscribe:
-    build: .
-    container_name: ragscribe
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8002:8002"
-    environment:
-      WHISPER_MODEL: medium
-      WHISPER_DEVICE: cpu
-      WHISPER_DOWNLOAD_ROOT: /root/.cache/whisper
-    volumes:
-      - ragscribe-whisper-cache:/root/.cache/whisper
-volumes:
-  ragscribe-whisper-cache:
-```
+Or from `~/ragscribe/docker-compose.yml` (must join `ragrun-server_default` and set `QDRANT_URL` / `QDRANT_API_KEY`).
 
 ```bash
-cd ~/ragscribe && docker compose up -d --build
 curl -s http://127.0.0.1:8002/health
-# expect ready: true (first start downloads the Whisper model)
+# expect ready: true
 ```
 
 ## 2. Cloudflare tunnel (reuse `ragrun-tuxai`)

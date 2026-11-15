@@ -3,6 +3,9 @@ import { useShareIntentContext } from 'expo-share-intent';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
   Pressable,
   ScrollView,
   Share,
@@ -14,16 +17,16 @@ import {
 
 import { extractHttpUrl, getServerUrl } from '@/lib/config';
 import {
-  progressFromEvent,
-  scribeVideoUrl,
-  type ScribeProgress,
+  createJob,
+  deleteJob,
+  formatDuration,
+  getJob,
+  listJobs,
+  shortUrl,
+  type ScribeJob,
 } from '@/lib/scribeApi';
 
-const idleProgress: ScribeProgress = {
-  phase: 'idle',
-  pct: 0,
-  label: '',
-};
+type SourceFilter = '' | 'youtube' | 'tiktok';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -33,65 +36,91 @@ export default function HomeScreen() {
     useShareIntentContext();
 
   const [url, setUrl] = useState('');
-  const [progress, setProgress] = useState<ScribeProgress>(idleProgress);
-  const [result, setResult] = useState('');
+  const [jobs, setJobs] = useState<ScribeJob[]>([]);
+  const [q, setQ] = useState('');
+  const [source, setSource] = useState<SourceFilter>('');
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [running, setRunning] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [selected, setSelected] = useState<ScribeJob | null>(null);
   const autoStarted = useRef<string | null>(null);
+  const qRef = useRef(q);
+  const sourceRef = useRef(source);
+  qRef.current = q;
+  sourceRef.current = source;
 
-  const run = useCallback(async (rawUrl: string) => {
-    const videoUrl = extractHttpUrl(rawUrl) ?? rawUrl.trim();
-    if (!/^https?:\/\//i.test(videoUrl)) {
-      setError('Bitte eine http(s)-URL einfügen');
-      return;
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setRunning(true);
-    setError('');
-    setResult('');
-    setUrl(videoUrl);
-    setProgress({
-      phase: 'fetch',
-      pct: 0,
-      label: 'Verbinde…',
-    });
-
+  const refresh = useCallback(async () => {
     try {
       const baseUrl = await getServerUrl();
-      const text = await scribeVideoUrl({
+      const items = await listJobs({
         baseUrl,
-        url: videoUrl,
-        signal: controller.signal,
-        onEvent: (event) => {
-          setProgress((prev) => progressFromEvent(event, prev));
-        },
+        source: sourceRef.current || null,
+        q: qRef.current,
+        limit: 100,
       });
-      setResult(text);
-      setProgress({
-        phase: 'done',
-        pct: 100,
-        label: 'Fertig',
-        text,
-      });
+      setJobs(items);
+      setError('');
     } catch (e) {
-      if (controller.signal.aborted) return;
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      setProgress({
-        phase: 'error',
-        pct: 0,
-        label: 'Fehler',
-        error: msg,
-      });
-    } finally {
-      setRunning(false);
+      setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  const submit = useCallback(
+    async (rawUrl: string) => {
+      const videoUrl = extractHttpUrl(rawUrl) ?? rawUrl.trim();
+      if (!/^https?:\/\//i.test(videoUrl)) {
+        setError('Bitte eine http(s)-URL einfügen');
+        return;
+      }
+      setSubmitting(true);
+      setError('');
+      setUrl(videoUrl);
+      try {
+        const baseUrl = await getServerUrl();
+        const job = await createJob({ baseUrl, url: videoUrl });
+        setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
+        setSelected(job);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setLoading(true);
+    void refresh().finally(() => setLoading(false));
+  }, [refresh, source]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void refresh();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q, refresh]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const busy = jobs.some(
+        (j) => j.status === 'queued' || j.status === 'processing',
+      );
+      if (busy || selected?.status === 'queued' || selected?.status === 'processing') {
+        void refresh().then(async () => {
+          if (!selected) return;
+          try {
+            const baseUrl = await getServerUrl();
+            const fresh = await getJob({ baseUrl, id: selected.id });
+            setSelected(fresh);
+          } catch {
+            /* ignore poll errors */
+          }
+        });
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [jobs, selected, refresh]);
 
   useEffect(() => {
     if (!hasShareIntent) return;
@@ -101,13 +130,13 @@ export default function HomeScreen() {
     if (!extracted || autoStarted.current === extracted) return;
     autoStarted.current = extracted;
     setUrl(extracted);
-    void run(extracted);
+    void submit(extracted);
   }, [
     hasShareIntent,
     shareIntent.webUrl,
     shareIntent.text,
     resetShareIntent,
-    run,
+    submit,
   ]);
 
   useEffect(() => {
@@ -115,19 +144,66 @@ export default function HomeScreen() {
     if (autoStarted.current === paramUrl) return;
     autoStarted.current = paramUrl;
     setUrl(paramUrl);
-    void run(paramUrl);
-  }, [paramUrl, run]);
+    void submit(paramUrl);
+  }, [paramUrl, submit]);
 
-  const shareResult = useCallback(async () => {
-    if (!result.trim()) return;
-    await Share.share({ message: result });
-  }, [result]);
+  const onDelete = useCallback(
+    (job: ScribeJob) => {
+      Alert.alert('Eintrag löschen?', shortUrl(job.url), [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Löschen',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                const baseUrl = await getServerUrl();
+                await deleteJob({ baseUrl, id: job.id });
+                setSelected(null);
+                await refresh();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              }
+            })();
+          },
+        },
+      ]);
+    },
+    [refresh],
+  );
+
+  const onShare = useCallback(async (job: ScribeJob) => {
+    const parts = [
+      job.url,
+      job.source ? `Quelle: ${job.source}` : '',
+      job.text?.trim() || '',
+    ].filter(Boolean);
+    await Share.share({ message: parts.join('\n\n') });
+  }, []);
+
+  const renderItem = ({ item }: { item: ScribeJob }) => {
+    const dur = formatDuration(item.duration_sec);
+    return (
+      <Pressable style={styles.row} onPress={() => setSelected(item)}>
+        <Text style={styles.emoji}>{item.status_emoji || '❓'}</Text>
+        <View style={styles.rowBody}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {item.source} · {shortUrl(item.url)}
+          </Text>
+          <Text style={styles.rowMeta} numberOfLines={1}>
+            {item.created_at?.replace('T', ' ').replace(/\+00:00$/, ' UTC') ?? ''}
+            {dur ? ` · ${dur}` : ''}
+            {item.status === 'processing' && item.pct != null
+              ? ` · ${item.pct}%`
+              : ''}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-    >
+    <View style={styles.screen}>
       <View style={styles.headerRow}>
         <Text style={styles.subtitle}>Video-Link → Text</Text>
         <Pressable onPress={() => router.push('/settings')}>
@@ -143,59 +219,149 @@ export default function HomeScreen() {
         placeholder="https://… YouTube / TikTok"
         value={url}
         onChangeText={setUrl}
-        editable={!running}
+        editable={!submitting}
       />
 
       <Pressable
-        style={[styles.button, running && styles.buttonDisabled]}
-        onPress={() => void run(url)}
-        disabled={running || !url.trim()}
+        style={[styles.button, submitting && styles.buttonDisabled]}
+        onPress={() => void submit(url)}
+        disabled={submitting || !url.trim()}
       >
-        {running ? (
+        {submitting ? (
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.buttonText}>Transkription starten</Text>
         )}
       </Pressable>
 
-      {progress.phase !== 'idle' ? (
-        <View style={styles.progressBlock}>
-          <Text style={styles.progressLabel}>{progress.label}</Text>
-          <View style={styles.barTrack}>
-            <View
+      <TextInput
+        style={styles.input}
+        placeholder="Filter Text / URL…"
+        value={q}
+        onChangeText={setQ}
+      />
+
+      <View style={styles.chips}>
+        {(
+          [
+            ['', 'Alle'],
+            ['youtube', 'YouTube'],
+            ['tiktok', 'TikTok'],
+          ] as const
+        ).map(([value, label]) => (
+          <Pressable
+            key={label}
+            style={[styles.chip, source === value && styles.chipActive]}
+            onPress={() => setSource(value)}
+          >
+            <Text
               style={[
-                styles.barFill,
-                { width: `${Math.max(0, Math.min(100, progress.pct))}%` },
+                styles.chipText,
+                source === value && styles.chipTextActive,
               ]}
-            />
-          </View>
-        </View>
-      ) : null}
+            >
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {result ? (
-        <View style={styles.resultBlock}>
-          <View style={styles.resultHeader}>
-            <Text style={styles.resultTitle}>Ergebnis</Text>
-            <Pressable onPress={() => void shareResult()}>
-              <Text style={styles.shareLink}>Teilen</Text>
+      {loading && jobs.length === 0 ? (
+        <ActivityIndicator style={{ marginTop: 20 }} />
+      ) : (
+        <FlatList
+          data={jobs}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={
+            <Text style={styles.empty}>Noch keine Einträge</Text>
+          }
+        />
+      )}
+
+      <Modal
+        visible={selected != null}
+        animationType="slide"
+        onRequestClose={() => setSelected(null)}
+      >
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setSelected(null)}>
+              <Text style={styles.settingsLink}>Schließen</Text>
+            </Pressable>
+            <Text style={styles.modalTitle}>
+              {selected?.status_emoji} {selected?.status}
+            </Text>
+            <View style={{ width: 70 }} />
+          </View>
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            <Text style={styles.detailLabel}>URL</Text>
+            <Text selectable style={styles.detailText}>
+              {selected?.url}
+            </Text>
+            <Text style={styles.detailLabel}>Quelle</Text>
+            <Text style={styles.detailText}>{selected?.source}</Text>
+            {selected?.duration_sec != null ? (
+              <>
+                <Text style={styles.detailLabel}>Länge</Text>
+                <Text style={styles.detailText}>
+                  {formatDuration(selected.duration_sec)}
+                </Text>
+              </>
+            ) : null}
+            {selected?.status === 'processing' ||
+            selected?.status === 'queued' ? (
+              <Text style={styles.detailText}>
+                Fortschritt: {selected.pct ?? 0}%
+              </Text>
+            ) : null}
+            {selected?.error ? (
+              <>
+                <Text style={styles.detailLabel}>Fehler</Text>
+                <Text style={styles.error}>{selected.error}</Text>
+              </>
+            ) : null}
+            {selected?.text ? (
+              <>
+                <Text style={styles.detailLabel}>Text</Text>
+                <Text selectable style={styles.resultText}>
+                  {selected.text}
+                </Text>
+              </>
+            ) : null}
+          </ScrollView>
+          <View style={styles.modalActions}>
+            <Pressable
+              style={styles.secondaryBtn}
+              onPress={() => selected && void onShare(selected)}
+              disabled={!selected}
+            >
+              <Text style={styles.secondaryBtnText}>Teilen</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryBtn, styles.dangerBtn]}
+              onPress={() => selected && onDelete(selected)}
+            >
+              <Text style={[styles.secondaryBtnText, styles.dangerText]}>
+                Löschen
+              </Text>
             </Pressable>
           </View>
-          <Text selectable style={styles.resultText}>
-            {result}
-          </Text>
         </View>
-      ) : null}
-    </ScrollView>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    gap: 14,
-    paddingBottom: 40,
+  screen: {
+    flex: 1,
+    padding: 16,
+    gap: 10,
+    backgroundColor: '#f7f5fb',
   },
   headerRow: {
     flexDirection: 'row',
@@ -233,52 +399,132 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  progressBlock: {
+  chips: {
+    flexDirection: 'row',
     gap: 8,
   },
-  progressLabel: {
-    fontSize: 14,
-    color: '#333',
+  chip: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
   },
-  barTrack: {
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#e6e0f0',
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
+  chipActive: {
     backgroundColor: '#3d2b6b',
+    borderColor: '#3d2b6b',
+  },
+  chipText: {
+    color: '#333',
+    fontSize: 13,
+  },
+  chipTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  list: {
+    paddingBottom: 40,
+    gap: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  emoji: {
+    fontSize: 22,
+    width: 32,
+    textAlign: 'center',
+  },
+  rowBody: {
+    flex: 1,
+    gap: 2,
+  },
+  rowTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+  rowMeta: {
+    fontSize: 12,
+    color: '#666',
+  },
+  empty: {
+    textAlign: 'center',
+    color: '#888',
+    marginTop: 24,
   },
   error: {
     color: '#a11',
     fontSize: 14,
   },
-  resultBlock: {
-    gap: 10,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
+  modal: {
+    flex: 1,
+    paddingTop: 56,
+    backgroundColor: '#f7f5fb',
   },
-  resultHeader: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  resultTitle: {
+  modalTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  shareLink: {
-    color: '#3d2b6b',
+  modalBody: {
+    padding: 16,
+    gap: 8,
+    paddingBottom: 40,
+  },
+  detailLabel: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#666',
     fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  detailText: {
     fontSize: 15,
+    color: '#222',
   },
   resultText: {
     fontSize: 15,
     lineHeight: 22,
     color: '#1a1a1a',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e5e5',
+    backgroundColor: '#fff',
+  },
+  secondaryBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#eee8f7',
+  },
+  secondaryBtnText: {
+    color: '#3d2b6b',
+    fontWeight: '700',
+  },
+  dangerBtn: {
+    backgroundColor: '#f8e8e8',
+  },
+  dangerText: {
+    color: '#a11',
   },
 });
