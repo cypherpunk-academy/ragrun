@@ -22,3 +22,10 @@ def whisper_device() -> str:
 def whisper_download_root() -> str | None:
     raw = (os.environ.get("WHISPER_DOWNLOAD_ROOT") or "").strip()
     return raw or None
+
+
+def hf_token() -> str | None:
+    raw = (
+        os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or ""
+    ).strip()
+    return raw or None

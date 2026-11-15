@@ -12,6 +12,7 @@ class ScribeRequest:
     url: str
     language: Optional[str] = None
     cookies_from_browser: Optional[str] = None
+    diarize: bool = True
 
 
 class InputHandler(Protocol):

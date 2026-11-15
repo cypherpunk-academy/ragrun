@@ -1,0 +1,2743 @@
+{
+  "metadata": {
+    "timestamp": "2026-10-21T10:49:39",
+    "qdrant": "localhost:6333",
+    "rerank": false,
+    "rerank_url_set": false,
+    "cases": 6
+  },
+  "variants": [
+    {
+      "variant": "baseline",
+      "label": "baseline",
+      "summary": {
+        "recall_at_5_haupt": 0.8,
+        "recall_at_10_haupt": 0.8,
+        "recall_at_5_all": 0.75,
+        "recall_at_10_all": 0.75,
+        "mrr_haupt": 0.5666666666666667,
+        "ndcg_at_10": 0.6353049809244032,
+        "lectures": 8.5,
+        "volumes": 6.5,
+        "year_span": 8.0,
+        "median_ms": 307.4,
+        "p95_ms": 1704.7,
+        "cases": 5
+      },
+      "cases": [
+        {
+          "negative": false,
+          "recall_at_5_haupt": 0.0,
+          "recall_at_10_haupt": 0.0,
+          "recall_at_5_all": 0.0,
+          "recall_at_10_all": 0.0,
+          "mrr_haupt": 0.0,
+          "ndcg_at_10": 0.0,
+          "expected_in_top10": 0,
+          "lectures": 9.0,
+          "volumes": 9.0,
+          "year_span": 8.0,
+          "accept": {
+            "any_ga_in_top5": false,
+            "lecture_in_top10": false
+          },
+          "top_score": 0.0306,
+          "hits": [
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 0.0306,
+              "lecture_hits": null
+            },
+            {
+              "ga": "120",
+              "lecture_id": "19100516a",
+              "segment_id": "19100516a",
+              "vortragstitel": "Wesen und Bedeutung des Karma in Einzelpersönlichkeit, Individualität, Menschheit, Erde, Welt",
+              "lecture_date": "1910-05-16",
+              "score": 0.0299,
+              "lecture_hits": null
+            },
+            {
+              "ga": "100",
+              "lecture_id": "19070622",
+              "segment_id": "19070622",
+              "vortragstitel": "Vortrag 7",
+              "lecture_date": "1907-06-22",
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "107",
+              "lecture_id": "19090126",
+              "segment_id": "19090126",
+              "vortragstitel": "Krankheiten und Karma",
+              "lecture_date": "1909-01-26",
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "54",
+              "lecture_id": "19060215",
+              "segment_id": "19060215",
+              "vortragstitel": "Wiederverkörperung und Karma. Wiederverkörperung und Karma als Schlüssel zum Menschenrätsel",
+              "lecture_date": "1906-02-15",
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "246",
+              "lecture_id": "19101112",
+              "segment_id": "19101112",
+              "vortragstitel": "Moral und Karma",
+              "lecture_date": "1910-11-12",
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "88",
+              "lecture_id": "19031221",
+              "segment_id": "19031221",
+              "vortragstitel": "Weltengesetz und Menschenschicksal. Im Lichte der ägyptischen Mystik",
+              "lecture_date": "1903-12-21",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "69b",
+              "lecture_id": "19110205",
+              "segment_id": "19110205",
+              "vortragstitel": "Die übersinnlichen Erkenntnisse und das alltägliche Leben",
+              "lecture_date": "1911-02-05",
+              "score": 0.0154,
+              "lecture_hits": null
+            }
+          ],
+          "id": "K01",
+          "query": "Karma Gesetze",
+          "latency_ms": 314.3
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 9.0,
+          "volumes": 3.0,
+          "year_span": 0.0,
+          "accept": null,
+          "top_score": 0.0325,
+          "hits": [
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 0.0325,
+              "lecture_hits": null
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240216b",
+              "segment_id": "19240216b",
+              "vortragstitel": "Die verschiedenen Gesetzmäßigkeiten in den Naturreichen. Der Karmabegriff.",
+              "lecture_date": "1924-02-16",
+              "score": 0.0323,
+              "lecture_hits": null
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240224",
+              "segment_id": "19240224",
+              "vortragstitel": "Karmaimpulse durch verschiedene Erdenleben. Die Waldorfschulpädagogik und das Karma",
+              "lecture_date": "1924-02-24",
+              "score": 0.0315,
+              "lecture_hits": null
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240516",
+              "segment_id": "19240516",
+              "vortragstitel": "Das Leben zwischen Tod und neuer Geburt vom Gesichtspunkte der Karmabildung",
+              "lecture_date": "1924-05-16",
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240504b",
+              "segment_id": "19240504b",
+              "vortragstitel": "Frank Wedekind. Böcklins «Toteninsel» Praktische Karmaübungen",
+              "lecture_date": "1924-05-04",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240611c",
+              "segment_id": "19240611c",
+              "vortragstitel": "Dr. Steiners Geometrielehrer, Lore Byron, Garibaldi",
+              "lecture_date": "1924-06-11",
+              "score": 0.0154,
+              "lecture_hits": null
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240608",
+              "segment_id": "19240608",
+              "vortragstitel": "Der Zusammenhang der siebenjährigen Lebensperioden mit den kosmischen Sphären",
+              "lecture_date": "1924-06-08",
+              "score": 0.0154,
+              "lecture_hits": null
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240610b",
+              "segment_id": "19240610b",
+              "vortragstitel": "Friedrich Schiller, Ernst Haeckel, Victor Hugo",
+              "lecture_date": "1924-06-10",
+              "score": 0.0152,
+              "lecture_hits": null
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240302",
+              "segment_id": "19240302",
+              "vortragstitel": "Der dreigliedrige Mensch und die Hierarchien. Die Bildung der karmischen Kräfte",
+              "lecture_date": "1924-03-02",
+              "score": 0.0152,
+              "lecture_hits": null
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 0.0149,
+              "lecture_hits": null
+            }
+          ],
+          "id": "K01f",
+          "query": "Karma Gesetze",
+          "latency_ms": 1704.7
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 0.75,
+          "recall_at_10_all": 0.75,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.6327535954699908,
+          "expected_in_top10": 3,
+          "lectures": 9.0,
+          "volumes": 8.0,
+          "year_span": 23.0,
+          "accept": null,
+          "top_score": 0.032,
+          "hits": [
+            {
+              "ga": "333",
+              "lecture_id": "19190526",
+              "segment_id": "19190526",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-05-26",
+              "score": 0.032,
+              "lecture_hits": null
+            },
+            {
+              "ga": "336",
+              "lecture_id": "19190404",
+              "segment_id": "19190404",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1919-04-04",
+              "score": 0.0309,
+              "lecture_hits": null
+            },
+            {
+              "ga": "330",
+              "lecture_id": "19190428",
+              "segment_id": "19190428",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-04-28",
+              "score": 0.0305,
+              "lecture_hits": null
+            },
+            {
+              "ga": "83",
+              "lecture_id": "19220611b",
+              "segment_id": "19220611b",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1922-06-11",
+              "score": 0.0303,
+              "lecture_hits": null
+            },
+            {
+              "ga": "330",
+              "lecture_id": "19190428",
+              "segment_id": "19190428",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-04-28",
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "349",
+              "lecture_id": "19230303a",
+              "segment_id": "19230303a",
+              "vortragstitel": "Farbe und Menschenrasssen",
+              "lecture_date": "1923-03-03",
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "333",
+              "lecture_id": "19190915",
+              "segment_id": "19190915",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-09-15",
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "85",
+              "lecture_id": "19000317",
+              "segment_id": "19000317",
+              "vortragstitel": "Methoden, das Gesetz von der Erhaltung der Kraft im Hochschulunterricht zu behandeln",
+              "lecture_date": "1900-03-17",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "217a",
+              "lecture_id": "19201001b",
+              "segment_id": "19201001b",
+              "vortragstitel": "19201001b",
+              "lecture_date": "1920-10-01",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "255b",
+              "lecture_id": "19191203",
+              "segment_id": "19191203",
+              "vortragstitel": "Die in letzter Zeit stärker auftretenden Angriffe der Jesuiten gegen die Anthroposophie",
+              "lecture_date": "1919-12-03",
+              "score": 0.0152,
+              "lecture_hits": null
+            }
+          ],
+          "id": "S01",
+          "query": "Kernpunkte der sozialen Frage",
+          "latency_ms": 327.6
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 0.3333333333333333,
+          "ndcg_at_10": 0.5437713091520254,
+          "expected_in_top10": 2,
+          "lectures": 8.0,
+          "volumes": 4.0,
+          "year_span": 8.0,
+          "accept": null,
+          "top_score": 0.0164,
+          "hits": [
+            {
+              "ga": "130",
+              "lecture_id": "19120129",
+              "segment_id": "19120129",
+              "vortragstitel": "Reinkarnation und Karma, Zufall und Notwendigkeit. Christian Rosenkreuz. Die Morgenröte des neueren Okkultismus",
+              "lecture_date": "1912-01-29",
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120305",
+              "segment_id": "19120305",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-03-05",
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120305",
+              "segment_id": "19120305",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-03-05",
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120220a",
+              "segment_id": "19120220a",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1912-02-20",
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120305",
+              "segment_id": "19120305",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-03-05",
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120221a",
+              "segment_id": "19120221a",
+              "vortragstitel": "Reinkarnation und Karma. Wissen und Glauben",
+              "lecture_date": "1912-02-21",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "90a",
+              "lecture_id": "19041003",
+              "segment_id": "19041003",
+              "vortragstitel": "Apokalypse I: Der Pfad der Erkenntnis - Einführung in die Apokalypse",
+              "lecture_date": "1904-10-03",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041215",
+              "segment_id": "19041215",
+              "vortragstitel": "Vom inneren Leben",
+              "lecture_date": "1904-12-15",
+              "score": 0.0154,
+              "lecture_hits": null
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120123",
+              "segment_id": "19120123",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-01-23",
+              "score": 0.0154,
+              "lecture_hits": null
+            }
+          ],
+          "id": "D01",
+          "query": "Reinkarnation und Karma",
+          "latency_ms": 300.4
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 7.0,
+          "volumes": 7.0,
+          "year_span": 5.0,
+          "accept": null,
+          "top_score": 0.0323,
+          "hits": [
+            {
+              "ga": "4",
+              "lecture_id": null,
+              "segment_id": "4:13",
+              "vortragstitel": "XII. Die moralische Phantasie (Darwinismus und Sittlichkeit)",
+              "lecture_date": null,
+              "score": 0.0323,
+              "lecture_hits": null
+            },
+            {
+              "ga": "4",
+              "lecture_id": null,
+              "segment_id": "4:13",
+              "vortragstitel": "XII. Die moralische Phantasie (Darwinismus und Sittlichkeit)",
+              "lecture_date": null,
+              "score": 0.0318,
+              "lecture_hits": null
+            },
+            {
+              "ga": "161",
+              "lecture_id": "19150202",
+              "segment_id": "19150202",
+              "vortragstitel": "Die Lebensperioden des Menschen als Spiegelbilder karmischer Vorgängen. Das Leben zwischen Tod und neuer Geburt",
+              "lecture_date": "1915-02-02",
+              "score": 0.0315,
+              "lecture_hits": null
+            },
+            {
+              "ga": "179",
+              "lecture_id": "19171215",
+              "segment_id": "19171215",
+              "vortragstitel": "Die verschieden schnelle Entwicklung der vier menschlichen Wesensglieder. Das Problem der Realisierung des Impulses der Freiheit. Der unterschiedliche Zeitablauf in der Entwickelung der menschlichen Wesensglieder. Die moralische Phantasie",
+              "lecture_date": "1917-12-15",
+              "score": 0.0311,
+              "lecture_hits": null
+            },
+            {
+              "ga": "67",
+              "lecture_id": "19180420",
+              "segment_id": "19180420",
+              "vortragstitel": "Die Fragen der menschlichen Willensfreiheit und der Unsterblichkeit im Lichte der Geisteswissenschaft",
+              "lecture_date": "1918-04-20",
+              "score": 0.0305,
+              "lecture_hits": null
+            },
+            {
+              "ga": "179",
+              "lecture_id": "19171215",
+              "segment_id": "19171215",
+              "vortragstitel": "Die verschieden schnelle Entwicklung der vier menschlichen Wesensglieder. Das Problem der Realisierung des Impulses der Freiheit. Der unterschiedliche Zeitablauf in der Entwickelung der menschlichen Wesensglieder. Die moralische Phantasie",
+              "lecture_date": "1917-12-15",
+              "score": 0.0302,
+              "lecture_hits": null
+            },
+            {
+              "ga": "322",
+              "lecture_id": "19200930a",
+              "segment_id": "19200930a",
+              "vortragstitel": "Vortrag 4",
+              "lecture_date": "1920-09-30",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "71b",
+              "lecture_id": "19180424",
+              "segment_id": "19180424",
+              "vortragstitel": "Der übersinnliche Mensch und die Fragen der Willensfreiheit und Unsterblichkeit nach Ergebnissen der Geisteswissenschaft",
+              "lecture_date": "1918-04-24",
+              "score": 0.0152,
+              "lecture_hits": null
+            },
+            {
+              "ga": "28",
+              "lecture_id": null,
+              "segment_id": "28:19",
+              "vortragstitel": "XXL Freundschaften (Neuffer, Ansorge); das Buch «Goethes Weltanschauung» als Abschluß der Arbeit an der Sophien-Ausgabe entsteht",
+              "lecture_date": null,
+              "score": 0.0149,
+              "lecture_hits": null
+            },
+            {
+              "ga": "161",
+              "lecture_id": "19150202",
+              "segment_id": "19150202",
+              "vortragstitel": "Die Lebensperioden des Menschen als Spiegelbilder karmischer Vorgängen. Das Leben zwischen Tod und neuer Geburt",
+              "lecture_date": "1915-02-02",
+              "score": 0.0149,
+              "lecture_hits": null
+            }
+          ],
+          "id": "B01",
+          "query": "moralische Phantasie",
+          "latency_ms": 258.8
+        },
+        {
+          "negative": true,
+          "recall_at_5_haupt": null,
+          "recall_at_10_haupt": null,
+          "recall_at_5_all": null,
+          "recall_at_10_all": null,
+          "mrr_haupt": null,
+          "ndcg_at_10": null,
+          "expected_in_top10": 0,
+          "lectures": 9.0,
+          "volumes": 8.0,
+          "year_span": 4.0,
+          "accept": null,
+          "top_score": 0.0164,
+          "hits": [
+            {
+              "ga": "283",
+              "lecture_id": "19230308b",
+              "segment_id": "19230308b",
+              "vortragstitel": "19230308b",
+              "lecture_date": "1923-03-08",
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:02",
+              "vortragstitel": "Goethe als Vater einer neuen Ästhetik Deutsche Worte, 9. Jg., Heft 4; April 1889",
+              "lecture_date": null,
+              "score": 0.0164,
+              "lecture_hits": null
+            },
+            {
+              "ga": "337b",
+              "lecture_id": "19200816",
+              "segment_id": "19200816",
+              "vortragstitel": "Urteilsbildung in den drei Gliedern des sozialen Organismus",
+              "lecture_date": "1920-08-16",
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "34",
+              "lecture_id": null,
+              "segment_id": "34:06",
+              "vortragstitel": "Reinkarnation und Karma, vom Standpunkte der modernen Naturwissenschaft notwendige Vorstellungen . . Oktober/November 1903",
+              "lecture_date": null,
+              "score": 0.0161,
+              "lecture_hits": null
+            },
+            {
+              "ga": "203",
+              "lecture_id": "19210328b",
+              "segment_id": "19210328b",
+              "vortragstitel": "Leben und Lehre des Apollonius von Tyana. Der Christusimpuls. Die neue Weisheit der Geisteswissenschaft als Willenskultur. Der Ostergedanke",
+              "lecture_date": "1921-03-28",
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "35",
+              "lecture_id": null,
+              "segment_id": "35:02",
+              "vortragstitel": "Autoreferat vom Vortrag beim Kongreß der Föderation europäi scher Sektionen der Theosophischen Gesellschaft, Amsterdam, 21. Juni 1904 Die okkulte Grundlage in Goethes Schaffen",
+              "lecture_date": null,
+              "score": 0.0159,
+              "lecture_hits": null
+            },
+            {
+              "ga": "354",
+              "lecture_id": "19240913a",
+              "segment_id": "19240913a",
+              "vortragstitel": "Über die Witterung und ihre Ursachen",
+              "lecture_date": "1924-09-13",
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:43",
+              "vortragstitel": "Hundert Jahre zurück. Zur Farbenlehre Chronik des Wiener Goethe-Vereins, 2. Jg., 1. Bd., Nr. 7; 15. Apr 1887",
+              "lecture_date": null,
+              "score": 0.0156,
+              "lecture_hits": null
+            },
+            {
+              "ga": "283",
+              "lecture_id": "19230308b",
+              "segment_id": "19230308b",
+              "vortragstitel": "19230308b",
+              "lecture_date": "1923-03-08",
+              "score": 0.0154,
+              "lecture_hits": null
+            },
+            {
+              "ga": "29",
+              "lecture_id": null,
+              "segment_id": "29:113",
+              "vortragstitel": "«Pharisäer». Komödie in drei Akten von Clara Viebig Magazin für Literatur 1899, 68. Jg., Nr. 45",
+              "lecture_date": null,
+              "score": 0.0154,
+              "lecture_hits": null
+            }
+          ],
+          "id": "N01",
+          "query": "Xylophonquartett Quantenkaffee",
+          "latency_ms": 280.3
+        }
+      ]
+    },
+    {
+      "variant": "candidates",
+      "label": "+kandidaten+gruppierung",
+      "summary": {
+        "recall_at_5_haupt": 0.7,
+        "recall_at_10_haupt": 0.7,
+        "recall_at_5_all": 0.65,
+        "recall_at_10_all": 0.65,
+        "mrr_haupt": 0.6,
+        "ndcg_at_10": 0.6039212805409064,
+        "lectures": 10.0,
+        "volumes": 8.166666666666666,
+        "year_span": 6.166666666666667,
+        "median_ms": 258.5,
+        "p95_ms": 561.7,
+        "cases": 5
+      },
+      "cases": [
+        {
+          "negative": false,
+          "recall_at_5_haupt": 0.0,
+          "recall_at_10_haupt": 0.0,
+          "recall_at_5_all": 0.0,
+          "recall_at_10_all": 0.0,
+          "mrr_haupt": 0.0,
+          "ndcg_at_10": 0.0,
+          "expected_in_top10": 0,
+          "lectures": 10.0,
+          "volumes": 10.0,
+          "year_span": 8.0,
+          "accept": {
+            "any_ga_in_top5": false,
+            "lecture_in_top10": false
+          },
+          "top_score": 0.934,
+          "hits": [
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 0.934,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 0.9137,
+              "lecture_hits": 6
+            },
+            {
+              "ga": "120",
+              "lecture_id": "19100516a",
+              "segment_id": "19100516a",
+              "vortragstitel": "Wesen und Bedeutung des Karma in Einzelpersönlichkeit, Individualität, Menschheit, Erde, Welt",
+              "lecture_date": "1910-05-16",
+              "score": 0.9113,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "246",
+              "lecture_id": "19101112",
+              "segment_id": "19101112",
+              "vortragstitel": "Moral und Karma",
+              "lecture_date": "1910-11-12",
+              "score": 0.8654,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "54",
+              "lecture_id": "19060215",
+              "segment_id": "19060215",
+              "vortragstitel": "Wiederverkörperung und Karma. Wiederverkörperung und Karma als Schlüssel zum Menschenrätsel",
+              "lecture_date": "1906-02-15",
+              "score": 0.8607,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "69b",
+              "lecture_id": "19110205",
+              "segment_id": "19110205",
+              "vortragstitel": "Die übersinnlichen Erkenntnisse und das alltägliche Leben",
+              "lecture_date": "1911-02-05",
+              "score": 0.8505,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "88",
+              "lecture_id": "19031221",
+              "segment_id": "19031221",
+              "vortragstitel": "Weltengesetz und Menschenschicksal. Im Lichte der ägyptischen Mystik",
+              "lecture_date": "1903-12-21",
+              "score": 0.8485,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "107",
+              "lecture_id": "19090126",
+              "segment_id": "19090126",
+              "vortragstitel": "Krankheiten und Karma",
+              "lecture_date": "1909-01-26",
+              "score": 0.7383,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "116",
+              "lecture_id": "19091222a",
+              "segment_id": "19091222a",
+              "vortragstitel": "Das Karmagesetz in bezug auf Einzelheiten des Lebens",
+              "lecture_date": "1909-12-22",
+              "score": 0.7192,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "100",
+              "lecture_id": "19070622",
+              "segment_id": "19070622",
+              "vortragstitel": "Vortrag 7",
+              "lecture_date": "1907-06-22",
+              "score": 0.7087,
+              "lecture_hits": 4
+            }
+          ],
+          "id": "K01",
+          "query": "Karma Gesetze",
+          "latency_ms": 293.2
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 5.0,
+          "year_span": 0.0,
+          "accept": null,
+          "top_score": 0.9919,
+          "hits": [
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 0.9919,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240216b",
+              "segment_id": "19240216b",
+              "vortragstitel": "Die verschiedenen Gesetzmäßigkeiten in den Naturreichen. Der Karmabegriff.",
+              "lecture_date": "1924-02-16",
+              "score": 0.9841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240224",
+              "segment_id": "19240224",
+              "vortragstitel": "Karmaimpulse durch verschiedene Erdenleben. Die Waldorfschulpädagogik und das Karma",
+              "lecture_date": "1924-02-24",
+              "score": 0.9607,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240610b",
+              "segment_id": "19240610b",
+              "vortragstitel": "Friedrich Schiller, Ernst Haeckel, Victor Hugo",
+              "lecture_date": "1924-06-10",
+              "score": 0.8688,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240611c",
+              "segment_id": "19240611c",
+              "vortragstitel": "Dr. Steiners Geometrielehrer, Lore Byron, Garibaldi",
+              "lecture_date": "1924-06-11",
+              "score": 0.8323,
+              "lecture_hits": 6
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240223c",
+              "segment_id": "19240223c",
+              "vortragstitel": "Karma und Freiheit",
+              "lecture_date": "1924-02-23",
+              "score": 0.7423,
+              "lecture_hits": 5
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240614c",
+              "segment_id": "19240614c",
+              "vortragstitel": "Das Hinüberwirken der früheren Erdenleben in die späteren",
+              "lecture_date": "1924-06-14",
+              "score": 0.7234,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240217a",
+              "segment_id": "19240217a",
+              "vortragstitel": "Die Karmafrage und die Hierarchien",
+              "lecture_date": "1924-02-17",
+              "score": 0.7161,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "240",
+              "lecture_id": "19240601b",
+              "segment_id": "19240601b",
+              "vortragstitel": "Goethe, Schiller, Heinrich Heine",
+              "lecture_date": "1924-06-01",
+              "score": 0.6703,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "237",
+              "lecture_id": "19240803",
+              "segment_id": "19240803",
+              "vortragstitel": "Das Karma des einzelnen Anthroposophen. Das Wirken der Michaelimpulse. Karmische Zusammenhänge zwischen Anthroposophen und Nichtanthroposophen. Der Kampf Ahrimans",
+              "lecture_date": "1924-08-03",
+              "score": 0.6566,
+              "lecture_hits": 2
+            }
+          ],
+          "id": "K01f",
+          "query": "Karma Gesetze",
+          "latency_ms": 561.7
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 0.75,
+          "recall_at_10_all": 0.75,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.6327535954699908,
+          "expected_in_top10": 3,
+          "lectures": 10.0,
+          "volumes": 9.0,
+          "year_span": 3.0,
+          "accept": null,
+          "top_score": 0.9761,
+          "hits": [
+            {
+              "ga": "333",
+              "lecture_id": "19190526",
+              "segment_id": "19190526",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-05-26",
+              "score": 0.9761,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "336",
+              "lecture_id": "19190404",
+              "segment_id": "19190404",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1919-04-04",
+              "score": 0.942,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "330",
+              "lecture_id": "19190428",
+              "segment_id": "19190428",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-04-28",
+              "score": 0.9314,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "83",
+              "lecture_id": "19220611b",
+              "segment_id": "19220611b",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1922-06-11",
+              "score": 0.9245,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "333",
+              "lecture_id": "19190915",
+              "segment_id": "19190915",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-09-15",
+              "score": 0.823,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "329",
+              "lecture_id": "19191014",
+              "segment_id": "19191014",
+              "vortragstitel": "Die geisteswissenschaftliche Grundlage der sozialen Frage",
+              "lecture_date": "1919-10-14",
+              "score": 0.8039,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "332a",
+              "lecture_id": "19191025",
+              "segment_id": "19191025",
+              "vortragstitel": "Das Wirtschaften auf assoziativer Grundlage. Die Umwandlung des Marktes. Preisgestaltung. Geld- und Steuerwesen. Kredit",
+              "lecture_date": "1919-10-25",
+              "score": 0.7974,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "81",
+              "lecture_id": "19220309a",
+              "segment_id": "19220309a",
+              "vortragstitel": "Anthroposophie und Sozialwissenschaft",
+              "lecture_date": "1922-03-09",
+              "score": 0.7723,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "190",
+              "lecture_id": "19190414",
+              "segment_id": "19190414",
+              "vortragstitel": "Der Mensch als dreigliedriges Wesen. Die Anthroposophische Gesellschaft und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-04-14",
+              "score": 0.7685,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "217a",
+              "lecture_id": "19201001b",
+              "segment_id": "19201001b",
+              "vortragstitel": "19201001b",
+              "lecture_date": "1920-10-01",
+              "score": 0.7372,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "S01",
+          "query": "Kernpunkte der sozialen Frage",
+          "latency_ms": 239.7
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 0.5,
+          "recall_at_10_haupt": 0.5,
+          "recall_at_5_all": 0.5,
+          "recall_at_10_all": 0.5,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.3868528072345416,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 7.0,
+          "year_span": 15.0,
+          "accept": null,
+          "top_score": 0.8508,
+          "hits": [
+            {
+              "ga": "135",
+              "lecture_id": "19120305",
+              "segment_id": "19120305",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-03-05",
+              "score": 0.8508,
+              "lecture_hits": 11
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 0.8032,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 0.7271,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120221a",
+              "segment_id": "19120221a",
+              "vortragstitel": "Reinkarnation und Karma. Wissen und Glauben",
+              "lecture_date": "1912-02-21",
+              "score": 0.7245,
+              "lecture_hits": 9
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120123",
+              "segment_id": "19120123",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-01-23",
+              "score": 0.7172,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041215",
+              "segment_id": "19041215",
+              "vortragstitel": "Vom inneren Leben",
+              "lecture_date": "1904-12-15",
+              "score": 0.6919,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090612",
+              "segment_id": "19090612",
+              "vortragstitel": "Einiges über Karma, Reinkarnation und über die Einweihung",
+              "lecture_date": "1909-06-12",
+              "score": 0.5818,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "191",
+              "lecture_id": "19191010",
+              "segment_id": "19191010",
+              "vortragstitel": "Die Niedergangskräfte der gegenwärtigen Zivilisation. Anglo-Amerikanertum, Europäertum und Asiatentum. Kosmogonie, Freiheit und Altruismus",
+              "lecture_date": "1919-10-10",
+              "score": 0.5357,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "68a",
+              "lecture_id": "19070307b",
+              "segment_id": "19070307b",
+              "vortragstitel": "Theosophie, Buddhismus und Christentum",
+              "lecture_date": "1907-03-07",
+              "score": 0.5332,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "127",
+              "lecture_id": "19110605",
+              "segment_id": "19110605",
+              "vortragstitel": "Die Mission der neuen Geistesoffenbarung",
+              "lecture_date": "1911-06-05",
+              "score": 0.5108,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "D01",
+          "query": "Reinkarnation und Karma",
+          "latency_ms": 251.0
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 9.0,
+          "year_span": 7.0,
+          "accept": null,
+          "top_score": 0.9841,
+          "hits": [
+            {
+              "ga": "4",
+              "lecture_id": null,
+              "segment_id": "4:13",
+              "vortragstitel": "XII. Die moralische Phantasie (Darwinismus und Sittlichkeit)",
+              "lecture_date": null,
+              "score": 0.9841,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "161",
+              "lecture_id": "19150202",
+              "segment_id": "19150202",
+              "vortragstitel": "Die Lebensperioden des Menschen als Spiegelbilder karmischer Vorgängen. Das Leben zwischen Tod und neuer Geburt",
+              "lecture_date": "1915-02-02",
+              "score": 0.9612,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "179",
+              "lecture_id": "19171215",
+              "segment_id": "19171215",
+              "vortragstitel": "Die verschieden schnelle Entwicklung der vier menschlichen Wesensglieder. Das Problem der Realisierung des Impulses der Freiheit. Der unterschiedliche Zeitablauf in der Entwickelung der menschlichen Wesensglieder. Die moralische Phantasie",
+              "lecture_date": "1917-12-15",
+              "score": 0.9485,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "67",
+              "lecture_id": "19180420",
+              "segment_id": "19180420",
+              "vortragstitel": "Die Fragen der menschlichen Willensfreiheit und der Unsterblichkeit im Lichte der Geisteswissenschaft",
+              "lecture_date": "1918-04-20",
+              "score": 0.9387,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "322",
+              "lecture_id": "19200930a",
+              "segment_id": "19200930a",
+              "vortragstitel": "Vortrag 4",
+              "lecture_date": "1920-09-30",
+              "score": 0.8887,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "71b",
+              "lecture_id": "19180424",
+              "segment_id": "19180424",
+              "vortragstitel": "Der übersinnliche Mensch und die Fragen der Willensfreiheit und Unsterblichkeit nach Ergebnissen der Geisteswissenschaft",
+              "lecture_date": "1918-04-24",
+              "score": 0.8857,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "5",
+              "lecture_id": null,
+              "segment_id": "5:04",
+              "vortragstitel": "II. Der Übermensch",
+              "lecture_date": null,
+              "score": 0.816,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "161",
+              "lecture_id": "19150109",
+              "segment_id": "19150109",
+              "vortragstitel": "Das vierfache Ich des Menschen. Die Anwendung geisteswissenschaftlicher Grundsätze in der Gesangs- und Rezitationspädagogik",
+              "lecture_date": "1915-01-09",
+              "score": 0.8108,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "218",
+              "lecture_id": "19221119b",
+              "segment_id": "19221119b",
+              "vortragstitel": "Moralische Erziehung vom Gesichtspunkte der Anthroposophie",
+              "lecture_date": "1922-11-19",
+              "score": 0.8061,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "193",
+              "lecture_id": "19190612",
+              "segment_id": "19190612",
+              "vortragstitel": "Zur Charakteristik der Gegenwart. Das Sichoffenbarenwollen der geistigen Welt in der heutigen Zeit. Mitteleuropa zwischen Ost und West. Die Dreigliederung",
+              "lecture_date": "1919-06-12",
+              "score": 0.8032,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "B01",
+          "query": "moralische Phantasie",
+          "latency_ms": 246.6
+        },
+        {
+          "negative": true,
+          "recall_at_5_haupt": null,
+          "recall_at_10_haupt": null,
+          "recall_at_5_all": null,
+          "recall_at_10_all": null,
+          "mrr_haupt": null,
+          "ndcg_at_10": null,
+          "expected_in_top10": 0,
+          "lectures": 10.0,
+          "volumes": 9.0,
+          "year_span": 4.0,
+          "accept": null,
+          "top_score": 0.5,
+          "hits": [
+            {
+              "ga": "283",
+              "lecture_id": "19230308b",
+              "segment_id": "19230308b",
+              "vortragstitel": "19230308b",
+              "lecture_date": "1923-03-08",
+              "score": 0.5,
+              "lecture_hits": 8
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:07",
+              "vortragstitel": "Haeckel und seine Gegner Die Gesellschaft, 15. Jg., Bd. 3, Heft 4, 5, 6; Aug./Sept. 1899",
+              "lecture_date": null,
+              "score": 0.5,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "337b",
+              "lecture_id": "19200816",
+              "segment_id": "19200816",
+              "vortragstitel": "Urteilsbildung in den drei Gliedern des sozialen Organismus",
+              "lecture_date": "1920-08-16",
+              "score": 0.4919,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "34",
+              "lecture_id": null,
+              "segment_id": "34:06",
+              "vortragstitel": "Reinkarnation und Karma, vom Standpunkte der modernen Naturwissenschaft notwendige Vorstellungen . . Oktober/November 1903",
+              "lecture_date": null,
+              "score": 0.4919,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "203",
+              "lecture_id": "19210328b",
+              "segment_id": "19210328b",
+              "vortragstitel": "Leben und Lehre des Apollonius von Tyana. Der Christusimpuls. Die neue Weisheit der Geisteswissenschaft als Willenskultur. Der Ostergedanke",
+              "lecture_date": "1921-03-28",
+              "score": 0.4841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "35",
+              "lecture_id": null,
+              "segment_id": "35:02",
+              "vortragstitel": "Autoreferat vom Vortrag beim Kongreß der Föderation europäi scher Sektionen der Theosophischen Gesellschaft, Amsterdam, 21. Juni 1904 Die okkulte Grundlage in Goethes Schaffen",
+              "lecture_date": null,
+              "score": 0.4841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "354",
+              "lecture_id": "19240913a",
+              "segment_id": "19240913a",
+              "vortragstitel": "Über die Witterung und ihre Ursachen",
+              "lecture_date": "1924-09-13",
+              "score": 0.4766,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:43",
+              "vortragstitel": "Hundert Jahre zurück. Zur Farbenlehre Chronik des Wiener Goethe-Vereins, 2. Jg., 1. Bd., Nr. 7; 15. Apr 1887",
+              "lecture_date": null,
+              "score": 0.4766,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "29",
+              "lecture_id": null,
+              "segment_id": "29:113",
+              "vortragstitel": "«Pharisäer». Komödie in drei Akten von Clara Viebig Magazin für Literatur 1899, 68. Jg., Nr. 45",
+              "lecture_date": null,
+              "score": 0.4692,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "28",
+              "lecture_id": null,
+              "segment_id": "28:04",
+              "vortragstitel": "IV. Jugendfreundschaften",
+              "lecture_date": null,
+              "score": 0.4621,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "N01",
+          "query": "Xylophonquartett Quantenkaffee",
+          "latency_ms": 265.9
+        }
+      ]
+    },
+    {
+      "variant": "title",
+      "label": "+titel",
+      "summary": {
+        "recall_at_5_haupt": 0.9,
+        "recall_at_10_haupt": 0.9,
+        "recall_at_5_all": 0.85,
+        "recall_at_10_all": 0.85,
+        "mrr_haupt": 0.64,
+        "ndcg_at_10": 0.6812918419878148,
+        "lectures": 10.0,
+        "volumes": 7.833333333333333,
+        "year_span": 7.166666666666667,
+        "median_ms": 424.7,
+        "p95_ms": 980.9,
+        "cases": 5
+      },
+      "cases": [
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 0.2,
+          "ndcg_at_10": 0.38685280723454163,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 10.0,
+          "year_span": 20.0,
+          "accept": {
+            "any_ga_in_top5": true,
+            "lecture_in_top10": true
+          },
+          "top_score": 1.109,
+          "hits": [
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 1.109,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 1.0887,
+              "lecture_hits": 6
+            },
+            {
+              "ga": "120",
+              "lecture_id": "19100516a",
+              "segment_id": "19100516a",
+              "vortragstitel": "Wesen und Bedeutung des Karma in Einzelpersönlichkeit, Individualität, Menschheit, Erde, Welt",
+              "lecture_date": "1910-05-16",
+              "score": 1.0863,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "246",
+              "lecture_id": "19101112",
+              "segment_id": "19101112",
+              "vortragstitel": "Moral und Karma",
+              "lecture_date": "1910-11-12",
+              "score": 1.0404,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 1.0377,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "54",
+              "lecture_id": "19060215",
+              "segment_id": "19060215",
+              "vortragstitel": "Wiederverkörperung und Karma. Wiederverkörperung und Karma als Schlüssel zum Menschenrätsel",
+              "lecture_date": "1906-02-15",
+              "score": 1.0357,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "107",
+              "lecture_id": "19090126",
+              "segment_id": "19090126",
+              "vortragstitel": "Krankheiten und Karma",
+              "lecture_date": "1909-01-26",
+              "score": 0.9133,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "116",
+              "lecture_id": "19091222a",
+              "segment_id": "19091222a",
+              "vortragstitel": "Das Karmagesetz in bezug auf Einzelheiten des Lebens",
+              "lecture_date": "1909-12-22",
+              "score": 0.8942,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "108",
+              "lecture_id": "19091121a",
+              "segment_id": "19091121a",
+              "vortragstitel": "Fragen des Karmagesetzes",
+              "lecture_date": "1909-11-21",
+              "score": 0.8528,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "69b",
+              "lecture_id": "19110205",
+              "segment_id": "19110205",
+              "vortragstitel": "Die übersinnlichen Erkenntnisse und das alltägliche Leben",
+              "lecture_date": "1911-02-05",
+              "score": 0.8505,
+              "lecture_hits": 3
+            }
+          ],
+          "id": "K01",
+          "query": "Karma Gesetze",
+          "latency_ms": 980.9
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 4.0,
+          "year_span": 0.0,
+          "accept": null,
+          "top_score": 1.3419,
+          "hits": [
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 1.3419,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240216b",
+              "segment_id": "19240216b",
+              "vortragstitel": "Die verschiedenen Gesetzmäßigkeiten in den Naturreichen. Der Karmabegriff.",
+              "lecture_date": "1924-02-16",
+              "score": 1.1591,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240224",
+              "segment_id": "19240224",
+              "vortragstitel": "Karmaimpulse durch verschiedene Erdenleben. Die Waldorfschulpädagogik und das Karma",
+              "lecture_date": "1924-02-24",
+              "score": 1.1357,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240223c",
+              "segment_id": "19240223c",
+              "vortragstitel": "Karma und Freiheit",
+              "lecture_date": "1924-02-23",
+              "score": 0.9173,
+              "lecture_hits": 5
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240217a",
+              "segment_id": "19240217a",
+              "vortragstitel": "Die Karmafrage und die Hierarchien",
+              "lecture_date": "1924-02-17",
+              "score": 0.8911,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240610b",
+              "segment_id": "19240610b",
+              "vortragstitel": "Friedrich Schiller, Ernst Haeckel, Victor Hugo",
+              "lecture_date": "1924-06-10",
+              "score": 0.8688,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240611c",
+              "segment_id": "19240611c",
+              "vortragstitel": "Dr. Steiners Geometrielehrer, Lore Byron, Garibaldi",
+              "lecture_date": "1924-06-11",
+              "score": 0.8323,
+              "lecture_hits": 6
+            },
+            {
+              "ga": "237",
+              "lecture_id": "19240803",
+              "segment_id": "19240803",
+              "vortragstitel": "Das Karma des einzelnen Anthroposophen. Das Wirken der Michaelimpulse. Karmische Zusammenhänge zwischen Anthroposophen und Nichtanthroposophen. Der Kampf Ahrimans",
+              "lecture_date": "1924-08-03",
+              "score": 0.8316,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240607b",
+              "segment_id": "19240607b",
+              "vortragstitel": "Anthroposophische Begründung der Karmaidee",
+              "lecture_date": "1924-06-07",
+              "score": 0.8115,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240629c",
+              "segment_id": "19240629c",
+              "vortragstitel": "Das Walten des Karma bei Elementarereignissen und Zivilisationskatastrophen. Karmaerkenntnis",
+              "lecture_date": "1924-06-29",
+              "score": 0.7854,
+              "lecture_hits": 5
+            }
+          ],
+          "id": "K01f",
+          "query": "Karma Gesetze",
+          "latency_ms": 654.8
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 0.75,
+          "recall_at_10_all": 0.75,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.6327535954699908,
+          "expected_in_top10": 3,
+          "lectures": 10.0,
+          "volumes": 8.0,
+          "year_span": 3.0,
+          "accept": null,
+          "top_score": 1.3261,
+          "hits": [
+            {
+              "ga": "333",
+              "lecture_id": "19190526",
+              "segment_id": "19190526",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-05-26",
+              "score": 1.3261,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "336",
+              "lecture_id": "19190404",
+              "segment_id": "19190404",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1919-04-04",
+              "score": 1.292,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "330",
+              "lecture_id": "19190428",
+              "segment_id": "19190428",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-04-28",
+              "score": 1.2814,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "83",
+              "lecture_id": "19220611b",
+              "segment_id": "19220611b",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1922-06-11",
+              "score": 1.2745,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "333",
+              "lecture_id": "19190915",
+              "segment_id": "19190915",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-09-15",
+              "score": 1.173,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "329",
+              "lecture_id": "19191014",
+              "segment_id": "19191014",
+              "vortragstitel": "Die geisteswissenschaftliche Grundlage der sozialen Frage",
+              "lecture_date": "1919-10-14",
+              "score": 1.0372,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "336",
+              "lecture_id": "19190226",
+              "segment_id": "19190226",
+              "vortragstitel": "Die soziale Frage",
+              "lecture_date": "1919-02-26",
+              "score": 0.9319,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "190",
+              "lecture_id": "19190414",
+              "segment_id": "19190414",
+              "vortragstitel": "Der Mensch als dreigliedriges Wesen. Die Anthroposophische Gesellschaft und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-04-14",
+              "score": 0.8851,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "337a",
+              "lecture_id": "19190530b",
+              "segment_id": "19190530b",
+              "vortragstitel": "Fragen zur Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-05-30",
+              "score": 0.8637,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "332a",
+              "lecture_id": "19191024",
+              "segment_id": "19191024",
+              "vortragstitel": "Die soziale Frage als Geistes-, Rechts- und Wirtschaftsfrage",
+              "lecture_date": "1919-10-24",
+              "score": 0.802,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "S01",
+          "query": "Kernpunkte der sozialen Frage",
+          "latency_ms": 356.7
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 0.5,
+          "recall_at_10_haupt": 0.5,
+          "recall_at_5_all": 0.5,
+          "recall_at_10_all": 0.5,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.3868528072345416,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 6.0,
+          "year_span": 8.0,
+          "accept": null,
+          "top_score": 1.2008,
+          "hits": [
+            {
+              "ga": "135",
+              "lecture_id": "19120305",
+              "segment_id": "19120305",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-03-05",
+              "score": 1.2008,
+              "lecture_hits": 11
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 1.1532,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120221a",
+              "segment_id": "19120221a",
+              "vortragstitel": "Reinkarnation und Karma. Wissen und Glauben",
+              "lecture_date": "1912-02-21",
+              "score": 1.0745,
+              "lecture_hits": 9
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120123",
+              "segment_id": "19120123",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-01-23",
+              "score": 1.0672,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090612",
+              "segment_id": "19090612",
+              "vortragstitel": "Einiges über Karma, Reinkarnation und über die Einweihung",
+              "lecture_date": "1909-06-12",
+              "score": 0.9318,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 0.9021,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "130",
+              "lecture_id": "19120129",
+              "segment_id": "19120129",
+              "vortragstitel": "Reinkarnation und Karma, Zufall und Notwendigkeit. Christian Rosenkreuz. Die Morgenröte des neueren Okkultismus",
+              "lecture_date": "1912-01-29",
+              "score": 0.85,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090207",
+              "segment_id": "19090207",
+              "vortragstitel": "Reinkarnation und Karma (Stuttgart)",
+              "lecture_date": "1909-02-07",
+              "score": 0.8121,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "93a",
+              "lecture_id": "19051024a",
+              "segment_id": "19051024a",
+              "vortragstitel": "Reinkarnation und Karma. Das Problem des Todes",
+              "lecture_date": "1905-10-24",
+              "score": 0.7827,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090219",
+              "segment_id": "19090219",
+              "vortragstitel": "Reinkarnation und Karma. Intimere Fragen der Wiederverkörperung",
+              "lecture_date": "1909-02-19",
+              "score": 0.7796,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "D01",
+          "query": "Reinkarnation und Karma",
+          "latency_ms": 339.7
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 10.0,
+          "year_span": 8.0,
+          "accept": null,
+          "top_score": 1.3341,
+          "hits": [
+            {
+              "ga": "4",
+              "lecture_id": null,
+              "segment_id": "4:13",
+              "vortragstitel": "XII. Die moralische Phantasie (Darwinismus und Sittlichkeit)",
+              "lecture_date": null,
+              "score": 1.3341,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "179",
+              "lecture_id": "19171215",
+              "segment_id": "19171215",
+              "vortragstitel": "Die verschieden schnelle Entwicklung der vier menschlichen Wesensglieder. Das Problem der Realisierung des Impulses der Freiheit. Der unterschiedliche Zeitablauf in der Entwickelung der menschlichen Wesensglieder. Die moralische Phantasie",
+              "lecture_date": "1917-12-15",
+              "score": 1.2985,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "218",
+              "lecture_id": "19221119b",
+              "segment_id": "19221119b",
+              "vortragstitel": "Moralische Erziehung vom Gesichtspunkte der Anthroposophie",
+              "lecture_date": "1922-11-19",
+              "score": 0.9811,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "304a",
+              "lecture_id": "19231119",
+              "segment_id": "19231119",
+              "vortragstitel": "Die Kunst der moralischen und physischen Erziehung",
+              "lecture_date": "1923-11-19",
+              "score": 0.9684,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "161",
+              "lecture_id": "19150202",
+              "segment_id": "19150202",
+              "vortragstitel": "Die Lebensperioden des Menschen als Spiegelbilder karmischer Vorgängen. Das Leben zwischen Tod und neuer Geburt",
+              "lecture_date": "1915-02-02",
+              "score": 0.9612,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "67",
+              "lecture_id": "19180420",
+              "segment_id": "19180420",
+              "vortragstitel": "Die Fragen der menschlichen Willensfreiheit und der Unsterblichkeit im Lichte der Geisteswissenschaft",
+              "lecture_date": "1918-04-20",
+              "score": 0.9387,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "322",
+              "lecture_id": "19200930a",
+              "segment_id": "19200930a",
+              "vortragstitel": "Vortrag 4",
+              "lecture_date": "1920-09-30",
+              "score": 0.8887,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "71b",
+              "lecture_id": "19180424",
+              "segment_id": "19180424",
+              "vortragstitel": "Der übersinnliche Mensch und die Fragen der Willensfreiheit und Unsterblichkeit nach Ergebnissen der Geisteswissenschaft",
+              "lecture_date": "1918-04-24",
+              "score": 0.8857,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "73",
+              "lecture_id": "19171114",
+              "segment_id": "19171114",
+              "vortragstitel": "Anthroposophie und Sozialwissenschaft. Geisteswissenschaftliche Ergebnisse über Recht, Moral und soziale Lebensformen",
+              "lecture_date": "1917-11-14",
+              "score": 0.841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "5",
+              "lecture_id": null,
+              "segment_id": "5:04",
+              "vortragstitel": "II. Der Übermensch",
+              "lecture_date": null,
+              "score": 0.816,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "B01",
+          "query": "moralische Phantasie",
+          "latency_ms": 492.7
+        },
+        {
+          "negative": true,
+          "recall_at_5_haupt": null,
+          "recall_at_10_haupt": null,
+          "recall_at_5_all": null,
+          "recall_at_10_all": null,
+          "mrr_haupt": null,
+          "ndcg_at_10": null,
+          "expected_in_top10": 0,
+          "lectures": 10.0,
+          "volumes": 9.0,
+          "year_span": 4.0,
+          "accept": null,
+          "top_score": 0.5,
+          "hits": [
+            {
+              "ga": "283",
+              "lecture_id": "19230308b",
+              "segment_id": "19230308b",
+              "vortragstitel": "19230308b",
+              "lecture_date": "1923-03-08",
+              "score": 0.5,
+              "lecture_hits": 8
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:07",
+              "vortragstitel": "Haeckel und seine Gegner Die Gesellschaft, 15. Jg., Bd. 3, Heft 4, 5, 6; Aug./Sept. 1899",
+              "lecture_date": null,
+              "score": 0.5,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "337b",
+              "lecture_id": "19200816",
+              "segment_id": "19200816",
+              "vortragstitel": "Urteilsbildung in den drei Gliedern des sozialen Organismus",
+              "lecture_date": "1920-08-16",
+              "score": 0.4919,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "34",
+              "lecture_id": null,
+              "segment_id": "34:06",
+              "vortragstitel": "Reinkarnation und Karma, vom Standpunkte der modernen Naturwissenschaft notwendige Vorstellungen . . Oktober/November 1903",
+              "lecture_date": null,
+              "score": 0.4919,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "203",
+              "lecture_id": "19210328b",
+              "segment_id": "19210328b",
+              "vortragstitel": "Leben und Lehre des Apollonius von Tyana. Der Christusimpuls. Die neue Weisheit der Geisteswissenschaft als Willenskultur. Der Ostergedanke",
+              "lecture_date": "1921-03-28",
+              "score": 0.4841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "35",
+              "lecture_id": null,
+              "segment_id": "35:02",
+              "vortragstitel": "Autoreferat vom Vortrag beim Kongreß der Föderation europäi scher Sektionen der Theosophischen Gesellschaft, Amsterdam, 21. Juni 1904 Die okkulte Grundlage in Goethes Schaffen",
+              "lecture_date": null,
+              "score": 0.4841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "354",
+              "lecture_id": "19240913a",
+              "segment_id": "19240913a",
+              "vortragstitel": "Über die Witterung und ihre Ursachen",
+              "lecture_date": "1924-09-13",
+              "score": 0.4766,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:43",
+              "vortragstitel": "Hundert Jahre zurück. Zur Farbenlehre Chronik des Wiener Goethe-Vereins, 2. Jg., 1. Bd., Nr. 7; 15. Apr 1887",
+              "lecture_date": null,
+              "score": 0.4766,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "29",
+              "lecture_id": null,
+              "segment_id": "29:113",
+              "vortragstitel": "«Pharisäer». Komödie in drei Akten von Clara Viebig Magazin für Literatur 1899, 68. Jg., Nr. 45",
+              "lecture_date": null,
+              "score": 0.4692,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "28",
+              "lecture_id": null,
+              "segment_id": "28:04",
+              "vortragstitel": "IV. Jugendfreundschaften",
+              "lecture_date": null,
+              "score": 0.4621,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "N01",
+          "query": "Xylophonquartett Quantenkaffee",
+          "latency_ms": 319.6
+        }
+      ]
+    },
+    {
+      "variant": "rerank",
+      "label": "+rerank",
+      "summary": {
+        "recall_at_5_haupt": 0.9,
+        "recall_at_10_haupt": 0.9,
+        "recall_at_5_all": 0.85,
+        "recall_at_10_all": 0.85,
+        "mrr_haupt": 0.64,
+        "ndcg_at_10": 0.6812918419878148,
+        "lectures": 10.0,
+        "volumes": 7.833333333333333,
+        "year_span": 7.166666666666667,
+        "median_ms": 378.2,
+        "p95_ms": 611.8,
+        "cases": 5
+      },
+      "cases": [
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 0.2,
+          "ndcg_at_10": 0.38685280723454163,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 10.0,
+          "year_span": 20.0,
+          "accept": {
+            "any_ga_in_top5": true,
+            "lecture_in_top10": true
+          },
+          "top_score": 1.109,
+          "hits": [
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 1.109,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 1.0887,
+              "lecture_hits": 6
+            },
+            {
+              "ga": "120",
+              "lecture_id": "19100516a",
+              "segment_id": "19100516a",
+              "vortragstitel": "Wesen und Bedeutung des Karma in Einzelpersönlichkeit, Individualität, Menschheit, Erde, Welt",
+              "lecture_date": "1910-05-16",
+              "score": 1.0863,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "246",
+              "lecture_id": "19101112",
+              "segment_id": "19101112",
+              "vortragstitel": "Moral und Karma",
+              "lecture_date": "1910-11-12",
+              "score": 1.0404,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 1.0377,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "54",
+              "lecture_id": "19060215",
+              "segment_id": "19060215",
+              "vortragstitel": "Wiederverkörperung und Karma. Wiederverkörperung und Karma als Schlüssel zum Menschenrätsel",
+              "lecture_date": "1906-02-15",
+              "score": 1.0357,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "107",
+              "lecture_id": "19090126",
+              "segment_id": "19090126",
+              "vortragstitel": "Krankheiten und Karma",
+              "lecture_date": "1909-01-26",
+              "score": 0.9133,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "116",
+              "lecture_id": "19091222a",
+              "segment_id": "19091222a",
+              "vortragstitel": "Das Karmagesetz in bezug auf Einzelheiten des Lebens",
+              "lecture_date": "1909-12-22",
+              "score": 0.8942,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "108",
+              "lecture_id": "19091121a",
+              "segment_id": "19091121a",
+              "vortragstitel": "Fragen des Karmagesetzes",
+              "lecture_date": "1909-11-21",
+              "score": 0.8528,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "69b",
+              "lecture_id": "19110205",
+              "segment_id": "19110205",
+              "vortragstitel": "Die übersinnlichen Erkenntnisse und das alltägliche Leben",
+              "lecture_date": "1911-02-05",
+              "score": 0.8505,
+              "lecture_hits": 3
+            }
+          ],
+          "id": "K01",
+          "query": "Karma Gesetze",
+          "latency_ms": 398.2
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 4.0,
+          "year_span": 0.0,
+          "accept": null,
+          "top_score": 1.3419,
+          "hits": [
+            {
+              "ga": "236",
+              "lecture_id": "19240511c",
+              "segment_id": "19240511c",
+              "vortragstitel": "Gesetze der Karmabildung. Jakob Frohschammer und das Urbild der Strader-Gestalt aus den Mysteriendramen",
+              "lecture_date": "1924-05-11",
+              "score": 1.3419,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240216b",
+              "segment_id": "19240216b",
+              "vortragstitel": "Die verschiedenen Gesetzmäßigkeiten in den Naturreichen. Der Karmabegriff.",
+              "lecture_date": "1924-02-16",
+              "score": 1.1591,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240224",
+              "segment_id": "19240224",
+              "vortragstitel": "Karmaimpulse durch verschiedene Erdenleben. Die Waldorfschulpädagogik und das Karma",
+              "lecture_date": "1924-02-24",
+              "score": 1.1357,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240223c",
+              "segment_id": "19240223c",
+              "vortragstitel": "Karma und Freiheit",
+              "lecture_date": "1924-02-23",
+              "score": 0.9173,
+              "lecture_hits": 5
+            },
+            {
+              "ga": "235",
+              "lecture_id": "19240217a",
+              "segment_id": "19240217a",
+              "vortragstitel": "Die Karmafrage und die Hierarchien",
+              "lecture_date": "1924-02-17",
+              "score": 0.8911,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240610b",
+              "segment_id": "19240610b",
+              "vortragstitel": "Friedrich Schiller, Ernst Haeckel, Victor Hugo",
+              "lecture_date": "1924-06-10",
+              "score": 0.8688,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240611c",
+              "segment_id": "19240611c",
+              "vortragstitel": "Dr. Steiners Geometrielehrer, Lore Byron, Garibaldi",
+              "lecture_date": "1924-06-11",
+              "score": 0.8323,
+              "lecture_hits": 6
+            },
+            {
+              "ga": "237",
+              "lecture_id": "19240803",
+              "segment_id": "19240803",
+              "vortragstitel": "Das Karma des einzelnen Anthroposophen. Das Wirken der Michaelimpulse. Karmische Zusammenhänge zwischen Anthroposophen und Nichtanthroposophen. Der Kampf Ahrimans",
+              "lecture_date": "1924-08-03",
+              "score": 0.8316,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "239",
+              "lecture_id": "19240607b",
+              "segment_id": "19240607b",
+              "vortragstitel": "Anthroposophische Begründung der Karmaidee",
+              "lecture_date": "1924-06-07",
+              "score": 0.8115,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "236",
+              "lecture_id": "19240629c",
+              "segment_id": "19240629c",
+              "vortragstitel": "Das Walten des Karma bei Elementarereignissen und Zivilisationskatastrophen. Karmaerkenntnis",
+              "lecture_date": "1924-06-29",
+              "score": 0.7854,
+              "lecture_hits": 5
+            }
+          ],
+          "id": "K01f",
+          "query": "Karma Gesetze",
+          "latency_ms": 611.8
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 0.75,
+          "recall_at_10_all": 0.75,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.6327535954699908,
+          "expected_in_top10": 3,
+          "lectures": 10.0,
+          "volumes": 8.0,
+          "year_span": 3.0,
+          "accept": null,
+          "top_score": 1.3261,
+          "hits": [
+            {
+              "ga": "333",
+              "lecture_id": "19190526",
+              "segment_id": "19190526",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-05-26",
+              "score": 1.3261,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "336",
+              "lecture_id": "19190404",
+              "segment_id": "19190404",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1919-04-04",
+              "score": 1.292,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "330",
+              "lecture_id": "19190428",
+              "segment_id": "19190428",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage in den Lebensnotwendigkeiten der Gegenwart und Zukunft",
+              "lecture_date": "1919-04-28",
+              "score": 1.2814,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "83",
+              "lecture_id": "19220611b",
+              "segment_id": "19220611b",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage",
+              "lecture_date": "1922-06-11",
+              "score": 1.2745,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "333",
+              "lecture_id": "19190915",
+              "segment_id": "19190915",
+              "vortragstitel": "Die Kernpunkte der sozialen Frage und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-09-15",
+              "score": 1.173,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "329",
+              "lecture_id": "19191014",
+              "segment_id": "19191014",
+              "vortragstitel": "Die geisteswissenschaftliche Grundlage der sozialen Frage",
+              "lecture_date": "1919-10-14",
+              "score": 1.0372,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "336",
+              "lecture_id": "19190226",
+              "segment_id": "19190226",
+              "vortragstitel": "Die soziale Frage",
+              "lecture_date": "1919-02-26",
+              "score": 0.9319,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "190",
+              "lecture_id": "19190414",
+              "segment_id": "19190414",
+              "vortragstitel": "Der Mensch als dreigliedriges Wesen. Die Anthroposophische Gesellschaft und die Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-04-14",
+              "score": 0.8851,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "337a",
+              "lecture_id": "19190530b",
+              "segment_id": "19190530b",
+              "vortragstitel": "Fragen zur Dreigliederung des sozialen Organismus",
+              "lecture_date": "1919-05-30",
+              "score": 0.8637,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "332a",
+              "lecture_id": "19191024",
+              "segment_id": "19191024",
+              "vortragstitel": "Die soziale Frage als Geistes-, Rechts- und Wirtschaftsfrage",
+              "lecture_date": "1919-10-24",
+              "score": 0.802,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "S01",
+          "query": "Kernpunkte der sozialen Frage",
+          "latency_ms": 368.1
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 0.5,
+          "recall_at_10_haupt": 0.5,
+          "recall_at_5_all": 0.5,
+          "recall_at_10_all": 0.5,
+          "mrr_haupt": 0.5,
+          "ndcg_at_10": 0.3868528072345416,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 6.0,
+          "year_span": 8.0,
+          "accept": null,
+          "top_score": 1.2008,
+          "hits": [
+            {
+              "ga": "135",
+              "lecture_id": "19120305",
+              "segment_id": "19120305",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-03-05",
+              "score": 1.2008,
+              "lecture_hits": 11
+            },
+            {
+              "ga": "53",
+              "lecture_id": "19041020",
+              "segment_id": "19041020",
+              "vortragstitel": "Reinkarnation und Karma",
+              "lecture_date": "1904-10-20",
+              "score": 1.1532,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120221a",
+              "segment_id": "19120221a",
+              "vortragstitel": "Reinkarnation und Karma. Wissen und Glauben",
+              "lecture_date": "1912-02-21",
+              "score": 1.0745,
+              "lecture_hits": 9
+            },
+            {
+              "ga": "135",
+              "lecture_id": "19120123",
+              "segment_id": "19120123",
+              "vortragstitel": "Reinkarnation und Karma und ihre Bedeutung für die Kultur der Gegenwart",
+              "lecture_date": "1912-01-23",
+              "score": 1.0672,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090612",
+              "segment_id": "19090612",
+              "vortragstitel": "Einiges über Karma, Reinkarnation und über die Einweihung",
+              "lecture_date": "1909-06-12",
+              "score": 0.9318,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "96",
+              "lecture_id": "19061015",
+              "segment_id": "19061015",
+              "vortragstitel": "Fragen über Karma I. Karma und Einzelheiten der karmischen Gesetzmässigkeit",
+              "lecture_date": "1906-10-15",
+              "score": 0.9021,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "130",
+              "lecture_id": "19120129",
+              "segment_id": "19120129",
+              "vortragstitel": "Reinkarnation und Karma, Zufall und Notwendigkeit. Christian Rosenkreuz. Die Morgenröte des neueren Okkultismus",
+              "lecture_date": "1912-01-29",
+              "score": 0.85,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090207",
+              "segment_id": "19090207",
+              "vortragstitel": "Reinkarnation und Karma (Stuttgart)",
+              "lecture_date": "1909-02-07",
+              "score": 0.8121,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "93a",
+              "lecture_id": "19051024a",
+              "segment_id": "19051024a",
+              "vortragstitel": "Reinkarnation und Karma. Das Problem des Todes",
+              "lecture_date": "1905-10-24",
+              "score": 0.7827,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "109",
+              "lecture_id": "19090219",
+              "segment_id": "19090219",
+              "vortragstitel": "Reinkarnation und Karma. Intimere Fragen der Wiederverkörperung",
+              "lecture_date": "1909-02-19",
+              "score": 0.7796,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "D01",
+          "query": "Reinkarnation und Karma",
+          "latency_ms": 387.7
+        },
+        {
+          "negative": false,
+          "recall_at_5_haupt": 1.0,
+          "recall_at_10_haupt": 1.0,
+          "recall_at_5_all": 1.0,
+          "recall_at_10_all": 1.0,
+          "mrr_haupt": 1.0,
+          "ndcg_at_10": 1.0,
+          "expected_in_top10": 1,
+          "lectures": 10.0,
+          "volumes": 10.0,
+          "year_span": 8.0,
+          "accept": null,
+          "top_score": 1.3341,
+          "hits": [
+            {
+              "ga": "4",
+              "lecture_id": null,
+              "segment_id": "4:13",
+              "vortragstitel": "XII. Die moralische Phantasie (Darwinismus und Sittlichkeit)",
+              "lecture_date": null,
+              "score": 1.3341,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "179",
+              "lecture_id": "19171215",
+              "segment_id": "19171215",
+              "vortragstitel": "Die verschieden schnelle Entwicklung der vier menschlichen Wesensglieder. Das Problem der Realisierung des Impulses der Freiheit. Der unterschiedliche Zeitablauf in der Entwickelung der menschlichen Wesensglieder. Die moralische Phantasie",
+              "lecture_date": "1917-12-15",
+              "score": 1.2985,
+              "lecture_hits": 4
+            },
+            {
+              "ga": "218",
+              "lecture_id": "19221119b",
+              "segment_id": "19221119b",
+              "vortragstitel": "Moralische Erziehung vom Gesichtspunkte der Anthroposophie",
+              "lecture_date": "1922-11-19",
+              "score": 0.9811,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "304a",
+              "lecture_id": "19231119",
+              "segment_id": "19231119",
+              "vortragstitel": "Die Kunst der moralischen und physischen Erziehung",
+              "lecture_date": "1923-11-19",
+              "score": 0.9684,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "161",
+              "lecture_id": "19150202",
+              "segment_id": "19150202",
+              "vortragstitel": "Die Lebensperioden des Menschen als Spiegelbilder karmischer Vorgängen. Das Leben zwischen Tod und neuer Geburt",
+              "lecture_date": "1915-02-02",
+              "score": 0.9612,
+              "lecture_hits": 3
+            },
+            {
+              "ga": "67",
+              "lecture_id": "19180420",
+              "segment_id": "19180420",
+              "vortragstitel": "Die Fragen der menschlichen Willensfreiheit und der Unsterblichkeit im Lichte der Geisteswissenschaft",
+              "lecture_date": "1918-04-20",
+              "score": 0.9387,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "322",
+              "lecture_id": "19200930a",
+              "segment_id": "19200930a",
+              "vortragstitel": "Vortrag 4",
+              "lecture_date": "1920-09-30",
+              "score": 0.8887,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "71b",
+              "lecture_id": "19180424",
+              "segment_id": "19180424",
+              "vortragstitel": "Der übersinnliche Mensch und die Fragen der Willensfreiheit und Unsterblichkeit nach Ergebnissen der Geisteswissenschaft",
+              "lecture_date": "1918-04-24",
+              "score": 0.8857,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "73",
+              "lecture_id": "19171114",
+              "segment_id": "19171114",
+              "vortragstitel": "Anthroposophie und Sozialwissenschaft. Geisteswissenschaftliche Ergebnisse über Recht, Moral und soziale Lebensformen",
+              "lecture_date": "1917-11-14",
+              "score": 0.841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "5",
+              "lecture_id": null,
+              "segment_id": "5:04",
+              "vortragstitel": "II. Der Übermensch",
+              "lecture_date": null,
+              "score": 0.816,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "B01",
+          "query": "moralische Phantasie",
+          "latency_ms": 368.7
+        },
+        {
+          "negative": true,
+          "recall_at_5_haupt": null,
+          "recall_at_10_haupt": null,
+          "recall_at_5_all": null,
+          "recall_at_10_all": null,
+          "mrr_haupt": null,
+          "ndcg_at_10": null,
+          "expected_in_top10": 0,
+          "lectures": 10.0,
+          "volumes": 9.0,
+          "year_span": 4.0,
+          "accept": null,
+          "top_score": 0.5,
+          "hits": [
+            {
+              "ga": "283",
+              "lecture_id": "19230308b",
+              "segment_id": "19230308b",
+              "vortragstitel": "19230308b",
+              "lecture_date": "1923-03-08",
+              "score": 0.5,
+              "lecture_hits": 8
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:07",
+              "vortragstitel": "Haeckel und seine Gegner Die Gesellschaft, 15. Jg., Bd. 3, Heft 4, 5, 6; Aug./Sept. 1899",
+              "lecture_date": null,
+              "score": 0.5,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "337b",
+              "lecture_id": "19200816",
+              "segment_id": "19200816",
+              "vortragstitel": "Urteilsbildung in den drei Gliedern des sozialen Organismus",
+              "lecture_date": "1920-08-16",
+              "score": 0.4919,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "34",
+              "lecture_id": null,
+              "segment_id": "34:06",
+              "vortragstitel": "Reinkarnation und Karma, vom Standpunkte der modernen Naturwissenschaft notwendige Vorstellungen . . Oktober/November 1903",
+              "lecture_date": null,
+              "score": 0.4919,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "203",
+              "lecture_id": "19210328b",
+              "segment_id": "19210328b",
+              "vortragstitel": "Leben und Lehre des Apollonius von Tyana. Der Christusimpuls. Die neue Weisheit der Geisteswissenschaft als Willenskultur. Der Ostergedanke",
+              "lecture_date": "1921-03-28",
+              "score": 0.4841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "35",
+              "lecture_id": null,
+              "segment_id": "35:02",
+              "vortragstitel": "Autoreferat vom Vortrag beim Kongreß der Föderation europäi scher Sektionen der Theosophischen Gesellschaft, Amsterdam, 21. Juni 1904 Die okkulte Grundlage in Goethes Schaffen",
+              "lecture_date": null,
+              "score": 0.4841,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "354",
+              "lecture_id": "19240913a",
+              "segment_id": "19240913a",
+              "vortragstitel": "Über die Witterung und ihre Ursachen",
+              "lecture_date": "1924-09-13",
+              "score": 0.4766,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "30",
+              "lecture_id": null,
+              "segment_id": "30:43",
+              "vortragstitel": "Hundert Jahre zurück. Zur Farbenlehre Chronik des Wiener Goethe-Vereins, 2. Jg., 1. Bd., Nr. 7; 15. Apr 1887",
+              "lecture_date": null,
+              "score": 0.4766,
+              "lecture_hits": 1
+            },
+            {
+              "ga": "29",
+              "lecture_id": null,
+              "segment_id": "29:113",
+              "vortragstitel": "«Pharisäer». Komödie in drei Akten von Clara Viebig Magazin für Literatur 1899, 68. Jg., Nr. 45",
+              "lecture_date": null,
+              "score": 0.4692,
+              "lecture_hits": 2
+            },
+            {
+              "ga": "28",
+              "lecture_id": null,
+              "segment_id": "28:04",
+              "vortragstitel": "IV. Jugendfreundschaften",
+              "lecture_date": null,
+              "score": 0.4621,
+              "lecture_hits": 1
+            }
+          ],
+          "id": "N01",
+          "query": "Xylophonquartett Quantenkaffee",
+          "latency_ms": 308.4
+        }
+      ]
+    }
+  ]
+}
