@@ -19,7 +19,8 @@ Listens on `0.0.0.0:8002` so a phone on the same LAN can reach it.
 
 - Health: `GET http://127.0.0.1:8002/health`
 - Inputs: `GET http://127.0.0.1:8002/api/v1/inputs`
-- Scribe: `POST http://127.0.0.1:8002/api/v1/scribe`
+- Jobs (preferred): `POST/GET/DELETE http://127.0.0.1:8002/api/v1/jobs`
+- Scribe stream (debug): `POST http://127.0.0.1:8002/api/v1/scribe`
 
 ### Example
 

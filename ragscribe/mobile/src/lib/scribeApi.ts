@@ -37,6 +37,16 @@ export type ScribeJob = {
   pct?: number;
 };
 
+function httpError(status: number, detail: string): Error {
+  if (status === 403 && /cloudflare access/i.test(detail)) {
+    return new Error(
+      'Cloudflare Access blockiert scribe.ragxxx.com. Diese Dev-App hat kein Access-Token.',
+    );
+  }
+  const text = /<!doctype html/i.test(detail) ? '' : detail.trim().slice(0, 180);
+  return new Error(`Server HTTP ${status}${text ? `: ${text}` : ''}`);
+}
+
 function requestHeaders(
   baseUrl: string,
   extra?: Record<string, string>,
@@ -93,9 +103,7 @@ export async function createJob(args: {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Server HTTP ${res.status}${detail ? `: ${detail.slice(0, 400)}` : ''}`,
-    );
+    throw httpError(res.status, detail);
   }
   return (await res.json()) as ScribeJob;
 }
@@ -121,9 +129,7 @@ export async function listJobs(args: {
   );
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Server HTTP ${res.status}${detail ? `: ${detail.slice(0, 400)}` : ''}`,
-    );
+    throw httpError(res.status, detail);
   }
   const body = (await res.json()) as { jobs?: ScribeJob[] };
   return body.jobs ?? [];
@@ -140,9 +146,7 @@ export async function getJob(args: {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Server HTTP ${res.status}${detail ? `: ${detail.slice(0, 400)}` : ''}`,
-    );
+    throw httpError(res.status, detail);
   }
   return (await res.json()) as ScribeJob;
 }
@@ -158,9 +162,7 @@ export async function deleteJob(args: {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Server HTTP ${res.status}${detail ? `: ${detail.slice(0, 400)}` : ''}`,
-    );
+    throw httpError(res.status, detail);
   }
 }
 

@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -89,9 +89,15 @@ export default function HomeScreen() {
     [],
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      void refresh().finally(() => setLoading(false));
+    }, [refresh]),
+  );
+
   useEffect(() => {
-    setLoading(true);
-    void refresh().finally(() => setLoading(false));
+    void refresh();
   }, [refresh, source]);
 
   useEffect(() => {

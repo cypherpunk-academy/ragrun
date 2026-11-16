@@ -2,15 +2,43 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
 const STORAGE_KEY = 'ragscribe.serverUrl';
+const PROD_HOST = 'scribe.ragxxx.com';
+/** Reserved ngrok domain for local ragscribe (see ragscribe/README.md). */
+const DEV_SERVER = 'https://shana-peatier-not.ngrok-free.dev';
 
-const defaultFromExtra =
-  (Constants.expoConfig?.extra as { defaultServerUrl?: string } | undefined)
-    ?.defaultServerUrl ?? 'https://scribe.ragxxx.com';
+type ExtraConfig = {
+  defaultServerUrl?: string;
+  cfAccessClientId?: string;
+  cfAccessClientSecret?: string;
+};
+
+function extraConfig(): ExtraConfig {
+  return (Constants.expoConfig?.extra as ExtraConfig | undefined) ?? {};
+}
+
+function isProdUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === PROD_HOST;
+  } catch {
+    return false;
+  }
+}
+
+function hasCfAccess(): boolean {
+  const extra = extraConfig();
+  return Boolean(extra.cfAccessClientId && extra.cfAccessClientSecret);
+}
 
 export async function getServerUrl(): Promise<string> {
   const stored = await AsyncStorage.getItem(STORAGE_KEY);
-  const raw = (stored ?? defaultFromExtra).trim();
-  return raw.replace(/\/$/, '') || defaultFromExtra;
+  const fallback = (extraConfig().defaultServerUrl ?? `https://${PROD_HOST}`).trim();
+  let raw = (stored ?? fallback).trim().replace(/\/$/, '') || fallback;
+  // A dev client has no Cloudflare Access token. The stored production URL
+  // only ever returns the Access login page.
+  if (__DEV__ && !hasCfAccess() && isProdUrl(raw)) {
+    raw = DEV_SERVER;
+  }
+  return raw;
 }
 
 export async function setServerUrl(url: string): Promise<string> {

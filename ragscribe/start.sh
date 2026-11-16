@@ -3,11 +3,13 @@
 # Binds 0.0.0.0 so phones on the LAN can reach the server.
 set -euo pipefail
 cd "$(dirname "$0")"
-export PYENV_VERSION="${PYENV_VERSION:-reniets}"
+# ragrun/.python-version is ragrun311. WhisperX and qdrant-client live in reniets.
+# Set RAGSCRIBE_PYENV to override.
+export PYENV_VERSION="${RAGSCRIBE_PYENV:-reniets}"
 export WHISPER_MODEL="${WHISPER_MODEL:-medium}"
 export WHISPER_LOG_LEVEL="${WHISPER_LOG_LEVEL:-INFO}"
 
-if ! python -c 'import fastapi, uvicorn, whisper, yt_dlp' 2>/dev/null; then
+if ! python -c 'import fastapi, uvicorn, whisper, yt_dlp, qdrant_client' 2>/dev/null; then
   echo "Installing ragscribe deps into ${PYENV_VERSION} …" >&2
   pip install -r requirements.txt
 fi
