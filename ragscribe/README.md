@@ -44,6 +44,13 @@ ngrok http 8002 --domain=shana-peatier-not.ngrok-free.dev
 
 (`ngr` always tunnels port 8000 for Philo Dev. Same reserved domain — only one of Philo Dev / ragscribe ngrok at a time.)
 
+## Deploy and production app
+
+```bash
+./push-to-tuxai.sh   # committed revision → Tuxai
+./build-app.sh       # EAS production APK (internal)
+```
+
 ## Mobile app
 
 See [`mobile/`](mobile/) — Expo app for Android and iOS that accepts shared links, shows progress, and shares the transcript.

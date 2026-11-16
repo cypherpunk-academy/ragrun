@@ -42,8 +42,8 @@ service token as ragrun (`RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT
 `eas.json` already sets `EXPO_PUBLIC_RAGSCRIBE_URL=https://scribe.ragxxx.com` and builds an APK (`distribution: internal`).
 
 ```bash
-cd mobile
-eas build -p android --profile production
+# from ragscribe/
+./build-app.sh
 ```
 
 Install the APK from the EAS link. If a debug build with the same package id is already on the device, uninstall it first — AsyncStorage keeps the old server URL and would override the production default.

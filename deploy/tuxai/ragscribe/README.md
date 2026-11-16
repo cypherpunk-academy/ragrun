@@ -18,32 +18,24 @@ Jobs API: `POST/GET/DELETE /api/v1/jobs` (poll; no long streams for the app).
 
 ## 1. Deploy the container
 
-From the Mac (repo root), sync the server tree only:
+From the Mac (repo root or anywhere):
 
 ```bash
-rsync -avz --delete \
-  --exclude mobile/ \
-  --exclude '__pycache__/' \
-  --exclude '.venv/' \
-  --exclude '*.pyc' \
-  ragscribe/ tuxai:~/ragscribe/
-rsync -avz deploy/tuxai/ragscribe/ tuxai:~/ragrun-server/deploy/tuxai/ragscribe/
+./deploy/tuxai/ragscribe/push.sh
+# or, from ragscribe/: ./push-to-tuxai.sh
 ```
 
-On Tuxai, export `QDRANT_API_KEY` (same as `~/ragrun-server/.env`), then:
+The script deploys only a committed revision. It stops when `ragscribe/` (except `mobile/`) or `deploy/tuxai/ragscribe/` has uncommitted changes. Then it:
 
-```bash
-cd ~/ragrun-server
-# Prefer building from synced ~/ragscribe — override context if needed:
-docker compose -f deploy/tuxai/ragscribe/compose.yaml up -d --build
-```
+1. rsyncs `ragscribe/` to `tuxai:~/ragscribe/` (`mobile/`, caches, and `DEPLOYED_REV` excluded)
+2. rsyncs `deploy/tuxai/ragscribe/` to `tuxai:~/ragrun-server/deploy/tuxai/ragscribe/`
+3. writes `git rev-parse --short HEAD` to `~/ragscribe/DEPLOYED_REV`
+4. runs `docker compose --env-file ~/ragrun-server/.env -f deploy/tuxai/ragscribe/compose.yaml up -d --build`
+5. polls `http://127.0.0.1:8002/health` until `ready` is true (default 180s, override with `RAGSCRIBE_HEALTH_WAIT`)
 
-Or from `~/ragscribe/docker-compose.yml` (must join `ragrun-server_default` and set `QDRANT_URL` / `QDRANT_API_KEY`).
+`QDRANT_API_KEY` is read from `~/ragrun-server/.env` on Tuxai. SSH host defaults to `tuxai`; override with `TUXAI_SSH_HOST`.
 
-```bash
-curl -s http://127.0.0.1:8002/health
-# expect ready: true
-```
+The image builds from `/home/michael/ragscribe` (see [`compose.yaml`](./compose.yaml)). Qdrant and the embedder are not restarted.
 
 ## 2. Cloudflare tunnel (reuse `ragrun-tuxai`)
 
@@ -94,6 +86,7 @@ See [`ragscribe/mobile/README.md`](../../../ragscribe/mobile/README.md). Product
 
 | File | Role |
 |------|------|
+| [`push.sh`](./push.sh) | rsync a committed revision, rebuild, wait for health |
 | [`compose.yaml`](./compose.yaml) | Docker service, localhost bind, Whisper volume |
 | [`cloudflared.yml.example`](./cloudflared.yml.example) | Tunnel ingress for `scribe.ragxxx.com` |
 | [`cloudflared-ragscribe.service.example`](./cloudflared-ragscribe.service.example) | Second systemd unit |
