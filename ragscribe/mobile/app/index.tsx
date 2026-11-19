@@ -23,10 +23,11 @@ import {
   getJob,
   listJobs,
   shortUrl,
+  sourceLabel,
   type ScribeJob,
 } from '@/lib/scribeApi';
 
-type SourceFilter = '' | 'youtube' | 'tiktok';
+type SourceFilter = '' | 'youtube' | 'tiktok' | 'facebook';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -79,7 +80,6 @@ export default function HomeScreen() {
         const baseUrl = await getServerUrl();
         const job = await createJob({ baseUrl, url: videoUrl });
         setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
-        setSelected(job);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -193,8 +193,9 @@ export default function HomeScreen() {
       <Pressable style={styles.row} onPress={() => setSelected(item)}>
         <Text style={styles.emoji}>{item.status_emoji || '❓'}</Text>
         <View style={styles.rowBody}>
+          <Text style={styles.rowSource}>{sourceLabel(item.source)}</Text>
           <Text style={styles.rowTitle} numberOfLines={1}>
-            {item.source} · {shortUrl(item.url)}
+            {item.title?.trim() || shortUrl(item.url)}
           </Text>
           <Text style={styles.rowMeta} numberOfLines={1}>
             {item.created_at?.replace('T', ' ').replace(/\+00:00$/, ' UTC') ?? ''}
@@ -222,7 +223,7 @@ export default function HomeScreen() {
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
-        placeholder="https://… YouTube / TikTok"
+        placeholder="https://… YouTube / TikTok / Facebook"
         value={url}
         onChangeText={setUrl}
         editable={!submitting}
@@ -242,7 +243,10 @@ export default function HomeScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="Filter Text / URL…"
+        autoCapitalize="none"
+        autoCorrect={false}
+        placeholder="Titel, Text oder URL suchen"
+        placeholderTextColor="#888"
         value={q}
         onChangeText={setQ}
       />
@@ -253,6 +257,7 @@ export default function HomeScreen() {
             ['', 'Alle'],
             ['youtube', 'YouTube'],
             ['tiktok', 'TikTok'],
+            ['facebook', 'Facebook'],
           ] as const
         ).map(([value, label]) => (
           <Pressable
@@ -309,7 +314,17 @@ export default function HomeScreen() {
               {selected?.url}
             </Text>
             <Text style={styles.detailLabel}>Quelle</Text>
-            <Text style={styles.detailText}>{selected?.source}</Text>
+            <Text style={styles.detailText}>
+              {selected ? sourceLabel(selected.source) : ''}
+            </Text>
+            {selected?.title?.trim() ? (
+              <>
+                <Text style={styles.detailLabel}>Titel</Text>
+                <Text selectable style={styles.detailText}>
+                  {selected.title}
+                </Text>
+              </>
+            ) : null}
             {selected?.duration_sec != null ? (
               <>
                 <Text style={styles.detailLabel}>Länge</Text>
@@ -389,6 +404,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
+    color: '#1a1a1a',
     backgroundColor: '#fff',
   },
   button: {
@@ -407,6 +423,7 @@ const styles = StyleSheet.create({
   },
   chips: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   chip: {
@@ -453,10 +470,14 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  rowTitle: {
-    fontSize: 14,
+  rowSource: {
+    fontSize: 15,
     fontWeight: '600',
     color: '#1a1a1a',
+  },
+  rowTitle: {
+    fontSize: 12,
+    color: '#666',
   },
   rowMeta: {
     fontSize: 12,

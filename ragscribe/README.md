@@ -51,6 +51,15 @@ ngrok http 8002 --domain=shana-peatier-not.ngrok-free.dev
 ./build-app.sh       # EAS production APK (internal)
 ```
 
+## Inbox
+
+```bash
+./retrieve.sh            # neue Transkripte → inbox/
+./retrieve.sh --dry-run  # nur auflisten
+```
+
+Holt fertige Einträge aus der Qdrant-Collection `ragscribe` auf Tuxai, deren Job-Id noch nicht in `inbox/` steht. DeepSeek bestimmt nur den Dateinamen (`Autor__Thema.md`). Der Transkripttext bleibt unverändert. Voraussetzung: SSH-Host `tuxai` (oder `TUXAI_SSH_HOST`) und `DEEPSEEK_REST_API_KEY`.
+
 ## Mobile app
 
 See [`mobile/`](mobile/) — Expo app for Android and iOS that accepts shared links, shows progress, and shares the transcript.

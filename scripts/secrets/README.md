@@ -52,7 +52,7 @@ Postgres-Passwort in der URI URL-encoden (`*` → `%2A`, `!` → `%21`). Railway
 
 ## Wohin schreiben
 
-**Tuxai:** Staging und Production teilen **einen** Embedder (`embed.ragxxx.com` → `:8001`). **Qdrant getrennt:** Prod `qdrant.ragxxx.com` → `:6333`, Staging `qdrant-staging.ragxxx.com` → `:6334` (eigener Container/Storage). Tunnel: `deploy/tuxai/cloudflare-tunnel.md`. Nutzerdaten: getrennte Supabase-Projekte.
+**Tuxai:** Staging und Production teilen **einen** Embedder (`embed.ragxxx.com` → `:8001`) und **einen** Qdrant (`qdrant.ragxxx.com` → `:6333`). Tunnel: `deploy/tuxai/cloudflare-tunnel.md`. Nutzerdaten: getrennte Supabase-Projekte.
 
 ### Staging — Supabase `duhtxxbynkilpxdpcpsk`
 

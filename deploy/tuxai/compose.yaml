@@ -10,7 +10,7 @@ services:
     volumes:
       - ${QDRANT_STORAGE_DIR}:/qdrant/storage
 
-  # Staging corpus only (Railway ragrun-staging → qdrant-staging.ragxxx.com). Embedder stays shared on :8001.
+  # Local extra store on :6334. Not published. Railway staging and production use qdrant.ragxxx.com (:6333).
   qdrant-staging:
     image: qdrant/qdrant:v1.11.0
     container_name: qdrant-staging

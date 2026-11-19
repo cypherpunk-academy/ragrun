@@ -9,6 +9,8 @@ from uuid import UUID
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
+from .source import SOURCES
+
 logger = logging.getLogger(__name__)
 
 COLLECTION = "ragscribe"
@@ -141,7 +143,7 @@ class ScribeStore:
     ) -> list[dict[str, Any]]:
         limit = max(1, min(limit, 200))
         conditions: list[qm.FieldCondition] = []
-        if source and source in {"youtube", "tiktok", "other"}:
+        if source and source in SOURCES:
             conditions.append(
                 qm.FieldCondition(key="source", match=qm.MatchValue(value=source))
             )
@@ -168,6 +170,7 @@ class ScribeStore:
                 it
                 for it in items
                 if needle in (it.get("text") or "").casefold()
+                or needle in (it.get("title") or "").casefold()
                 or needle in (it.get("url") or "").casefold()
             ]
         return items[:limit]
@@ -195,6 +198,7 @@ class ScribeStore:
             "status_emoji": status_emoji(status),
             "created_at": payload.get("created_at"),
             "duration_sec": payload.get("duration_sec"),
+            "title": payload.get("title") or "",
             "text": payload.get("text") or "",
             "error": payload.get("error"),
             "pct": payload.get("pct") if payload.get("pct") is not None else 0,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shutil
@@ -38,6 +39,19 @@ def _parse_yt_dlp_pct(line: str) -> int | None:
     return int(round(n))
 
 
+def read_download_title(out_dir: Path) -> str:
+    """Title written by yt-dlp --write-info-json next to the audio file."""
+    for path in sorted(out_dir.glob("*.info.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        title = str(data.get("title") or "").strip()
+        if title:
+            return title
+    return ""
+
+
 def download_audio(
     url: str,
     out_dir: Path,
@@ -57,6 +71,8 @@ def download_audio(
             "--no-playlist",
             "-o",
             out_template,
+            "--write-info-json",
+            "--no-write-comments",
             "--newline",
             url,
         ]
@@ -95,6 +111,9 @@ def download_audio(
 
     if progress_cb:
         progress_cb({"type": "fetch", "pct": 100})
+        title = read_download_title(out_dir)
+        if title:
+            progress_cb({"type": "meta", "title": title})
     return audio
 
 

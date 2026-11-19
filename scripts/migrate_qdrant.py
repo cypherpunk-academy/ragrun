@@ -1,33 +1,78 @@
 #!/usr/bin/env python3
 """
-Migrate a Qdrant collection from one instance to another via point-by-point copy.
-Avoids snapshot format incompatibilities between Qdrant versions.
+Point-by-point copy of one Qdrant collection between two instances.
+Use this when snapshot formats differ between Qdrant versions.
+
+Qdrant Cloud is retired. Staging and production both use the Tuxai Qdrant
+at qdrant.ragxxx.com. The usual copy path is deploy/tuxai/copy_collection.sh.
+This script deletes and recreates the destination collection, so the target
+URL has no default.
 
 Usage:
-    python3 scripts/migrate_qdrant.py
+    export QDRANT_SOURCE_URL=http://localhost:6333
+    export QDRANT_TARGET_URL=http://127.0.0.1:6335
+    # optional, for a Tuxai tunnel target:
+    # export QDRANT_TARGET_API_KEY=...
+    # export RAGRUN_CF_ACCESS_CLIENT_ID=...
+    # export RAGRUN_CF_ACCESS_CLIENT_SECRET=...
+    python3 scripts/migrate_qdrant.py philo-von-freisinn
 """
-import json
+import os
 import sys
 import time
 
 import requests
 
-SRC_URL = "http://localhost:6333"
-SRC_KEY = None  # local, no auth
-
-DST_URL = "https://d6407d98-9790-4cc1-a97f-f3b21e7ccff8.eu-central-1-0.aws.cloud.qdrant.io:6333"
-DST_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6ZTAyNDRlYTEtYzk3My00ZjE3LWJlY2EtYWJjZGJiNmQ1ZTAyIn0.0o9tn4CQvozGsJgaKR48RsrKgd2UJZ6xrK1yvIrykoE"
-
-COLLECTION = "philo-von-freisinn"
 BATCH_SIZE = 100
+
+SRC_URL = ""
+DST_URL = ""
+COLLECTION = ""
+SRC_KEY = ""
+DST_KEY = ""
+
+
+def _env(name):
+    return (os.environ.get(name) or "").strip()
+
+
+def _headers(url, api_key):
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["api-key"] = api_key
+    if url.startswith("https://"):
+        client_id = _env("RAGRUN_CF_ACCESS_CLIENT_ID")
+        client_secret = _env("RAGRUN_CF_ACCESS_CLIENT_SECRET")
+        if client_id and client_secret:
+            headers["CF-Access-Client-Id"] = client_id
+            headers["CF-Access-Client-Secret"] = client_secret
+    return headers
+
+
+def configure():
+    source = (_env("QDRANT_SOURCE_URL") or "http://localhost:6333").rstrip("/")
+    target = _env("QDRANT_TARGET_URL").rstrip("/")
+    if not target:
+        print("ERROR: QDRANT_TARGET_URL is required", file=sys.stderr)
+        sys.exit(1)
+    for label, url in (("source", source), ("target", target)):
+        if "cloud.qdrant.io" in url:
+            print(f"ERROR: {label} still points at Qdrant Cloud: {url}", file=sys.stderr)
+            sys.exit(1)
+    if len(sys.argv) != 2 or not sys.argv[1].strip():
+        print("Usage: python3 scripts/migrate_qdrant.py COLLECTION", file=sys.stderr)
+        sys.exit(1)
+    source_key = _env("QDRANT_SOURCE_API_KEY")
+    target_key = _env("QDRANT_TARGET_API_KEY") or _env("TUXAI_QDRANT_API_KEY")
+    return source, target, sys.argv[1].strip(), source_key, target_key
 
 
 def src_headers():
-    return {}
+    return _headers(SRC_URL, SRC_KEY)
 
 
 def dst_headers():
-    return {"api-key": DST_KEY, "Content-Type": "application/json"}
+    return _headers(DST_URL, DST_KEY)
 
 
 def get_collection_info():
@@ -129,6 +174,9 @@ def upsert_points(points):
 
 
 def main():
+    global SRC_URL, DST_URL, COLLECTION, SRC_KEY, DST_KEY
+    SRC_URL, DST_URL, COLLECTION, SRC_KEY, DST_KEY = configure()
+
     print(f"Source: {SRC_URL}")
     print(f"Destination: {DST_URL}")
     print(f"Collection: {COLLECTION}")

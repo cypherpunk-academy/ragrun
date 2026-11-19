@@ -2,7 +2,7 @@
 
 Client → staging.ragxxx.com → Railway ragrun-staging
       → Supabase (Postgres + JWT), direct
-      → qdrant-staging.ragxxx.com and embed.ragxxx.com
+      → qdrant.ragxxx.com and embed.ragxxx.com
         through Cloudflare Access and the tunnel to Tuxai
 
 Run: pytest tests/staging
@@ -16,7 +16,7 @@ import subprocess
 import httpx
 
 from scripts.mcp_tests.mint import mint_user
-from tests.staging.conftest import EMBED_ORIGIN, QDRANT_STAGING_ORIGIN, STAGING_ORIGIN, StagingEnv
+from tests.staging.conftest import EMBED_ORIGIN, QDRANT_ORIGIN, STAGING_ORIGIN, StagingEnv
 
 # Title search scores are 0.5, 0.8, or 1.0. Hybrid RRF scores sit well below that.
 _VECTOR_SCORE_CEILING = 0.4
@@ -74,7 +74,7 @@ def test_dns_staging_has_public_a() -> None:
 
 
 def test_dns_tunnel_hostnames_are_not_fd10_only() -> None:
-    for name in ("qdrant-staging.ragxxx.com", "embed.ragxxx.com"):
+    for name in ("qdrant.ragxxx.com", "embed.ragxxx.com"):
         v4 = _public_ipv4(_records(name, "A"))
         v6 = _records(name, "AAAA")
         assert v4, f"{name} has no public A (fd10-only tunnel DNS is not reachable from Railway)"
@@ -99,7 +99,7 @@ def test_healthz_reaches_tuxai_through_the_tunnel(http: httpx.Client) -> None:
     embed = deps["embedding_service"]
     assert qdrant["status"] == "healthy", qdrant
     assert embed["status"] == "healthy", embed
-    assert qdrant["endpoint"] == f"{QDRANT_STAGING_ORIGIN}/healthz"
+    assert qdrant["endpoint"] == f"{QDRANT_ORIGIN}/healthz"
     assert embed["endpoint"] == f"{EMBED_ORIGIN}/api/v1/health/simple"
 
 
@@ -135,8 +135,8 @@ def test_sources_reject_missing_bearer(http: httpx.Client) -> None:
     assert response.status_code == 401, response.status_code
 
 
-def test_tunnel_qdrant_staging_accepts_service_auth(http: httpx.Client, staging_env: StagingEnv) -> None:
-    url = f"{QDRANT_STAGING_ORIGIN}/healthz"
+def test_tunnel_qdrant_accepts_service_auth(http: httpx.Client, staging_env: StagingEnv) -> None:
+    url = f"{QDRANT_ORIGIN}/healthz"
     response = _get(http, url, staging_env.qdrant_headers())
     _assert_reached_origin(response, url)
     assert response.status_code == 200, response.status_code
@@ -155,7 +155,7 @@ def test_tunnel_rejects_missing_access_token(http: httpx.Client) -> None:
 
 
 def test_qdrant_rejects_missing_api_key(http: httpx.Client, staging_env: StagingEnv) -> None:
-    url = f"{QDRANT_STAGING_ORIGIN}/healthz"
+    url = f"{QDRANT_ORIGIN}/healthz"
     response = _get(http, url, staging_env.cf_headers())
     _assert_reached_origin(response, url)
     assert response.status_code == 401, response.status_code

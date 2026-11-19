@@ -9,15 +9,11 @@
 #   export RAGRUN_CF_ACCESS_CLIENT_ID=... RAGRUN_CF_ACCESS_CLIENT_SECRET=...  # shared Access token
 #   ./deploy/tuxai/copy_collection.sh philo-von-freisinn
 #
-# Tuxai Prod → Staging (localhost, schnell):
+# Zwei lokale Instanzen (localhost):
 #   export TUXAI_QDRANT_API_KEY=...   # ~/ragrun-server/.env QDRANT_API_KEY
 #   export QDRANT_SOURCE_URL=http://127.0.0.1:6333
 #   export QDRANT_TARGET_URL=http://127.0.0.1:6334
 #   ./deploy/tuxai/copy_collection.sh philo-von-freisinn rudolf-steiner-ga
-#
-# Staging via Tunnel (vom Mac):
-#   export RAGRUN_QDRANT_URL=https://qdrant-staging.ragxxx.com
-#   ... (CF + api-key wie oben)
 
 set -euo pipefail
 

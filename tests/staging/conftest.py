@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = ROOT / ".env.staging"
 
 STAGING_ORIGIN = "https://staging.ragxxx.com"
-QDRANT_STAGING_ORIGIN = "https://qdrant-staging.ragxxx.com"
+QDRANT_ORIGIN = "https://qdrant.ragxxx.com"
 EMBED_ORIGIN = "https://embed.ragxxx.com"
 SUPABASE_PROJECT_HOST = "duhtxxbynkilpxdpcpsk.supabase.co"
 

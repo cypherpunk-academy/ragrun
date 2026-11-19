@@ -10,11 +10,11 @@ Use this when Staging MCP searches time out or fail with `search failed` while O
 
 ```
 Claude → staging.ragxxx.com (Railway ragrun-staging)
-              → https://qdrant-staging.ragxxx.com ──cloudflared──► 127.0.0.1:6334  (Staging Qdrant)
-              → https://embed.ragxxx.com          ──cloudflared──► 127.0.0.1:8001  (shared)
-              → Supabase                          (direct)
+              → https://qdrant.ragxxx.com ──cloudflared──► 127.0.0.1:6333
+              → https://embed.ragxxx.com ──cloudflared──► 127.0.0.1:8001
+              → Supabase                   (direct)
 
-Production ragrun → qdrant.ragxxx.com → 127.0.0.1:6333, same embed.ragxxx.com → :8001
+Production ragrun uses the same qdrant.ragxxx.com and embed.ragxxx.com.
 ```
 
 Tuxai `compose.yaml` binds Qdrant and the embedder on `127.0.0.1`. The tunnel uses that localhost origin.
@@ -30,9 +30,8 @@ Tuxai `compose.yaml` binds Qdrant and the embedder on `127.0.0.1`. The tunnel us
 
    | Public hostname | Service URL | Nutzer |
    |-----------------|-------------|--------|
-   | `qdrant.ragxxx.com` | `http://127.0.0.1:6333` | Production |
-   | `qdrant-staging.ragxxx.com` | `http://127.0.0.1:6334` | Staging |
-   | `embed.ragxxx.com` | `http://127.0.0.1:8001` | **Staging + Production** (ein Embedder) |
+   | `qdrant.ragxxx.com` | `http://127.0.0.1:6333` | Staging und Production |
+   | `embed.ragxxx.com` | `http://127.0.0.1:8001` | Staging und Production |
 
    Kein `embed-staging` — zweites e5-Modell im RAM entfällt.
 
@@ -42,7 +41,7 @@ Tuxai `compose.yaml` binds Qdrant and the embedder on `127.0.0.1`. The tunnel us
 
 3. **Access (required):** Zero Trust → **Access** → **Applications** → **Service Auth** only.
 
-   **Ein Service Token** für alle Tunnel-Apps (`qdrant`, `qdrant-staging`, `embed`, ggf. `ssh`). Dieselben `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` auf Railway **`ragrun-staging`** und **`ragrun`** (Production).
+   **Ein Service Token** für alle Tunnel-Apps (`qdrant`, `embed`, ggf. `ssh`). Dieselben `RAGRUN_CF_ACCESS_CLIENT_ID` / `RAGRUN_CF_ACCESS_CLIENT_SECRET` auf Railway **`ragrun-staging`** und **`ragrun`** (Production).
 
    Pro App: Policy **Include → Service Token** → dieses eine Token auswählen. Keine getrennten Staging-/Prod-Tokens nötig.
 
@@ -66,7 +65,7 @@ Embed: `GET https://embed.ragxxx.com/api/v1/health/simple`
 
 | Variable | Example |
 |----------|---------|
-| `RAGRUN_QDRANT_URL` | `https://qdrant-staging.ragxxx.com` |
+| `RAGRUN_QDRANT_URL` | `https://qdrant.ragxxx.com` |
 | `RAGRUN_QDRANT_API_KEY` | same as Tuxai `QDRANT_API_KEY` |
 | `RAGRUN_EMBEDDINGS_BASE_URL` | `https://embed.ragxxx.com` |
 | `RAGRUN_EMBEDDINGS_PROVIDER` | `http` |
@@ -89,7 +88,7 @@ From repo root (local, with staging Supabase vars if needed):
 
 ```bash
 export $(grep -v '^#' .env.staging | grep -v '<' | xargs)
-export RAGRUN_QDRANT_URL=https://qdrant-staging.ragxxx.com
+export RAGRUN_QDRANT_URL=https://qdrant.ragxxx.com
 export RAGRUN_EMBEDDINGS_BASE_URL=https://embed.ragxxx.com
 # plus RAGRUN_CF_ACCESS_* if used
 .venv/bin/python scripts/benchmark_retrieval_latency.py --label staging-via-cf

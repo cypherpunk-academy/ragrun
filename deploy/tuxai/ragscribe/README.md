@@ -49,7 +49,7 @@ Prefer **one extra published route** on the existing healthy tunnel **`ragrun-tu
 4. Service: `http://127.0.0.1:8002` (HTTP).
 5. Save. If DNS shows a manual **CNAME** instead of type **Tunnel**, delete it and recreate
    under **DNS → Records** as type **Tunnel** → content `ragrun-tuxai` (same as `ssh` /
-   `qdrant-staging`). A bare CNAME can yield Cloudflare **1033** until that is fixed.
+   `qdrant`). A bare CNAME can yield Cloudflare **1033** until that is fixed.
 
 A separate tunnel + second systemd unit is only needed if you deliberately want
 isolation; examples remain in

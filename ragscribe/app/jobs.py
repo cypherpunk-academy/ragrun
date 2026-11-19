@@ -59,6 +59,7 @@ class JobManager:
             "status": "queued",
             "created_at": created,
             "duration_sec": None,
+            "title": "",
             "text": "",
             "error": None,
             "pct": 0,
@@ -122,6 +123,10 @@ class JobManager:
                 pct = event.get("pct")
                 if pct is not None:
                     fields["pct"] = max(0, min(20, int(round(float(pct) * 0.2))))
+            elif et == "meta":
+                title = str(event.get("title") or "").strip()
+                if title:
+                    fields["title"] = title
             elif et == "start":
                 if event.get("duration_sec") is not None:
                     fields["duration_sec"] = float(event["duration_sec"])

@@ -27,11 +27,12 @@ export type JobStatus = 'ok' | 'queued' | 'processing' | 'error';
 export type ScribeJob = {
   id: string;
   url: string;
-  source: 'youtube' | 'tiktok' | 'other' | string;
+  source: 'youtube' | 'tiktok' | 'facebook' | 'other' | string;
   status: JobStatus | string;
   status_emoji: string;
   created_at?: string | null;
   duration_sec?: number | null;
+  title?: string | null;
   text: string;
   error?: string | null;
   pct?: number;
@@ -172,6 +173,19 @@ export function formatDuration(sec?: number | null): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+export function sourceLabel(source: string): string {
+  switch (source) {
+    case 'youtube':
+      return 'YouTube';
+    case 'tiktok':
+      return 'TikTok';
+    case 'facebook':
+      return 'Facebook';
+    default:
+      return 'Andere';
+  }
 }
 
 export function shortUrl(url: string): string {
